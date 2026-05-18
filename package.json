@@ -19,8 +19,8 @@
     "migrate": "pnpm --filter @installment/db migrate",
     "db:reset": "pnpm --filter @installment/db reset",
     "db:introspect": "pnpm --filter @installment/db introspect",
-    "db:up": "docker compose -f infra/docker/docker-compose.yml up -d",
-    "db:down": "docker compose -f infra/docker/docker-compose.yml down",
+    "db:up": "docker compose --env-file .env -f infra/docker/docker-compose.yml up -d",
+    "db:down": "docker compose --env-file .env -f infra/docker/docker-compose.yml down",
     "prepare": "husky"
   },
   "devDependencies": {
