@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Installment Schedule — State Machine</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1419;
+    color: #e6e6e6;
+    padding: 32px;
+    min-height: 100vh;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: #fff;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: #8b95a3;
+    margin-bottom: 28px;
+  }
+  .canvas {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 28px;
+    overflow-x: auto;
+  }
+  svg { display: block; margin: 0 auto; }
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+    font-size: 12px;
+    color: #8b95a3;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+</style>
+</head>
+<body>
+  <h1>Installment Schedule — State Machine</h1>
+  <p class="subtitle">States, transitions, and the events that trigger them</p>
+
+  <div class="canvas">
+    <svg width="1200" height="780" viewBox="0 0 1200 780" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#5b8def"/>
+        </marker>
+        <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#4ec9a8"/>
+        </marker>
+        <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#d4a93a"/>
+        </marker>
+        <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#e07b7b"/>
+        </marker>
+        <marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#a07cc5"/>
+        </marker>
+      </defs>
+
+      <!-- ============ START NODE ============ -->
+      <circle cx="100" cy="100" r="22" fill="#1a3a2e" stroke="#4ec9a8" stroke-width="2"/>
+      <circle cx="100" cy="100" r="12" fill="#4ec9a8"/>
+      <text x="100" y="148" text-anchor="middle" font-size="11" fill="#8b95a3">start</text>
+
+      <!-- ============ STATE: PENDING ============ -->
+      <rect x="220" y="70" width="160" height="60" rx="30" fill="#1a2e3a" stroke="#5b8def" stroke-width="2"/>
+      <text x="300" y="98" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">pending</text>
+      <text x="300" y="116" text-anchor="middle" font-size="10" fill="#a8c0e0">awaiting due date</text>
+
+      <!-- ============ STATE: DUE ============ -->
+      <rect x="460" y="70" width="160" height="60" rx="30" fill="#3a2e1a" stroke="#d4a93a" stroke-width="2"/>
+      <text x="540" y="98" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">due</text>
+      <text x="540" y="116" text-anchor="middle" font-size="10" fill="#e0c890">ready to debit</text>
+
+      <!-- ============ STATE: PROCESSING ============ -->
+      <rect x="700" y="70" width="160" height="60" rx="30" fill="#2a1f3a" stroke="#a07cc5" stroke-width="2"/>
+      <text x="780" y="98" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">processing</text>
+      <text x="780" y="116" text-anchor="middle" font-size="10" fill="#c5a8d8">debit in flight</text>
+
+      <!-- ============ STATE: PAID (terminal-ish, can be reversed) ============ -->
+      <rect x="940" y="70" width="160" height="60" rx="30" fill="#1a3a2e" stroke="#4ec9a8" stroke-width="3"/>
+      <text x="1020" y="98" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">paid</text>
+      <text x="1020" y="116" text-anchor="middle" font-size="10" fill="#90e0c0">settled</text>
+
+      <!-- ============ STATE: FAILED ============ -->
+      <rect x="700" y="220" width="160" height="60" rx="30" fill="#3a1f1f" stroke="#e07b7b" stroke-width="2"/>
+      <text x="780" y="248" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">failed</text>
+      <text x="780" y="266" text-anchor="middle" font-size="10" fill="#e0b8b8">debit declined</text>
+
+      <!-- ============ STATE: RETRY_SCHEDULED ============ -->
+      <rect x="460" y="220" width="160" height="60" rx="30" fill="#3a2e1a" stroke="#d4a93a" stroke-width="2"/>
+      <text x="540" y="248" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">retry_scheduled</text>
+      <text x="540" y="266" text-anchor="middle" font-size="10" fill="#e0c890">backoff window</text>
+
+      <!-- ============ STATE: OVERDUE ============ -->
+      <rect x="700" y="360" width="160" height="60" rx="30" fill="#3a1f2a" stroke="#e07b9e" stroke-width="2"/>
+      <text x="780" y="388" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">overdue</text>
+      <text x="780" y="406" text-anchor="middle" font-size="10" fill="#e0a5b8">past grace period</text>
+
+      <!-- ============ STATE: IN_COLLECTIONS ============ -->
+      <rect x="460" y="360" width="160" height="60" rx="30" fill="#2e1a3a" stroke="#a07cc5" stroke-width="2"/>
+      <text x="540" y="388" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">in_collections</text>
+      <text x="540" y="406" text-anchor="middle" font-size="10" fill="#c5a8d8">case opened</text>
+
+      <!-- ============ STATE: RESTRUCTURED ============ -->
+      <rect x="220" y="360" width="160" height="60" rx="30" fill="#1a2e3a" stroke="#5b8def" stroke-width="2"/>
+      <text x="300" y="388" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">restructured</text>
+      <text x="300" y="406" text-anchor="middle" font-size="10" fill="#a8c0e0">new plan issued</text>
+
+      <!-- ============ STATE: DEFAULTED (terminal) ============ -->
+      <rect x="700" y="500" width="160" height="60" rx="30" fill="#3a1f1f" stroke="#e07b7b" stroke-width="3"/>
+      <text x="780" y="528" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">defaulted</text>
+      <text x="780" y="546" text-anchor="middle" font-size="10" fill="#e0b8b8">written off</text>
+
+      <!-- ============ STATE: WAIVED (terminal) ============ -->
+      <rect x="940" y="500" width="160" height="60" rx="30" fill="#2e2e2e" stroke="#8b95a3" stroke-width="3"/>
+      <text x="1020" y="528" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">waived</text>
+      <text x="1020" y="546" text-anchor="middle" font-size="10" fill="#c0c0c0">admin forgiveness</text>
+
+      <!-- ============ STATE: REFUNDED (post-paid reversal) ============ -->
+      <rect x="940" y="220" width="160" height="60" rx="30" fill="#2e2e2e" stroke="#8b95a3" stroke-width="3"/>
+      <text x="1020" y="248" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">refunded</text>
+      <text x="1020" y="266" text-anchor="middle" font-size="10" fill="#c0c0c0">reversed via Paystack</text>
+
+      <!-- ======================= TRANSITIONS ======================= -->
+
+      <!-- start → pending : created -->
+      <line x1="122" y1="100" x2="220" y2="100" stroke="#4ec9a8" stroke-width="2" marker-end="url(#arrow-green)"/>
+      <text x="171" y="92" text-anchor="middle" font-size="10" fill="#90e0c0">plan.created</text>
+
+      <!-- pending → due : due_date_reached -->
+      <line x1="380" y1="100" x2="460" y2="100" stroke="#5b8def" stroke-width="2" marker-end="url(#arrow-blue)"/>
+      <text x="420" y="92" text-anchor="middle" font-size="10" fill="#a8c0e0">due_date_reached</text>
+
+      <!-- due → processing : debit_initiated -->
+      <line x1="620" y1="100" x2="700" y2="100" stroke="#a07cc5" stroke-width="2" marker-end="url(#arrow-purple)"/>
+      <text x="660" y="92" text-anchor="middle" font-size="10" fill="#c5a8d8">debit_initiated</text>
+
+      <!-- processing → paid : charge_succeeded -->
+      <line x1="860" y1="100" x2="940" y2="100" stroke="#4ec9a8" stroke-width="2" marker-end="url(#arrow-green)"/>
+      <text x="900" y="92" text-anchor="middle" font-size="10" fill="#90e0c0">charge_succeeded</text>
+
+      <!-- processing → failed (downward) -->
+      <line x1="780" y1="130" x2="780" y2="220" stroke="#e07b7b" stroke-width="2" marker-end="url(#arrow-red)"/>
+      <text x="855" y="178" text-anchor="middle" font-size="10" fill="#e0b8b8">charge_failed</text>
+
+      <!-- failed → retry_scheduled (leftward) -->
+      <line x1="700" y1="250" x2="620" y2="250" stroke="#d4a93a" stroke-width="2" marker-end="url(#arrow-amber)"/>
+      <text x="660" y="242" text-anchor="middle" font-size="10" fill="#e0c890">retryable</text>
+
+      <!-- retry_scheduled → due (upward, with curve) -->
+      <path d="M 540 220 Q 420 175 460 130" fill="none" stroke="#d4a93a" stroke-width="2" marker-end="url(#arrow-amber)"/>
+      <text x="395" y="175" text-anchor="middle" font-size="10" fill="#e0c890">backoff_elapsed</text>
+
+      <!-- failed → overdue (downward, when grace period exceeded) -->
+      <line x1="780" y1="280" x2="780" y2="360" stroke="#e07b9e" stroke-width="2" marker-end="url(#arrow-red)"/>
+      <text x="870" y="324" text-anchor="middle" font-size="10" fill="#e0a5b8">grace_expired</text>
+
+      <!-- due → overdue (skip path, if not picked up) -->
+      <path d="M 540 130 Q 540 240 700 380" fill="none" stroke="#e07b9e" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#arrow-red)"/>
+      <text x="500" y="320" text-anchor="middle" font-size="10" fill="#e0a5b8">unprocessed_past_grace</text>
+
+      <!-- overdue → in_collections -->
+      <line x1="700" y1="390" x2="620" y2="390" stroke="#a07cc5" stroke-width="2" marker-end="url(#arrow-purple)"/>
+      <text x="660" y="382" text-anchor="middle" font-size="10" fill="#c5a8d8">case_opened</text>
+
+      <!-- in_collections → defaulted -->
+      <path d="M 620 420 Q 700 460 780 500" fill="none" stroke="#e07b7b" stroke-width="2" marker-end="url(#arrow-red)"/>
+      <text x="630" y="475" text-anchor="middle" font-size="10" fill="#e0b8b8">default_threshold_hit</text>
+
+      <!-- in_collections → restructured -->
+      <line x1="460" y1="390" x2="380" y2="390" stroke="#5b8def" stroke-width="2" marker-end="url(#arrow-blue)"/>
+      <text x="420" y="382" text-anchor="middle" font-size="10" fill="#a8c0e0">restructure_approved</text>
+
+      <!-- restructured → terminal (new plan begins) -->
+      <line x1="300" y1="420" x2="300" y2="510" stroke="#5b8def" stroke-width="2" marker-end="url(#arrow-blue)"/>
+      <text x="380" y="468" text-anchor="middle" font-size="10" fill="#a8c0e0">replaced by new schedule</text>
+      <circle cx="300" cy="540" r="14" fill="none" stroke="#5b8def" stroke-width="2"/>
+      <circle cx="300" cy="540" r="6" fill="#5b8def"/>
+      <text x="300" y="568" text-anchor="middle" font-size="10" fill="#8b95a3">terminal</text>
+
+      <!-- in_collections → paid (recovery!) -->
+      <path d="M 620 360 Q 800 200 940 100" fill="none" stroke="#4ec9a8" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrow-green)"/>
+      <text x="900" y="220" text-anchor="middle" font-size="10" fill="#90e0c0">payment_recovered</text>
+
+      <!-- overdue → waived (admin action) -->
+      <line x1="860" y1="390" x2="1020" y2="500" stroke="#8b95a3" stroke-width="2" stroke-dasharray="3,3" marker-end="url(#arrow-blue)"/>
+      <text x="985" y="440" text-anchor="middle" font-size="10" fill="#c0c0c0">admin_waive</text>
+
+      <!-- paid → refunded -->
+      <line x1="1020" y1="130" x2="1020" y2="220" stroke="#8b95a3" stroke-width="2" stroke-dasharray="3,3" marker-end="url(#arrow-blue)"/>
+      <text x="1075" y="178" text-anchor="middle" font-size="10" fill="#c0c0c0">refund_issued</text>
+
+      <!-- ============ TERMINAL MARKERS ============ -->
+      <circle cx="1020" cy="160" r="3" fill="#4ec9a8"/>
+      <circle cx="1020" cy="170" r="3" fill="#4ec9a8"/>
+
+      <!-- ============ NON-RETRYABLE branch from failed ============ -->
+      <path d="M 780 280 Q 880 340 780 360" fill="none" stroke="#e07b7b" stroke-width="2" marker-end="url(#arrow-red)"/>
+      <text x="900" y="325" text-anchor="middle" font-size="10" fill="#e0b8b8">non_retryable_decline</text>
+
+      <!-- ============ LEGEND BOX ============ -->
+      <rect x="60" y="630" width="1080" height="120" rx="8" fill="#1a1f26" stroke="#30363d" stroke-width="1"/>
+      <text x="80" y="655" font-size="12" font-weight="600" fill="#fff">TRANSITION GUARDS</text>
+
+      <text x="80" y="680" font-size="11" fill="#a8c0e0">• <tspan font-weight="600">retryable</tspan>: failure reason ∈ {insufficient_funds, network_timeout, momo_not_confirmed}; attempt_count &lt; max_retries (default 3)</text>
+      <text x="80" y="700" font-size="11" fill="#a8c0e0">• <tspan font-weight="600">non_retryable_decline</tspan>: {invalid_account, fraud_block, customer_blocked, account_closed} — escalates directly</text>
+      <text x="80" y="720" font-size="11" fill="#a8c0e0">• <tspan font-weight="600">grace_expired</tspan>: now() &gt; due_date + plan.grace_period_days (typically 3 days)</text>
+      <text x="80" y="740" font-size="11" fill="#a8c0e0">• <tspan font-weight="600">default_threshold_hit</tspan>: in_collections for &gt; 90 days OR plan.consecutive_missed ≥ 3 — triggers write-off</text>
+    </svg>
+
+    <div class="legend">
+      <div class="legend-item"><span class="legend-swatch" style="background:#1a2e3a;border-color:#5b8def"></span>Normal lifecycle</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#3a2e1a;border-color:#d4a93a"></span>Waiting / retry states</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#2a1f3a;border-color:#a07cc5"></span>Processing / case work</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#1a3a2e;border-color:#4ec9a8"></span>Success outcomes</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#3a1f1f;border-color:#e07b7b"></span>Failure states</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#2e2e2e;border-color:#8b95a3"></span>Admin / reversal terminals</div>
+    </div>
+  </div>
+</body>
+</html>

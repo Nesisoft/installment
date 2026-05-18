@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mobile Money — Retry & Fallback Flow</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1419;
+    color: #e6e6e6;
+    padding: 32px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; color: #fff; }
+  .subtitle { font-size: 13px; color: #8b95a3; margin-bottom: 28px; }
+  .canvas {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 28px;
+    overflow-x: auto;
+  }
+  svg { display: block; margin: 0 auto; }
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+    font-size: 12px;
+    color: #8b95a3;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+</style>
+</head>
+<body>
+  <h1>Mobile Money — Retry & Fallback Flow</h1>
+  <p class="subtitle">From scheduled debit to settled (or escalated) — every path enumerated</p>
+
+  <div class="canvas">
+    <svg width="1200" height="1100" viewBox="0 0 1200 1100" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#5b8def"/>
+        </marker>
+        <marker id="arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#4ec9a8"/>
+        </marker>
+        <marker id="arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#d4a93a"/>
+        </marker>
+        <marker id="arr-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#e07b7b"/>
+        </marker>
+        <marker id="arr-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#a07cc5"/>
+        </marker>
+      </defs>
+
+      <!-- ============ T-0: SCHEDULER ============ -->
+      <text x="40" y="40" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">T-0 · DEBIT SCHEDULER</text>
+      <line x1="40" y1="48" x2="1160" y2="48" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="450" y="60" width="280" height="70" rx="8" fill="#2a1f3a" stroke="#a07cc5" stroke-width="2"/>
+      <text x="590" y="84" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Hourly Scheduler Job</text>
+      <text x="590" y="102" text-anchor="middle" font-size="10" fill="#c5a8d8">Picks schedules with due_date ≤ now + 1h</text>
+      <text x="590" y="118" text-anchor="middle" font-size="10" fill="#c5a8d8">Enqueues debit jobs to BullMQ</text>
+
+      <!-- ============ T-1h: PRE-DEBIT REMINDER ============ -->
+      <text x="40" y="160" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">T-1h · PRE-DEBIT NOTIFICATION</text>
+      <line x1="40" y1="168" x2="1160" y2="168" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="450" y="180" width="280" height="60" rx="8" fill="#0d2d24" stroke="#4ec9a8" stroke-width="1.5"/>
+      <text x="590" y="202" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">SMS sent to customer</text>
+      <text x="590" y="220" text-anchor="middle" font-size="10" fill="#90e0c0">"GHS 300 will be debited in 1h. Reply STOP to cancel."</text>
+
+      <line x1="590" y1="130" x2="590" y2="180" stroke="#a07cc5" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+
+      <!-- ============ T-0: DEBIT ATTEMPT ============ -->
+      <text x="40" y="270" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">T+0 · DEBIT WORKER FIRES</text>
+      <line x1="40" y1="278" x2="1160" y2="278" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="380" y="290" width="420" height="80" rx="8" fill="#2d1f0d" stroke="#d4a93a" stroke-width="2"/>
+      <text x="590" y="316" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">POST /charge to Paystack</text>
+      <text x="590" y="334" text-anchor="middle" font-size="10" fill="#e0c890">{ email, amount, currency: "GHS", mobile_money: { phone, provider } }</text>
+      <text x="590" y="352" text-anchor="middle" font-size="10" fill="#e0c890">acquire Redis lock · mark schedule → "processing" · log attempt</text>
+
+      <line x1="590" y1="240" x2="590" y2="290" stroke="#a07cc5" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+
+      <!-- ============ PAYSTACK RESPONSE BRANCH ============ -->
+      <text x="40" y="400" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">PAYSTACK SYNCHRONOUS RESPONSE</text>
+      <line x1="40" y1="408" x2="1160" y2="408" stroke="#30363d" stroke-width="1"/>
+
+      <!-- Pending push (most common for MoMo) -->
+      <rect x="60" y="425" width="280" height="100" rx="8" fill="#1a2e3a" stroke="#5b8def" stroke-width="1.5"/>
+      <text x="200" y="448" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">status: "pay_offline"</text>
+      <text x="200" y="468" text-anchor="middle" font-size="10" fill="#a8c0e0">USSD push sent to phone</text>
+      <text x="200" y="484" text-anchor="middle" font-size="10" fill="#a8c0e0">Customer must approve on phone</text>
+      <text x="200" y="500" text-anchor="middle" font-size="10" fill="#a8c0e0">Resolution comes via webhook</text>
+      <text x="200" y="516" text-anchor="middle" font-size="10" fill="#5b8def" font-style="italic">most common MoMo path</text>
+
+      <!-- Immediate failure -->
+      <rect x="380" y="425" width="280" height="100" rx="8" fill="#3a1f1f" stroke="#e07b7b" stroke-width="1.5"/>
+      <text x="520" y="448" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">status: "failed"</text>
+      <text x="520" y="468" text-anchor="middle" font-size="10" fill="#e0b8b8">Invalid phone, blocked account,</text>
+      <text x="520" y="484" text-anchor="middle" font-size="10" fill="#e0b8b8">unsupported network</text>
+      <text x="520" y="500" text-anchor="middle" font-size="10" fill="#e0b8b8">Decline reason returned</text>
+      <text x="520" y="516" text-anchor="middle" font-size="10" fill="#e07b7b" font-style="italic">classify retryable vs not</text>
+
+      <!-- HTTP error -->
+      <rect x="700" y="425" width="280" height="100" rx="8" fill="#3a2e1a" stroke="#d4a93a" stroke-width="1.5"/>
+      <text x="840" y="448" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">HTTP 5xx / timeout</text>
+      <text x="840" y="468" text-anchor="middle" font-size="10" fill="#e0c890">Paystack unreachable or 500</text>
+      <text x="840" y="484" text-anchor="middle" font-size="10" fill="#e0c890">No reference issued</text>
+      <text x="840" y="500" text-anchor="middle" font-size="10" fill="#e0c890">Retry with idempotency key</text>
+      <text x="840" y="516" text-anchor="middle" font-size="10" fill="#d4a93a" font-style="italic">never assume failed</text>
+
+      <!-- arrows from debit attempt -->
+      <line x1="500" y1="370" x2="200" y2="425" stroke="#5b8def" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+      <line x1="590" y1="370" x2="520" y2="425" stroke="#e07b7b" stroke-width="1.5" marker-end="url(#arr-red)"/>
+      <line x1="700" y1="370" x2="840" y2="425" stroke="#d4a93a" stroke-width="1.5" marker-end="url(#arr-amber)"/>
+
+      <!-- ============ WAITING FOR WEBHOOK ============ -->
+      <text x="40" y="560" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">WEBHOOK ARRIVES (or doesn't)</text>
+      <line x1="40" y1="568" x2="1160" y2="568" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="60" y="585" width="280" height="115" rx="8" fill="#1a3a2e" stroke="#4ec9a8" stroke-width="2"/>
+      <text x="200" y="610" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">charge.success</text>
+      <text x="200" y="628" text-anchor="middle" font-size="10" fill="#90e0c0">Customer approved on phone</text>
+      <text x="200" y="644" text-anchor="middle" font-size="10" fill="#90e0c0">Verify signature</text>
+      <text x="200" y="660" text-anchor="middle" font-size="10" fill="#90e0c0">Idempotency check (event id)</text>
+      <text x="200" y="676" text-anchor="middle" font-size="10" fill="#90e0c0">Schedule → "paid"</text>
+      <text x="200" y="692" text-anchor="middle" font-size="10" fill="#4ec9a8" font-style="italic">happy path complete ✓</text>
+
+      <rect x="380" y="585" width="280" height="115" rx="8" fill="#3a1f1f" stroke="#e07b7b" stroke-width="1.5"/>
+      <text x="520" y="610" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">charge.failed</text>
+      <text x="520" y="628" text-anchor="middle" font-size="10" fill="#e0b8b8">Reasons:</text>
+      <text x="520" y="644" text-anchor="middle" font-size="10" fill="#e0b8b8">• insufficient_funds</text>
+      <text x="520" y="660" text-anchor="middle" font-size="10" fill="#e0b8b8">• declined_by_customer</text>
+      <text x="520" y="676" text-anchor="middle" font-size="10" fill="#e0b8b8">• expired / pin_timeout</text>
+      <text x="520" y="692" text-anchor="middle" font-size="10" fill="#e07b7b" font-style="italic">→ retry decision tree</text>
+
+      <rect x="700" y="585" width="280" height="115" rx="8" fill="#2a1f3a" stroke="#a07cc5" stroke-width="1.5" stroke-dasharray="4,3"/>
+      <text x="840" y="610" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">NO webhook in 15 min</text>
+      <text x="840" y="628" text-anchor="middle" font-size="10" fill="#c5a8d8">Customer ignored prompt</text>
+      <text x="840" y="644" text-anchor="middle" font-size="10" fill="#c5a8d8">OR Paystack delayed</text>
+      <text x="840" y="660" text-anchor="middle" font-size="10" fill="#c5a8d8">Poll Paystack /transaction/verify</text>
+      <text x="840" y="676" text-anchor="middle" font-size="10" fill="#c5a8d8">Decide based on returned status</text>
+      <text x="840" y="692" text-anchor="middle" font-size="10" fill="#a07cc5" font-style="italic">never trust webhook alone</text>
+
+      <line x1="200" y1="525" x2="200" y2="585" stroke="#4ec9a8" stroke-width="1.5" marker-end="url(#arr-green)"/>
+      <line x1="520" y1="525" x2="520" y2="585" stroke="#e07b7b" stroke-width="1.5" marker-end="url(#arr-red)"/>
+      <line x1="200" y1="525" x2="840" y2="585" stroke="#a07cc5" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-purple)"/>
+
+      <!-- ============ RETRY DECISION ============ -->
+      <text x="40" y="735" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">RETRY DECISION TREE — applied on failure or ambiguity</text>
+      <line x1="40" y1="743" x2="1160" y2="743" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="60" y="760" width="270" height="120" rx="8" fill="#3a2e1a" stroke="#d4a93a" stroke-width="1.5"/>
+      <text x="195" y="784" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Retry #1</text>
+      <text x="195" y="803" text-anchor="middle" font-size="10" fill="#e0c890">+4 hours</text>
+      <text x="195" y="819" text-anchor="middle" font-size="10" fill="#e0c890">Reasons: insufficient_funds,</text>
+      <text x="195" y="835" text-anchor="middle" font-size="10" fill="#e0c890">timeout, declined_by_customer</text>
+      <text x="195" y="855" text-anchor="middle" font-size="10" fill="#e0c890">SMS: "Your debit failed.</text>
+      <text x="195" y="871" text-anchor="middle" font-size="10" fill="#e0c890">We'll try again at 6pm."</text>
+
+      <rect x="350" y="760" width="270" height="120" rx="8" fill="#3a2e1a" stroke="#d4a93a" stroke-width="1.5"/>
+      <text x="485" y="784" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Retry #2</text>
+      <text x="485" y="803" text-anchor="middle" font-size="10" fill="#e0c890">+24 hours (next morning)</text>
+      <text x="485" y="819" text-anchor="middle" font-size="10" fill="#e0c890">Same auto-debit path</text>
+      <text x="485" y="835" text-anchor="middle" font-size="10" fill="#e0c890">SMS reminder before attempt</text>
+      <text x="485" y="855" text-anchor="middle" font-size="10" fill="#e0c890">Begin offering payment link</text>
+      <text x="485" y="871" text-anchor="middle" font-size="10" fill="#e0c890">as alternative</text>
+
+      <rect x="640" y="760" width="270" height="120" rx="8" fill="#3a1f2a" stroke="#e07b9e" stroke-width="1.5"/>
+      <text x="775" y="784" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Retry #3 (final)</text>
+      <text x="775" y="803" text-anchor="middle" font-size="10" fill="#e0a5b8">+48 hours from #2</text>
+      <text x="775" y="819" text-anchor="middle" font-size="10" fill="#e0a5b8">Send Paystack payment link</text>
+      <text x="775" y="835" text-anchor="middle" font-size="10" fill="#e0a5b8">via SMS — customer-initiated</text>
+      <text x="775" y="855" text-anchor="middle" font-size="10" fill="#e0a5b8">Last attempt before grace</text>
+      <text x="775" y="871" text-anchor="middle" font-size="10" fill="#e0a5b8">period expires</text>
+
+      <rect x="930" y="760" width="220" height="120" rx="8" fill="#3a1f1f" stroke="#e07b7b" stroke-width="2"/>
+      <text x="1040" y="784" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Grace Expires</text>
+      <text x="1040" y="803" text-anchor="middle" font-size="10" fill="#e0b8b8">Day 3 after due_date</text>
+      <text x="1040" y="819" text-anchor="middle" font-size="10" fill="#e0b8b8">Schedule → "overdue"</text>
+      <text x="1040" y="835" text-anchor="middle" font-size="10" fill="#e0b8b8">Late fee applied</text>
+      <text x="1040" y="855" text-anchor="middle" font-size="10" fill="#e0b8b8">Collections case opened</text>
+      <text x="1040" y="871" text-anchor="middle" font-size="10" fill="#e0b8b8">Human follow-up begins</text>
+
+      <line x1="330" y1="820" x2="350" y2="820" stroke="#d4a93a" stroke-width="2" marker-end="url(#arr-amber)"/>
+      <line x1="620" y1="820" x2="640" y2="820" stroke="#d4a93a" stroke-width="2" marker-end="url(#arr-amber)"/>
+      <line x1="910" y1="820" x2="930" y2="820" stroke="#e07b7b" stroke-width="2" marker-end="url(#arr-red)"/>
+
+      <!-- arrow from failed webhook to retry #1 -->
+      <line x1="520" y1="700" x2="195" y2="760" stroke="#e07b7b" stroke-width="1.5" marker-end="url(#arr-red)"/>
+
+      <!-- ============ NON-RETRYABLE SHORTCUT ============ -->
+      <text x="40" y="925" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">NON-RETRYABLE FAILURES — skip retries, escalate immediately</text>
+      <line x1="40" y1="933" x2="1160" y2="933" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="60" y="950" width="1090" height="100" rx="8" fill="#1a1f26" stroke="#e07b7b" stroke-width="1.5"/>
+      <text x="80" y="975" font-size="12" font-weight="600" fill="#fff">Immediate decline reasons (no retry, jump to collections):</text>
+      <text x="80" y="996" font-size="11" fill="#e0b8b8">• <tspan font-weight="600">invalid_account</tspan> — phone not registered for MoMo. Customer needs to fix or change number.</text>
+      <text x="80" y="1014" font-size="11" fill="#e0b8b8">• <tspan font-weight="600">fraud_block</tspan> — Paystack risk signal. Triggers internal fraud review.</text>
+      <text x="80" y="1032" font-size="11" fill="#e0b8b8">• <tspan font-weight="600">account_closed</tspan> / <tspan font-weight="600">customer_blocked</tspan> — bank or network has blocked the wallet.</text>
+    </svg>
+
+    <div class="legend">
+      <div class="legend-item"><span class="legend-swatch" style="background:#2a1f3a;border-color:#a07cc5"></span>Worker / scheduling</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#2d1f0d;border-color:#d4a93a"></span>Paystack call</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#1a2e3a;border-color:#5b8def"></span>Pending / async</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#1a3a2e;border-color:#4ec9a8"></span>Success</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#3a1f1f;border-color:#e07b7b"></span>Failure / decline</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#3a2e1a;border-color:#d4a93a"></span>Retry</div>
+    </div>
+  </div>
+</body>
+</html>

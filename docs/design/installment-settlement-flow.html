@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Merchant Settlement & Reserve Account Flow</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1419;
+    color: #e6e6e6;
+    padding: 32px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; color: #fff; }
+  .subtitle { font-size: 13px; color: #8b95a3; margin-bottom: 28px; }
+  .canvas {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 28px;
+    overflow-x: auto;
+  }
+  svg { display: block; margin: 0 auto; }
+  .legend {
+    display: flex; gap: 20px; flex-wrap: wrap;
+    margin-top: 20px; font-size: 12px; color: #8b95a3;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .legend-swatch {
+    width: 14px; height: 14px; border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+</style>
+</head>
+<body>
+  <h1>Merchant Settlement & Reserve Account Flow</h1>
+  <p class="subtitle">How money moves through the platform: customer → reserve → merchant payout</p>
+
+  <div class="canvas">
+    <svg width="1200" height="1140" viewBox="0 0 1200 1140" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#5b8def"/>
+        </marker>
+        <marker id="arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#4ec9a8"/>
+        </marker>
+        <marker id="arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#d4a93a"/>
+        </marker>
+        <marker id="arr-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#a07cc5"/>
+        </marker>
+      </defs>
+
+      <!-- ============ SECTION 1: MONEY FLOW BY MODEL ============ -->
+      <text x="40" y="40" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">PAYOUT TIMING BY BUSINESS MODEL</text>
+      <line x1="40" y1="48" x2="1160" y2="48" stroke="#30363d" stroke-width="1"/>
+
+      <!-- BNPL -->
+      <rect x="60" y="65" width="265" height="200" rx="8" fill="#1a3a2e" stroke="#4ec9a8" stroke-width="1.5"/>
+      <text x="192" y="90" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">BNPL</text>
+      <text x="192" y="108" text-anchor="middle" font-size="10" fill="#90e0c0" font-style="italic">Platform fronts the cash</text>
+      <line x1="80" y1="120" x2="305" y2="120" stroke="#4ec9a8" stroke-width="0.5" opacity="0.4"/>
+      <text x="80" y="140" font-size="10" fill="#90e0c0">Order: GHS 1,000</text>
+      <text x="80" y="158" font-size="10" fill="#90e0c0">→ Merchant gets at T+2 days</text>
+      <text x="80" y="176" font-size="10" fill="#90e0c0">→ GHS 940 (96% – 4% MDR)</text>
+      <text x="80" y="194" font-size="10" fill="#e0c890">+ GHS 50 to reserve (5%)</text>
+      <text x="80" y="212" font-size="10" fill="#e0c890">+ GHS 10 platform margin</text>
+      <text x="80" y="234" font-size="9" fill="#8b95a3">Platform takes default risk.</text>
+      <text x="80" y="248" font-size="9" fill="#8b95a3">Customer pays platform 4× GHS 250.</text>
+
+      <!-- Layaway -->
+      <rect x="345" y="65" width="265" height="200" rx="8" fill="#1a2e3a" stroke="#5b8def" stroke-width="1.5"/>
+      <text x="477" y="90" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">LAYAWAY</text>
+      <text x="477" y="108" text-anchor="middle" font-size="10" fill="#a8c0e0" font-style="italic">Pay-as-collected</text>
+      <line x1="365" y1="120" x2="590" y2="120" stroke="#5b8def" stroke-width="0.5" opacity="0.4"/>
+      <text x="365" y="140" font-size="10" fill="#a8c0e0">Order: GHS 1,000</text>
+      <text x="365" y="158" font-size="10" fill="#a8c0e0">→ Merchant gets nothing yet</text>
+      <text x="365" y="176" font-size="10" fill="#a8c0e0">→ Product held by merchant</text>
+      <text x="365" y="194" font-size="10" fill="#a8c0e0">→ On completion: GHS 970</text>
+      <text x="365" y="212" font-size="10" fill="#e0c890">Platform takes 3% service fee</text>
+      <text x="365" y="234" font-size="9" fill="#8b95a3">Lowest risk. Customer cancels?</text>
+      <text x="365" y="248" font-size="9" fill="#8b95a3">Refund minus 10% admin fee.</text>
+
+      <!-- Hybrid Down-Payment -->
+      <rect x="630" y="65" width="265" height="200" rx="8" fill="#3a2e1a" stroke="#d4a93a" stroke-width="1.5"/>
+      <text x="762" y="90" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">HYBRID DOWN-PAYMENT</text>
+      <text x="762" y="108" text-anchor="middle" font-size="10" fill="#e0c890" font-style="italic">Split payout</text>
+      <line x1="650" y1="120" x2="875" y2="120" stroke="#d4a93a" stroke-width="0.5" opacity="0.4"/>
+      <text x="650" y="140" font-size="10" fill="#e0c890">Order: GHS 1,000</text>
+      <text x="650" y="158" font-size="10" fill="#e0c890">→ Down: GHS 400 (40%)</text>
+      <text x="650" y="176" font-size="10" fill="#e0c890">→ Merchant gets GHS 380 today</text>
+      <text x="650" y="194" font-size="10" fill="#e0c890">→ Plus GHS 580 at completion</text>
+      <text x="650" y="212" font-size="10" fill="#e0c890">Total to merchant: GHS 960</text>
+      <text x="650" y="234" font-size="9" fill="#8b95a3">Sweet spot: customer gets product,</text>
+      <text x="650" y="248" font-size="9" fill="#8b95a3">platform shares risk.</text>
+
+      <!-- Rent-to-Own -->
+      <rect x="915" y="65" width="265" height="200" rx="8" fill="#2e1a3a" stroke="#a07cc5" stroke-width="1.5"/>
+      <text x="1047" y="90" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">RENT-TO-OWN</text>
+      <text x="1047" y="108" text-anchor="middle" font-size="10" fill="#c5a8d8" font-style="italic">Full upfront, long tail</text>
+      <line x1="935" y1="120" x2="1160" y2="120" stroke="#a07cc5" stroke-width="0.5" opacity="0.4"/>
+      <text x="935" y="140" font-size="10" fill="#c5a8d8">Order: GHS 5,000</text>
+      <text x="935" y="158" font-size="10" fill="#c5a8d8">→ Merchant gets GHS 4,650 at T+2</text>
+      <text x="935" y="176" font-size="10" fill="#c5a8d8">→ Platform holds title</text>
+      <text x="935" y="194" font-size="10" fill="#c5a8d8">→ 12–24 months collection</text>
+      <text x="935" y="212" font-size="10" fill="#e0c890">12% reserve (highest risk)</text>
+      <text x="935" y="234" font-size="9" fill="#8b95a3">Repossession rights until paid.</text>
+      <text x="935" y="248" font-size="9" fill="#8b95a3">Customer pays interest + fees.</text>
+
+      <!-- ============ SECTION 2: ACCOUNT STRUCTURE ============ -->
+      <text x="40" y="300" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">INTERNAL ACCOUNT STRUCTURE — virtual ledger, not actual bank accounts</text>
+      <line x1="40" y1="308" x2="1160" y2="308" stroke="#30363d" stroke-width="1"/>
+
+      <!-- Customer wallet -->
+      <rect x="60" y="325" width="220" height="130" rx="8" fill="#1e3a5f" stroke="#5b8def" stroke-width="1.5"/>
+      <text x="170" y="350" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">Customer Side</text>
+      <text x="170" y="370" text-anchor="middle" font-size="10" fill="#a8c0e0">— pays Paystack via MoMo/card —</text>
+      <line x1="80" y1="380" x2="260" y2="380" stroke="#5b8def" stroke-width="0.5" opacity="0.4"/>
+      <text x="80" y="400" font-size="10" fill="#a8c0e0">Each installment lands in</text>
+      <text x="80" y="416" font-size="10" fill="#a8c0e0">Paystack Settlement Account</text>
+      <text x="80" y="436" font-size="10" fill="#e0c890" font-style="italic">(your real bank account)</text>
+
+      <!-- Internal split -->
+      <rect x="320" y="325" width="540" height="380" rx="8" fill="#1a1f26" stroke="#4a6a8a" stroke-width="1.5"/>
+      <text x="590" y="350" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">Platform Internal Ledger (PostgreSQL)</text>
+      <text x="590" y="368" text-anchor="middle" font-size="10" fill="#8b95a3">double-entry; every cedi accounted for</text>
+
+      <!-- Virtual accounts inside -->
+      <rect x="340" y="385" width="240" height="80" rx="6" fill="#1a3a2e" stroke="#4ec9a8" stroke-width="1.2"/>
+      <text x="460" y="406" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Merchant Payable</text>
+      <text x="460" y="424" text-anchor="middle" font-size="9" fill="#90e0c0">one per merchant</text>
+      <text x="460" y="440" text-anchor="middle" font-size="9" fill="#90e0c0">"what we owe them"</text>
+      <text x="460" y="456" text-anchor="middle" font-size="9" fill="#90e0c0">balance = pending payouts</text>
+
+      <rect x="600" y="385" width="240" height="80" rx="6" fill="#3a2e1a" stroke="#d4a93a" stroke-width="1.2"/>
+      <text x="720" y="406" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Reserve Account</text>
+      <text x="720" y="424" text-anchor="middle" font-size="9" fill="#e0c890">one per merchant</text>
+      <text x="720" y="440" text-anchor="middle" font-size="9" fill="#e0c890">5–12% of each order held</text>
+      <text x="720" y="456" text-anchor="middle" font-size="9" fill="#e0c890">released after term + buffer</text>
+
+      <rect x="340" y="485" width="240" height="80" rx="6" fill="#3a1f1f" stroke="#e07b7b" stroke-width="1.2"/>
+      <text x="460" y="506" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Default Pool</text>
+      <text x="460" y="524" text-anchor="middle" font-size="9" fill="#e0b8b8">funded from reserves</text>
+      <text x="460" y="540" text-anchor="middle" font-size="9" fill="#e0b8b8">covers write-offs</text>
+      <text x="460" y="556" text-anchor="middle" font-size="9" fill="#e0b8b8">Bank of Ghana capital ratio</text>
+
+      <rect x="600" y="485" width="240" height="80" rx="6" fill="#2e1a3a" stroke="#a07cc5" stroke-width="1.2"/>
+      <text x="720" y="506" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Revenue Account</text>
+      <text x="720" y="524" text-anchor="middle" font-size="9" fill="#c5a8d8">service fees collected</text>
+      <text x="720" y="540" text-anchor="middle" font-size="9" fill="#c5a8d8">late fees, interest</text>
+      <text x="720" y="556" text-anchor="middle" font-size="9" fill="#c5a8d8">platform earnings</text>
+
+      <rect x="340" y="585" width="500" height="80" rx="6" fill="#1f2d3d" stroke="#5b8def" stroke-width="1.2"/>
+      <text x="590" y="606" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Receivables (per customer plan)</text>
+      <text x="590" y="624" text-anchor="middle" font-size="9" fill="#a8c0e0">tracks outstanding owed BY customer TO platform</text>
+      <text x="590" y="640" text-anchor="middle" font-size="9" fill="#a8c0e0">decremented as installments are paid; written off on default</text>
+      <text x="590" y="656" text-anchor="middle" font-size="9" fill="#a8c0e0">total receivables ÷ assets = portfolio health KPI</text>
+
+      <!-- Merchant bank -->
+      <rect x="900" y="325" width="220" height="130" rx="8" fill="#1a3a2e" stroke="#4ec9a8" stroke-width="1.5"/>
+      <text x="1010" y="350" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">Merchant Side</text>
+      <text x="1010" y="370" text-anchor="middle" font-size="10" fill="#90e0c0">— their bank account —</text>
+      <line x1="920" y1="380" x2="1100" y2="380" stroke="#4ec9a8" stroke-width="0.5" opacity="0.4"/>
+      <text x="920" y="400" font-size="10" fill="#90e0c0">Paystack Transfer API</text>
+      <text x="920" y="416" font-size="10" fill="#90e0c0">pushes ACH/wire</text>
+      <text x="920" y="436" font-size="10" fill="#e0c890" font-style="italic">T+2 settlement cycle</text>
+
+      <!-- Arrows -->
+      <line x1="280" y1="390" x2="320" y2="425" stroke="#5b8def" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+      <line x1="860" y1="425" x2="900" y2="390" stroke="#4ec9a8" stroke-width="1.5" marker-end="url(#arr-green)"/>
+
+      <!-- Internal arrows -->
+      <line x1="460" y1="465" x2="460" y2="485" stroke="#e07b7b" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#arr-blue)"/>
+      <text x="490" y="479" font-size="9" fill="#e07b7b" font-style="italic">on default</text>
+
+      <line x1="720" y1="465" x2="720" y2="485" stroke="#a07cc5" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#arr-purple)"/>
+      <text x="748" y="479" font-size="9" fill="#a07cc5" font-style="italic">fees flow</text>
+
+      <line x1="590" y1="585" x2="590" y2="465" stroke="#5b8def" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#arr-blue)"/>
+
+      <!-- ============ SECTION 3: SETTLEMENT WORKER FLOW ============ -->
+      <text x="40" y="740" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">SETTLEMENT WORKER — runs daily, batches per merchant</text>
+      <line x1="40" y1="748" x2="1160" y2="748" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="60" y="765" width="210" height="100" rx="8" fill="#2a1f3a" stroke="#a07cc5" stroke-width="1.5"/>
+      <text x="165" y="788" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">1. Aggregate</text>
+      <text x="165" y="808" text-anchor="middle" font-size="9" fill="#c5a8d8">Sum eligible installments</text>
+      <text x="165" y="822" text-anchor="middle" font-size="9" fill="#c5a8d8">per merchant for today</text>
+      <text x="165" y="836" text-anchor="middle" font-size="9" fill="#c5a8d8">(by business model rules)</text>
+      <text x="165" y="852" text-anchor="middle" font-size="9" fill="#c5a8d8">incl. down-payments + completions</text>
+
+      <rect x="295" y="765" width="210" height="100" rx="8" fill="#2a1f3a" stroke="#a07cc5" stroke-width="1.5"/>
+      <text x="400" y="788" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">2. Apply Deductions</text>
+      <text x="400" y="808" text-anchor="middle" font-size="9" fill="#c5a8d8">MDR (4%)</text>
+      <text x="400" y="822" text-anchor="middle" font-size="9" fill="#c5a8d8">Reserve hold (5–12%)</text>
+      <text x="400" y="836" text-anchor="middle" font-size="9" fill="#c5a8d8">Chargebacks · refunds</text>
+      <text x="400" y="852" text-anchor="middle" font-size="9" fill="#c5a8d8">Outstanding fee balance</text>
+
+      <rect x="530" y="765" width="210" height="100" rx="8" fill="#2a1f3a" stroke="#a07cc5" stroke-width="1.5"/>
+      <text x="635" y="788" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">3. Threshold Check</text>
+      <text x="635" y="808" text-anchor="middle" font-size="9" fill="#c5a8d8">Net amount ≥ GHS 100?</text>
+      <text x="635" y="822" text-anchor="middle" font-size="9" fill="#c5a8d8">Skip if below — roll forward</text>
+      <text x="635" y="836" text-anchor="middle" font-size="9" fill="#c5a8d8">Avoid Paystack transfer fee</text>
+      <text x="635" y="852" text-anchor="middle" font-size="9" fill="#c5a8d8">on tiny amounts</text>
+
+      <rect x="765" y="765" width="210" height="100" rx="8" fill="#2a1f3a" stroke="#a07cc5" stroke-width="1.5"/>
+      <text x="870" y="788" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">4. Initiate Transfer</text>
+      <text x="870" y="808" text-anchor="middle" font-size="9" fill="#c5a8d8">Paystack Transfer API</text>
+      <text x="870" y="822" text-anchor="middle" font-size="9" fill="#c5a8d8">Idempotent reference</text>
+      <text x="870" y="836" text-anchor="middle" font-size="9" fill="#c5a8d8">Decrement Merchant Payable</text>
+      <text x="870" y="852" text-anchor="middle" font-size="9" fill="#c5a8d8">Status: "initiated"</text>
+
+      <rect x="1000" y="765" width="160" height="100" rx="8" fill="#1a3a2e" stroke="#4ec9a8" stroke-width="1.5"/>
+      <text x="1080" y="788" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">5. Confirm</text>
+      <text x="1080" y="808" text-anchor="middle" font-size="9" fill="#90e0c0">Webhook from Paystack</text>
+      <text x="1080" y="822" text-anchor="middle" font-size="9" fill="#90e0c0">transfer.success</text>
+      <text x="1080" y="836" text-anchor="middle" font-size="9" fill="#90e0c0">Mark "settled"</text>
+      <text x="1080" y="852" text-anchor="middle" font-size="9" fill="#90e0c0">Notify merchant</text>
+
+      <line x1="270" y1="815" x2="295" y2="815" stroke="#a07cc5" stroke-width="2" marker-end="url(#arr-purple)"/>
+      <line x1="505" y1="815" x2="530" y2="815" stroke="#a07cc5" stroke-width="2" marker-end="url(#arr-purple)"/>
+      <line x1="740" y1="815" x2="765" y2="815" stroke="#a07cc5" stroke-width="2" marker-end="url(#arr-purple)"/>
+      <line x1="975" y1="815" x2="1000" y2="815" stroke="#4ec9a8" stroke-width="2" marker-end="url(#arr-green)"/>
+
+      <!-- ============ SECTION 4: RESERVE RELEASE ============ -->
+      <text x="40" y="910" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">RESERVE RELEASE — claw-back over time</text>
+      <line x1="40" y1="918" x2="1160" y2="918" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="60" y="935" width="1100" height="180" rx="8" fill="#1a1f26" stroke="#d4a93a" stroke-width="1.5"/>
+      <text x="80" y="960" font-size="12" font-weight="600" fill="#fff">Reserve dollars sit until the order is "out of the woods":</text>
+      <text x="80" y="985" font-size="11" fill="#e0c890">• <tspan font-weight="600">BNPL (8 weeks)</tspan>: reserve held until last installment + 14-day chargeback buffer = 10 weeks</text>
+      <text x="80" y="1005" font-size="11" fill="#e0c890">• <tspan font-weight="600">Layaway</tspan>: reserve held until product delivered to customer + 7 days (covers post-delivery disputes)</text>
+      <text x="80" y="1025" font-size="11" fill="#e0c890">• <tspan font-weight="600">Hybrid down-payment</tspan>: down-payment reserve released at completion; balance reserve at completion + 14 days</text>
+      <text x="80" y="1045" font-size="11" fill="#e0c890">• <tspan font-weight="600">Rent-to-own</tspan>: rolling — 1/12th of reserve released each successful month, full amount at title transfer</text>
+      <text x="80" y="1070" font-size="11" fill="#e0b8b8">• <tspan font-weight="600">On default</tspan>: outstanding balance debited from reserve. If reserve runs dry → claim against merchant per contract.</text>
+      <text x="80" y="1090" font-size="11" fill="#e0b8b8">• <tspan font-weight="600">On refund</tspan>: refunded amount + transaction cost debited from reserve before reaching merchant payable.</text>
+    </svg>
+
+    <div class="legend">
+      <div class="legend-item"><span class="legend-swatch" style="background:#1a3a2e;border-color:#4ec9a8"></span>BNPL</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#1a2e3a;border-color:#5b8def"></span>Layaway / receivables</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#3a2e1a;border-color:#d4a93a"></span>Down-payment / reserves</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#2e1a3a;border-color:#a07cc5"></span>Rent-to-own / workers</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#3a1f1f;border-color:#e07b7b"></span>Default pool</div>
+    </div>
+  </div>
+</body>
+</html>

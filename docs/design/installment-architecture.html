@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Installment Engine — System Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1419;
+    color: #e6e6e6;
+    padding: 32px;
+    min-height: 100vh;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: #fff;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: #8b95a3;
+    margin-bottom: 28px;
+  }
+  .canvas {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 28px;
+    overflow-x: auto;
+  }
+  svg { display: block; margin: 0 auto; }
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+    font-size: 12px;
+    color: #8b95a3;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+</style>
+</head>
+<body>
+  <h1>Installment Engine — System Architecture</h1>
+  <p class="subtitle">Node.js (NestJS) · React · PostgreSQL · Redis · Paystack</p>
+
+  <div class="canvas">
+    <svg width="1180" height="900" viewBox="0 0 1180 900" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#5b8def"/>
+        </marker>
+        <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#d4a93a"/>
+        </marker>
+        <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#4ec9a8"/>
+        </marker>
+      </defs>
+
+      <!-- ============ LAYER 1: CLIENTS ============ -->
+      <text x="40" y="40" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">CLIENT LAYER</text>
+      <line x1="40" y1="48" x2="1140" y2="48" stroke="#30363d" stroke-width="1"/>
+
+      <!-- Customer App -->
+      <rect x="80" y="60" width="200" height="80" rx="8" fill="#1e3a5f" stroke="#5b8def" stroke-width="1.5"/>
+      <text x="180" y="88" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Customer Web/Mobile</text>
+      <text x="180" y="106" text-anchor="middle" font-size="11" fill="#a8b8c8">React + Vite</text>
+      <text x="180" y="122" text-anchor="middle" font-size="10" fill="#8b95a3">Checkout · Plans · Payments</text>
+
+      <!-- Merchant Dashboard -->
+      <rect x="320" y="60" width="200" height="80" rx="8" fill="#1e3a5f" stroke="#5b8def" stroke-width="1.5"/>
+      <text x="420" y="88" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Merchant Dashboard</text>
+      <text x="420" y="106" text-anchor="middle" font-size="11" fill="#a8b8c8">React + Vite</text>
+      <text x="420" y="122" text-anchor="middle" font-size="10" fill="#8b95a3">Orders · Settlements · Plans</text>
+
+      <!-- Admin / Ops -->
+      <rect x="560" y="60" width="200" height="80" rx="8" fill="#1e3a5f" stroke="#5b8def" stroke-width="1.5"/>
+      <text x="660" y="88" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Admin / Ops Console</text>
+      <text x="660" y="106" text-anchor="middle" font-size="11" fill="#a8b8c8">React + Vite</text>
+      <text x="660" y="122" text-anchor="middle" font-size="10" fill="#8b95a3">Collections · Scoring · Plans</text>
+
+      <!-- External callers (other Nesisoft products) -->
+      <rect x="800" y="60" width="300" height="80" rx="8" fill="#3a2a4f" stroke="#a07cc5" stroke-width="1.5" stroke-dasharray="4,3"/>
+      <text x="950" y="84" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Other Nesisoft Products</text>
+      <text x="950" y="102" text-anchor="middle" font-size="11" fill="#c5b0e0">Ejua · Meko · Pharmacy POS</text>
+      <text x="950" y="120" text-anchor="middle" font-size="10" fill="#8b95a3">consume via Public API</text>
+
+      <!-- ============ LAYER 2: API GATEWAY ============ -->
+      <text x="40" y="180" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">EDGE</text>
+      <line x1="40" y1="188" x2="1140" y2="188" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="80" y="200" width="1020" height="50" rx="8" fill="#1f2d3d" stroke="#4a6a8a" stroke-width="1.5"/>
+      <text x="590" y="220" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">API Gateway / BFF</text>
+      <text x="590" y="238" text-anchor="middle" font-size="11" fill="#a8b8c8">NestJS REST + Webhook endpoints · JWT auth · Rate limiting · Idempotency keys · Request validation (Zod)</text>
+
+      <!-- ============ LAYER 3: CORE MODULES ============ -->
+      <text x="40" y="285" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">CORE DOMAIN MODULES — NestJS</text>
+      <line x1="40" y1="293" x2="1140" y2="293" stroke="#30363d" stroke-width="1"/>
+
+      <!-- Row 1 of modules -->
+      <g>
+        <rect x="80" y="305" width="155" height="75" rx="6" fill="#1a3a2e" stroke="#4ec9a8" stroke-width="1.5"/>
+        <text x="157" y="328" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Plans</text>
+        <text x="157" y="346" text-anchor="middle" font-size="10" fill="#a0d4c0">Templates</text>
+        <text x="157" y="360" text-anchor="middle" font-size="10" fill="#a0d4c0">Calculator</text>
+        <text x="157" y="374" text-anchor="middle" font-size="10" fill="#a0d4c0">Eligibility rules</text>
+
+        <rect x="250" y="305" width="155" height="75" rx="6" fill="#1a3a2e" stroke="#4ec9a8" stroke-width="1.5"/>
+        <text x="327" y="328" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Applications</text>
+        <text x="327" y="346" text-anchor="middle" font-size="10" fill="#a0d4c0">Onboarding</text>
+        <text x="327" y="360" text-anchor="middle" font-size="10" fill="#a0d4c0">KYC / Ghana Card</text>
+        <text x="327" y="374" text-anchor="middle" font-size="10" fill="#a0d4c0">Approval workflow</text>
+
+        <rect x="420" y="305" width="155" height="75" rx="6" fill="#3a2e1a" stroke="#d4a93a" stroke-width="1.5"/>
+        <text x="497" y="328" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Scoring</text>
+        <text x="497" y="346" text-anchor="middle" font-size="10" fill="#d4c090">Rules engine</text>
+        <text x="497" y="360" text-anchor="middle" font-size="10" fill="#d4c090">Risk bands</text>
+        <text x="497" y="374" text-anchor="middle" font-size="10" fill="#d4c090">Profile snapshots</text>
+
+        <rect x="590" y="305" width="155" height="75" rx="6" fill="#3a1e2e" stroke="#e07b9e" stroke-width="1.5"/>
+        <text x="667" y="328" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Schedules</text>
+        <text x="667" y="346" text-anchor="middle" font-size="10" fill="#e0a5b8">State machine</text>
+        <text x="667" y="360" text-anchor="middle" font-size="10" fill="#e0a5b8">Generation</text>
+        <text x="667" y="374" text-anchor="middle" font-size="10" fill="#e0a5b8">Source of truth</text>
+
+        <rect x="760" y="305" width="155" height="75" rx="6" fill="#3a1e2e" stroke="#e07b9e" stroke-width="1.5"/>
+        <text x="837" y="328" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Payments</text>
+        <text x="837" y="346" text-anchor="middle" font-size="10" fill="#e0a5b8">Paystack adapter</text>
+        <text x="837" y="360" text-anchor="middle" font-size="10" fill="#e0a5b8">Webhook handler</text>
+        <text x="837" y="374" text-anchor="middle" font-size="10" fill="#e0a5b8">Attempt log</text>
+
+        <rect x="930" y="305" width="155" height="75" rx="6" fill="#2e1a3a" stroke="#a07cc5" stroke-width="1.5"/>
+        <text x="1007" y="328" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Collections</text>
+        <text x="1007" y="346" text-anchor="middle" font-size="10" fill="#c5a8d8">Escalation</text>
+        <text x="1007" y="360" text-anchor="middle" font-size="10" fill="#c5a8d8">Cases · Actions</text>
+        <text x="1007" y="374" text-anchor="middle" font-size="10" fill="#c5a8d8">Restructuring</text>
+      </g>
+
+      <!-- Row 2 of modules -->
+      <g>
+        <rect x="80" y="395" width="155" height="75" rx="6" fill="#1a2e3a" stroke="#5b8def" stroke-width="1.5"/>
+        <text x="157" y="418" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Settlements</text>
+        <text x="157" y="436" text-anchor="middle" font-size="10" fill="#a8c0e0">Merchant payouts</text>
+        <text x="157" y="450" text-anchor="middle" font-size="10" fill="#a8c0e0">Reserve accounts</text>
+        <text x="157" y="464" text-anchor="middle" font-size="10" fill="#a8c0e0">Reconciliation</text>
+
+        <rect x="250" y="395" width="155" height="75" rx="6" fill="#1a2e3a" stroke="#5b8def" stroke-width="1.5"/>
+        <text x="327" y="418" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Notifications</text>
+        <text x="327" y="436" text-anchor="middle" font-size="10" fill="#a8c0e0">SMS · Email · Push</text>
+        <text x="327" y="450" text-anchor="middle" font-size="10" fill="#a8c0e0">Templates</text>
+        <text x="327" y="464" text-anchor="middle" font-size="10" fill="#a8c0e0">Delivery tracking</text>
+
+        <rect x="420" y="395" width="155" height="75" rx="6" fill="#1a2e3a" stroke="#5b8def" stroke-width="1.5"/>
+        <text x="497" y="418" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Merchants</text>
+        <text x="497" y="436" text-anchor="middle" font-size="10" fill="#a8c0e0">Onboarding</text>
+        <text x="497" y="450" text-anchor="middle" font-size="10" fill="#a8c0e0">Category configs</text>
+        <text x="497" y="464" text-anchor="middle" font-size="10" fill="#a8c0e0">Fee tiers</text>
+
+        <rect x="590" y="395" width="155" height="75" rx="6" fill="#1a2e3a" stroke="#5b8def" stroke-width="1.5"/>
+        <text x="667" y="418" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Customers</text>
+        <text x="667" y="436" text-anchor="middle" font-size="10" fill="#a8c0e0">Profiles · KYC</text>
+        <text x="667" y="450" text-anchor="middle" font-size="10" fill="#a8c0e0">Payment methods</text>
+        <text x="667" y="464" text-anchor="middle" font-size="10" fill="#a8c0e0">Consent log</text>
+
+        <rect x="760" y="395" width="155" height="75" rx="6" fill="#1a2e3a" stroke="#5b8def" stroke-width="1.5"/>
+        <text x="837" y="418" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Employers</text>
+        <text x="837" y="436" text-anchor="middle" font-size="10" fill="#a8c0e0">Partnership mgmt</text>
+        <text x="837" y="450" text-anchor="middle" font-size="10" fill="#a8c0e0">Payroll ingestion</text>
+        <text x="837" y="464" text-anchor="middle" font-size="10" fill="#a8c0e0">Salary deductions</text>
+
+        <rect x="930" y="395" width="155" height="75" rx="6" fill="#2e2e2e" stroke="#8b95a3" stroke-width="1.5"/>
+        <text x="1007" y="418" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Audit · Events</text>
+        <text x="1007" y="436" text-anchor="middle" font-size="10" fill="#c0c0c0">Append-only log</text>
+        <text x="1007" y="450" text-anchor="middle" font-size="10" fill="#c0c0c0">Domain events</text>
+        <text x="1007" y="464" text-anchor="middle" font-size="10" fill="#c0c0c0">Compliance trail</text>
+      </g>
+
+      <!-- ============ LAYER 4: WORKERS ============ -->
+      <text x="40" y="500" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">ASYNC WORKERS — BullMQ</text>
+      <line x1="40" y1="508" x2="1140" y2="508" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="80" y="520" width="195" height="65" rx="6" fill="#2a1f3a" stroke="#a07cc5" stroke-width="1.2"/>
+      <text x="177" y="542" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Debit Scheduler</text>
+      <text x="177" y="560" text-anchor="middle" font-size="10" fill="#c5a8d8">picks due installments</text>
+      <text x="177" y="574" text-anchor="middle" font-size="10" fill="#c5a8d8">enqueues debit jobs</text>
+
+      <rect x="290" y="520" width="195" height="65" rx="6" fill="#2a1f3a" stroke="#a07cc5" stroke-width="1.2"/>
+      <text x="387" y="542" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Debit Worker</text>
+      <text x="387" y="560" text-anchor="middle" font-size="10" fill="#c5a8d8">calls Paystack charge</text>
+      <text x="387" y="574" text-anchor="middle" font-size="10" fill="#c5a8d8">handles retries</text>
+
+      <rect x="500" y="520" width="195" height="65" rx="6" fill="#2a1f3a" stroke="#a07cc5" stroke-width="1.2"/>
+      <text x="597" y="542" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Reconciliation Worker</text>
+      <text x="597" y="560" text-anchor="middle" font-size="10" fill="#c5a8d8">nightly sweep</text>
+      <text x="597" y="574" text-anchor="middle" font-size="10" fill="#c5a8d8">resolves stuck states</text>
+
+      <rect x="710" y="520" width="195" height="65" rx="6" fill="#2a1f3a" stroke="#a07cc5" stroke-width="1.2"/>
+      <text x="807" y="542" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Notification Worker</text>
+      <text x="807" y="560" text-anchor="middle" font-size="10" fill="#c5a8d8">SMS · Email dispatch</text>
+      <text x="807" y="574" text-anchor="middle" font-size="10" fill="#c5a8d8">reminder cadence</text>
+
+      <rect x="920" y="520" width="195" height="65" rx="6" fill="#2a1f3a" stroke="#a07cc5" stroke-width="1.2"/>
+      <text x="1017" y="542" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Collections Worker</text>
+      <text x="1017" y="560" text-anchor="middle" font-size="10" fill="#c5a8d8">stage escalation</text>
+      <text x="1017" y="574" text-anchor="middle" font-size="10" fill="#c5a8d8">case automation</text>
+
+      <!-- ============ LAYER 5: DATA STORES ============ -->
+      <text x="40" y="620" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">PERSISTENCE</text>
+      <line x1="40" y1="628" x2="1140" y2="628" stroke="#30363d" stroke-width="1"/>
+
+      <!-- PostgreSQL -->
+      <rect x="120" y="645" width="380" height="100" rx="8" fill="#1a2a3a" stroke="#5b8def" stroke-width="1.5"/>
+      <text x="310" y="672" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">PostgreSQL 16</text>
+      <text x="310" y="692" text-anchor="middle" font-size="10" fill="#a8c0e0">customer_plans · installment_schedule · payment_attempts</text>
+      <text x="310" y="708" text-anchor="middle" font-size="10" fill="#a8c0e0">credit_profiles · collections_cases · merchants · settlements</text>
+      <text x="310" y="724" text-anchor="middle" font-size="10" fill="#a8c0e0">audit_events · idempotency_keys · plan_templates</text>
+      <text x="310" y="740" text-anchor="middle" font-size="9" fill="#8b95a3" font-style="italic">Drizzle ORM · pgBouncer · daily backups + PITR</text>
+
+      <!-- Redis -->
+      <rect x="540" y="645" width="280" height="100" rx="8" fill="#3a1f1f" stroke="#e07b7b" stroke-width="1.5"/>
+      <text x="680" y="672" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">Redis 7</text>
+      <text x="680" y="692" text-anchor="middle" font-size="10" fill="#e0b8b8">BullMQ queues · distributed locks</text>
+      <text x="680" y="708" text-anchor="middle" font-size="10" fill="#e0b8b8">idempotency cache · rate limit counters</text>
+      <text x="680" y="724" text-anchor="middle" font-size="10" fill="#e0b8b8">hot reads · session store</text>
+
+      <!-- Object Storage -->
+      <rect x="860" y="645" width="220" height="100" rx="8" fill="#2a2a2a" stroke="#a0a0a0" stroke-width="1.5"/>
+      <text x="970" y="672" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">Object Storage</text>
+      <text x="970" y="692" text-anchor="middle" font-size="10" fill="#c0c0c0">S3-compatible</text>
+      <text x="970" y="708" text-anchor="middle" font-size="10" fill="#c0c0c0">Ghana Card images</text>
+      <text x="970" y="724" text-anchor="middle" font-size="10" fill="#c0c0c0">Statements · settlement reports</text>
+
+      <!-- ============ LAYER 6: EXTERNAL INTEGRATIONS ============ -->
+      <text x="40" y="785" font-size="11" font-weight="600" fill="#8b95a3" letter-spacing="1.5">EXTERNAL INTEGRATIONS</text>
+      <line x1="40" y1="793" x2="1140" y2="793" stroke="#30363d" stroke-width="1"/>
+
+      <rect x="80" y="805" width="200" height="75" rx="8" fill="#2d1f0d" stroke="#d4a93a" stroke-width="1.8"/>
+      <text x="180" y="828" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Paystack</text>
+      <text x="180" y="846" text-anchor="middle" font-size="10" fill="#e0c890">Card charges</text>
+      <text x="180" y="860" text-anchor="middle" font-size="10" fill="#e0c890">Mobile Money (MoMo)</text>
+      <text x="180" y="874" text-anchor="middle" font-size="10" fill="#e0c890">Transfers · Webhooks</text>
+
+      <rect x="300" y="805" width="200" height="75" rx="8" fill="#0d2d24" stroke="#4ec9a8" stroke-width="1.5"/>
+      <text x="400" y="828" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">SMS Gateway</text>
+      <text x="400" y="846" text-anchor="middle" font-size="10" fill="#90e0c0">Hubtel / Arkesel</text>
+      <text x="400" y="860" text-anchor="middle" font-size="10" fill="#90e0c0">Reminders · OTP</text>
+      <text x="400" y="874" text-anchor="middle" font-size="10" fill="#90e0c0">Collections messages</text>
+
+      <rect x="520" y="805" width="200" height="75" rx="8" fill="#0d1d2d" stroke="#5b8def" stroke-width="1.5"/>
+      <text x="620" y="828" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Ghana Card Verify</text>
+      <text x="620" y="846" text-anchor="middle" font-size="10" fill="#a8c0e0">NIA endpoint</text>
+      <text x="620" y="860" text-anchor="middle" font-size="10" fill="#a8c0e0">or 3rd-party KYC</text>
+      <text x="620" y="874" text-anchor="middle" font-size="10" fill="#a8c0e0">identity check</text>
+
+      <rect x="740" y="805" width="200" height="75" rx="8" fill="#2d0d1d" stroke="#e07b9e" stroke-width="1.5"/>
+      <text x="840" y="828" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Email Provider</text>
+      <text x="840" y="846" text-anchor="middle" font-size="10" fill="#e0a8c0">SendGrid / Postmark</text>
+      <text x="840" y="860" text-anchor="middle" font-size="10" fill="#e0a8c0">Statements</text>
+      <text x="840" y="874" text-anchor="middle" font-size="10" fill="#e0a8c0">Receipts</text>
+
+      <rect x="960" y="805" width="160" height="75" rx="8" fill="#1d1d2d" stroke="#a07cc5" stroke-width="1.5"/>
+      <text x="1040" y="828" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Observability</text>
+      <text x="1040" y="846" text-anchor="middle" font-size="10" fill="#c0a8e0">Sentry · Logs</text>
+      <text x="1040" y="860" text-anchor="middle" font-size="10" fill="#c0a8e0">Metrics</text>
+      <text x="1040" y="874" text-anchor="middle" font-size="10" fill="#c0a8e0">Alerts</text>
+
+      <!-- ============ CONNECTIONS ============ -->
+      <!-- Clients to gateway -->
+      <line x1="180" y1="140" x2="180" y2="200" stroke="#5b8def" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="420" y1="140" x2="420" y2="200" stroke="#5b8def" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="660" y1="140" x2="660" y2="200" stroke="#5b8def" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="950" y1="140" x2="950" y2="200" stroke="#a07cc5" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+      <!-- Gateway to modules -->
+      <line x1="590" y1="250" x2="590" y2="305" stroke="#5b8def" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <!-- Modules to data stores -->
+      <line x1="310" y1="470" x2="310" y2="645" stroke="#4a6a8a" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow)"/>
+      <line x1="667" y1="470" x2="500" y2="645" stroke="#4a6a8a" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow)"/>
+
+      <!-- Workers to Redis -->
+      <line x1="387" y1="585" x2="600" y2="645" stroke="#e07b7b" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow)"/>
+      <line x1="807" y1="585" x2="720" y2="645" stroke="#e07b7b" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow)"/>
+
+      <!-- Workers to externals -->
+      <line x1="387" y1="585" x2="200" y2="805" stroke="#d4a93a" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+      <line x1="807" y1="585" x2="420" y2="805" stroke="#4ec9a8" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+      <!-- Paystack webhook in (reverse arrow) -->
+      <line x1="180" y1="805" x2="500" y2="250" stroke="#d4a93a" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-amber)"/>
+      <text x="280" y="540" font-size="10" fill="#d4a93a" font-style="italic" transform="rotate(-50 280 540)">webhook</text>
+
+    </svg>
+
+    <div class="legend">
+      <div class="legend-item"><span class="legend-swatch" style="background:#1e3a5f;border-color:#5b8def"></span>Client apps</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#1a3a2e;border-color:#4ec9a8"></span>Plan / Application modules</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#3a2e1a;border-color:#d4a93a"></span>Scoring</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#3a1e2e;border-color:#e07b9e"></span>Schedules / Payments (core)</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#2a1f3a;border-color:#a07cc5"></span>Async workers</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#1a2a3a;border-color:#5b8def"></span>PostgreSQL</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#3a1f1f;border-color:#e07b7b"></span>Redis</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:#2d1f0d;border-color:#d4a93a"></span>Paystack</div>
+    </div>
+  </div>
+</body>
+</html>
