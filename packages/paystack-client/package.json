@@ -1,0 +1,6 @@
+{
+  "name": "@installment/paystack-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Typed Paystack SDK wrapper. Populated in Phase 2."
+}

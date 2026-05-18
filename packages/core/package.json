@@ -1,0 +1,6 @@
+{
+  "name": "@installment/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared domain modules (the modular monolith). Populated from Phase 2 onward."
+}
