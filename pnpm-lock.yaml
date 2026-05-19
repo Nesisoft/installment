@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  drizzle-orm: 0.45.2
+
 importers:
 
   .:
@@ -121,9 +124,15 @@ importers:
 
   packages/core:
     dependencies:
+      '@installment/db':
+        specifier: workspace:*
+        version: link:../db
       decimal.js:
         specifier: ^10.4.3
         version: 10.6.0
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(gel@2.2.0)(pg@8.21.0)
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -138,7 +147,7 @@ importers:
   packages/db:
     dependencies:
       drizzle-orm:
-        specifier: ^0.45.2
+        specifier: 0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(gel@2.2.0)(pg@8.21.0)
       pg:
         specifier: ^8.13.1
