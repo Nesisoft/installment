@@ -20,7 +20,8 @@
   "dependencies": {
     "@installment/db": "workspace:*",
     "decimal.js": "^10.4.3",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
