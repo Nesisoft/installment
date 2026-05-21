@@ -18,6 +18,7 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,json,md,yaml,yml}\"",
     "migrate": "pnpm --filter @installment/db migrate",
     "db:reset": "pnpm --filter @installment/db reset",
+    "db:seed:dev": "pnpm --filter @installment/db seed:dev",
     "db:introspect": "pnpm --filter @installment/db introspect",
     "db:up": "docker compose --env-file .env -f infra/docker/docker-compose.yml up -d",
     "db:down": "docker compose --env-file .env -f infra/docker/docker-compose.yml down",

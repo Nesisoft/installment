@@ -1,8 +1,47 @@
-import { pgTable, text, timestamp, index, unique, check, uuid, date, boolean, smallint, jsonb, foreignKey, bigint, integer, char } from "drizzle-orm/pg-core"
+import { pgTable, index, unique, check, uuid, text, boolean, timestamp, jsonb, date, smallint, foreignKey, bigint, integer, char, primaryKey } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { citext } from "../../src/citext";
 
 
+
+export const users = pgTable("users", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	email: citext("email").notNull(),
+	name: text().notNull(),
+	password_hash: text(),
+	phone: text(),
+	user_type: text().notNull(),
+	is_active: boolean().default(true).notNull(),
+	last_login_at: timestamp({ withTimezone: true, mode: 'string' }),
+	metadata: jsonb().default({}).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
+}, (table) => [
+	index("users_active_idx").using("btree", table.is_active.asc().nullsLast().op("bool_ops")).where(sql`(is_active AND (deleted_at IS NULL))`),
+	index("users_user_type_idx").using("btree", table.user_type.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
+	unique("users_email_key").on(table.email),
+	unique("users_phone_key").on(table.phone),
+	check("users_user_type_check", sql`user_type = ANY (ARRAY['system'::text, 'admin'::text, 'agent'::text, 'customer'::text, 'merchant'::text])`),
+]);
+
+export const roles = pgTable("roles", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	name: text().notNull(),
+	description: text(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("roles_name_key").on(table.name),
+]);
+
+export const permissions = pgTable("permissions", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	name: text().notNull(),
+	description: text(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("permissions_name_key").on(table.name),
+]);
 
 export const schema_migrations = pgTable("schema_migrations", {
 	filename: text().primaryKey().notNull(),
@@ -41,8 +80,8 @@ export const customers = pgTable("customers", {
 	unique("customers_email_key").on(table.email),
 	unique("customers_phone_key").on(table.phone),
 	unique("customers_ghana_card_number_key").on(table.ghana_card_number),
-	check("customers_momo_provider_check", sql`(momo_provider IS NULL) OR (momo_provider = ANY (ARRAY['mtn'::text, 'tgo'::text, 'vod'::text]))`),
 	check("customers_kyc_tier_check", sql`kyc_tier = ANY (ARRAY[0, 1, 2])`),
+	check("customers_momo_provider_check", sql`(momo_provider IS NULL) OR (momo_provider = ANY (ARRAY['mtn'::text, 'tgo'::text, 'vod'::text]))`),
 ]);
 
 export const customer_employment = pgTable("customer_employment", {
@@ -89,9 +128,9 @@ export const employers = pgTable("employers", {
 	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	check("employers_payroll_cycle_check", sql`payroll_cycle = ANY (ARRAY['weekly'::text, 'biweekly'::text, 'monthly'::text])`),
 	check("employers_sector_check", sql`(sector IS NULL) OR (sector = ANY (ARRAY['public'::text, 'private'::text, 'ngo'::text, 'university'::text]))`),
 	check("employers_status_check", sql`status = ANY (ARRAY['pending'::text, 'active'::text, 'paused'::text, 'terminated'::text])`),
-	check("employers_payroll_cycle_check", sql`payroll_cycle = ANY (ARRAY['weekly'::text, 'biweekly'::text, 'monthly'::text])`),
 ]);
 
 export const applications = pgTable("applications", {
@@ -134,10 +173,10 @@ export const applications = pgTable("applications", {
 			name: "applications_plan_template_id_fkey"
 		}),
 	unique("applications_merchant_id_order_reference_key").on(table.merchant_id, table.order_reference),
-	check("applications_order_amount_pesewas_check", sql`order_amount_pesewas > 0`),
-	check("applications_status_check", sql`status = ANY (ARRAY['pending'::text, 'approved'::text, 'declined'::text, 'counter_offered'::text, 'manual_review'::text, 'expired'::text, 'cancelled'::text])`),
 	check("applications_counter_down_payment_pesewas_check", sql`(counter_down_payment_pesewas IS NULL) OR (counter_down_payment_pesewas >= 0)`),
 	check("applications_counter_financed_pesewas_check", sql`(counter_financed_pesewas IS NULL) OR (counter_financed_pesewas >= 0)`),
+	check("applications_order_amount_pesewas_check", sql`order_amount_pesewas > 0`),
+	check("applications_status_check", sql`status = ANY (ARRAY['pending'::text, 'approved'::text, 'declined'::text, 'counter_offered'::text, 'manual_review'::text, 'expired'::text, 'cancelled'::text])`),
 ]);
 
 export const merchants = pgTable("merchants", {
@@ -202,18 +241,18 @@ export const plan_templates = pgTable("plan_templates", {
 	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index("plan_templates_active_idx").using("btree", table.is_active.asc().nullsLast().op("text_ops"), table.business_model.asc().nullsLast().op("text_ops")).where(sql`(is_active = true)`),
-	check("plan_templates_down_payment_bps_check", sql`(down_payment_bps >= 0) AND (down_payment_bps <= 10000)`),
 	check("plan_templates_business_model_check", sql`business_model = ANY (ARRAY['bnpl'::text, 'layaway'::text, 'hybrid'::text, 'rent_to_own'::text])`),
-	check("plan_templates_number_of_installments_check", sql`(number_of_installments >= 1) AND (number_of_installments <= 24)`),
-	check("plan_templates_installment_frequency_days_check", sql`installment_frequency_days = ANY (ARRAY[7, 14, 30])`),
-	check("plan_templates_interest_rate_bps_check", sql`(interest_rate_bps >= 0) AND (interest_rate_bps <= 10000)`),
-	check("plan_templates_service_fee_flat_pesewas_check", sql`service_fee_flat_pesewas >= 0`),
-	check("plan_templates_late_fee_pesewas_check", sql`late_fee_pesewas >= 0`),
-	check("plan_templates_grace_period_days_check", sql`(grace_period_days >= 0) AND (grace_period_days <= 14)`),
-	check("plan_templates_min_amount_pesewas_check", sql`min_amount_pesewas >= 0`),
-	check("plan_templates_max_amount_pesewas_check", sql`max_amount_pesewas > 0`),
 	check("plan_templates_check", sql`max_amount_pesewas >= min_amount_pesewas`),
 	check("plan_templates_check1", sql`(effective_to IS NULL) OR (effective_to > effective_from)`),
+	check("plan_templates_down_payment_bps_check", sql`(down_payment_bps >= 0) AND (down_payment_bps <= 10000)`),
+	check("plan_templates_grace_period_days_check", sql`(grace_period_days >= 0) AND (grace_period_days <= 14)`),
+	check("plan_templates_installment_frequency_days_check", sql`installment_frequency_days = ANY (ARRAY[7, 14, 30])`),
+	check("plan_templates_interest_rate_bps_check", sql`(interest_rate_bps >= 0) AND (interest_rate_bps <= 10000)`),
+	check("plan_templates_late_fee_pesewas_check", sql`late_fee_pesewas >= 0`),
+	check("plan_templates_max_amount_pesewas_check", sql`max_amount_pesewas > 0`),
+	check("plan_templates_min_amount_pesewas_check", sql`min_amount_pesewas >= 0`),
+	check("plan_templates_number_of_installments_check", sql`(number_of_installments >= 1) AND (number_of_installments <= 24)`),
+	check("plan_templates_service_fee_flat_pesewas_check", sql`service_fee_flat_pesewas >= 0`),
 ]);
 
 export const credit_profiles = pgTable("credit_profiles", {
@@ -242,10 +281,10 @@ export const credit_profiles = pgTable("credit_profiles", {
 			foreignColumns: [customers.id],
 			name: "credit_profiles_customer_id_fkey"
 		}),
-	check("credit_profiles_outcome_check", sql`outcome = ANY (ARRAY['approved'::text, 'approved_tier_2'::text, 'counter_offer'::text, 'manual_review'::text, 'declined'::text])`),
-	check("credit_profiles_score_check", sql`(score >= 0) AND (score <= 1000)`),
-	check("credit_profiles_risk_band_check", sql`risk_band = ANY (ARRAY['prime'::text, 'near_prime'::text, 'subprime'::text, 'unscorable'::text])`),
 	check("credit_profiles_approved_limit_pesewas_check", sql`approved_limit_pesewas >= 0`),
+	check("credit_profiles_outcome_check", sql`outcome = ANY (ARRAY['approved'::text, 'approved_tier_2'::text, 'counter_offer'::text, 'manual_review'::text, 'declined'::text])`),
+	check("credit_profiles_risk_band_check", sql`risk_band = ANY (ARRAY['prime'::text, 'near_prime'::text, 'subprime'::text, 'unscorable'::text])`),
+	check("credit_profiles_score_check", sql`(score >= 0) AND (score <= 1000)`),
 ]);
 
 export const customer_plans = pgTable("customer_plans", {
@@ -290,14 +329,9 @@ export const customer_plans = pgTable("customer_plans", {
 	index("customer_plans_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("text_ops"), table.status.asc().nullsLast().op("text_ops")),
 	index("customer_plans_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("text_ops"), table.status.asc().nullsLast().op("uuid_ops")),
 	foreignKey({
-			columns: [table.plan_template_id],
-			foreignColumns: [plan_templates.id],
-			name: "customer_plans_plan_template_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.merchant_id],
-			foreignColumns: [merchants.id],
-			name: "customer_plans_merchant_id_fkey"
+			columns: [table.application_id],
+			foreignColumns: [applications.id],
+			name: "customer_plans_application_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.customer_id],
@@ -305,9 +339,14 @@ export const customer_plans = pgTable("customer_plans", {
 			name: "customer_plans_customer_id_fkey"
 		}),
 	foreignKey({
-			columns: [table.application_id],
-			foreignColumns: [applications.id],
-			name: "customer_plans_application_id_fkey"
+			columns: [table.merchant_id],
+			foreignColumns: [merchants.id],
+			name: "customer_plans_merchant_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.plan_template_id],
+			foreignColumns: [plan_templates.id],
+			name: "customer_plans_plan_template_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.restructured_from_plan_id],
@@ -315,15 +354,15 @@ export const customer_plans = pgTable("customer_plans", {
 			name: "customer_plans_restructured_from_plan_id_fkey"
 		}),
 	check("customer_plans_business_model_check", sql`business_model = ANY (ARRAY['bnpl'::text, 'layaway'::text, 'hybrid'::text, 'rent_to_own'::text])`),
-	check("customer_plans_order_amount_pesewas_check", sql`order_amount_pesewas > 0`),
-	check("customer_plans_down_payment_pesewas_check", sql`down_payment_pesewas >= 0`),
-	check("customer_plans_financed_amount_pesewas_check", sql`financed_amount_pesewas >= 0`),
-	check("customer_plans_total_interest_pesewas_check", sql`total_interest_pesewas >= 0`),
-	check("customer_plans_total_fees_pesewas_check", sql`total_fees_pesewas >= 0`),
-	check("customer_plans_status_check", sql`status = ANY (ARRAY['active'::text, 'completed'::text, 'defaulted'::text, 'cancelled'::text, 'restructured'::text])`),
-	check("customer_plans_outstanding_pesewas_check", sql`outstanding_pesewas >= 0`),
 	check("customer_plans_check", sql`outstanding_pesewas <= total_payable_pesewas`),
 	check("customer_plans_check1", sql`(down_payment_pesewas + financed_amount_pesewas) = order_amount_pesewas`),
+	check("customer_plans_down_payment_pesewas_check", sql`down_payment_pesewas >= 0`),
+	check("customer_plans_financed_amount_pesewas_check", sql`financed_amount_pesewas >= 0`),
+	check("customer_plans_order_amount_pesewas_check", sql`order_amount_pesewas > 0`),
+	check("customer_plans_outstanding_pesewas_check", sql`outstanding_pesewas >= 0`),
+	check("customer_plans_status_check", sql`status = ANY (ARRAY['active'::text, 'completed'::text, 'defaulted'::text, 'cancelled'::text, 'restructured'::text])`),
+	check("customer_plans_total_fees_pesewas_check", sql`total_fees_pesewas >= 0`),
+	check("customer_plans_total_interest_pesewas_check", sql`total_interest_pesewas >= 0`),
 ]);
 
 export const installment_schedule = pgTable("installment_schedule", {
@@ -360,14 +399,14 @@ export const installment_schedule = pgTable("installment_schedule", {
 			name: "installment_schedule_customer_plan_id_fkey"
 		}).onDelete("restrict"),
 	unique("installment_schedule_customer_plan_id_sequence_number_key").on(table.customer_plan_id, table.sequence_number),
-	check("installment_schedule_sequence_number_check", sql`sequence_number >= 1`),
 	check("installment_schedule_amount_due_pesewas_check", sql`amount_due_pesewas > 0`),
 	check("installment_schedule_amount_paid_pesewas_check", sql`amount_paid_pesewas >= 0`),
-	check("installment_schedule_late_fee_pesewas_check", sql`late_fee_pesewas >= 0`),
-	check("installment_schedule_status_check", sql`status = ANY (ARRAY['pending'::text, 'due'::text, 'processing'::text, 'paid'::text, 'failed'::text, 'retry_scheduled'::text, 'overdue'::text, 'in_collections'::text, 'restructured'::text, 'defaulted'::text, 'waived'::text, 'refunded'::text])`),
 	check("installment_schedule_attempt_count_check", sql`attempt_count >= 0`),
 	check("installment_schedule_check", sql`amount_paid_pesewas <= (amount_due_pesewas + late_fee_pesewas)`),
 	check("installment_schedule_check1", sql`grace_until_date >= due_date`),
+	check("installment_schedule_late_fee_pesewas_check", sql`late_fee_pesewas >= 0`),
+	check("installment_schedule_sequence_number_check", sql`sequence_number >= 1`),
+	check("installment_schedule_status_check", sql`status = ANY (ARRAY['pending'::text, 'due'::text, 'processing'::text, 'paid'::text, 'failed'::text, 'retry_scheduled'::text, 'overdue'::text, 'in_collections'::text, 'restructured'::text, 'defaulted'::text, 'waived'::text, 'refunded'::text])`),
 ]);
 
 export const payment_attempts = pgTable("payment_attempts", {
@@ -393,22 +432,22 @@ export const payment_attempts = pgTable("payment_attempts", {
 }, (table) => [
 	index("payment_attempts_in_flight_idx").using("btree", table.status.asc().nullsLast().op("text_ops"), table.initiated_at.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = ANY (ARRAY['in_flight'::text, 'unknown'::text]))`),
 	index("payment_attempts_provider_ref_idx").using("btree", table.provider_reference.asc().nullsLast().op("text_ops")).where(sql`(provider_reference IS NOT NULL)`),
-	index("payment_attempts_schedule_idx").using("btree", table.schedule_id.asc().nullsLast().op("uuid_ops"), table.initiated_at.desc().nullsFirst().op("uuid_ops")),
-	foreignKey({
-			columns: [table.schedule_id],
-			foreignColumns: [installment_schedule.id],
-			name: "payment_attempts_schedule_id_fkey"
-		}),
+	index("payment_attempts_schedule_idx").using("btree", table.schedule_id.asc().nullsLast().op("uuid_ops"), table.initiated_at.desc().nullsFirst().op("timestamptz_ops")),
 	foreignKey({
 			columns: [table.customer_plan_id],
 			foreignColumns: [customer_plans.id],
 			name: "payment_attempts_customer_plan_id_fkey"
 		}),
+	foreignKey({
+			columns: [table.schedule_id],
+			foreignColumns: [installment_schedule.id],
+			name: "payment_attempts_schedule_id_fkey"
+		}),
 	unique("payment_attempts_idempotency_key_key").on(table.idempotency_key),
-	check("payment_attempts_provider_check", sql`provider = ANY (ARRAY['paystack'::text, 'manual'::text])`),
+	check("payment_attempts_amount_pesewas_check", sql`amount_pesewas > 0`),
 	check("payment_attempts_channel_check", sql`channel = ANY (ARRAY['auto_debit'::text, 'payment_link'::text, 'manual_entry'::text])`),
 	check("payment_attempts_payment_method_check", sql`(payment_method IS NULL) OR (payment_method = ANY (ARRAY['momo'::text, 'card'::text, 'bank_transfer'::text]))`),
-	check("payment_attempts_amount_pesewas_check", sql`amount_pesewas > 0`),
+	check("payment_attempts_provider_check", sql`provider = ANY (ARRAY['paystack'::text, 'manual'::text])`),
 	check("payment_attempts_status_check", sql`status = ANY (ARRAY['in_flight'::text, 'unknown'::text, 'succeeded'::text, 'failed'::text])`),
 ]);
 
@@ -478,19 +517,19 @@ export const held_reserves = pgTable("held_reserves", {
 	index("held_reserves_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("timestamptz_ops"), table.fully_released_at.asc().nullsLast().op("timestamptz_ops")).where(sql`(fully_released_at IS NULL)`),
 	index("held_reserves_plan_idx").using("btree", table.customer_plan_id.asc().nullsLast().op("uuid_ops")),
 	foreignKey({
-			columns: [table.merchant_id],
-			foreignColumns: [merchants.id],
-			name: "held_reserves_merchant_id_fkey"
-		}),
-	foreignKey({
 			columns: [table.customer_plan_id],
 			foreignColumns: [customer_plans.id],
 			name: "held_reserves_customer_plan_id_fkey"
 		}),
-	check("held_reserves_business_model_check", sql`business_model = ANY (ARRAY['bnpl'::text, 'layaway'::text, 'hybrid'::text, 'rent_to_own'::text])`),
+	foreignKey({
+			columns: [table.merchant_id],
+			foreignColumns: [merchants.id],
+			name: "held_reserves_merchant_id_fkey"
+		}),
 	check("held_reserves_amount_pesewas_check", sql`amount_pesewas > 0`),
-	check("held_reserves_released_amount_pesewas_check", sql`released_amount_pesewas >= 0`),
+	check("held_reserves_business_model_check", sql`business_model = ANY (ARRAY['bnpl'::text, 'layaway'::text, 'hybrid'::text, 'rent_to_own'::text])`),
 	check("held_reserves_check", sql`(released_amount_pesewas + consumed_for_default_pesewas) <= amount_pesewas`),
+	check("held_reserves_released_amount_pesewas_check", sql`released_amount_pesewas >= 0`),
 ]);
 
 export const collections_cases = pgTable("collections_cases", {
@@ -511,6 +550,11 @@ export const collections_cases = pgTable("collections_cases", {
 }, (table) => [
 	index("collections_cases_agent_idx").using("btree", table.assigned_agent_id.asc().nullsLast().op("uuid_ops")).where(sql`(closed_at IS NULL)`),
 	index("collections_cases_open_idx").using("btree", table.current_stage.asc().nullsLast().op("text_ops"), table.opened_at.asc().nullsLast().op("text_ops")).where(sql`(closed_at IS NULL)`),
+	foreignKey({
+			columns: [table.assigned_agent_id],
+			foreignColumns: [users.id],
+			name: "collections_cases_assigned_agent_fk"
+		}).onDelete("set null"),
 	foreignKey({
 			columns: [table.customer_plan_id],
 			foreignColumns: [customer_plans.id],
@@ -542,6 +586,11 @@ export const collections_actions = pgTable("collections_actions", {
 			foreignColumns: [collections_cases.id],
 			name: "collections_actions_case_id_fkey"
 		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.performed_by],
+			foreignColumns: [users.id],
+			name: "collections_actions_performed_by_fk"
+		}).onDelete("set null"),
 	check("collections_actions_action_type_check", sql`action_type = ANY (ARRAY['sms_sent'::text, 'email_sent'::text, 'call_made'::text, 'visit_scheduled'::text, 'visit_completed'::text, 'note_added'::text, 'stage_changed'::text])`),
 ]);
 
@@ -564,9 +613,9 @@ export const notifications = pgTable("notifications", {
 }, (table) => [
 	index("notifications_pending_idx").using("btree", table.status.asc().nullsLast().op("text_ops"), table.queued_at.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'queued'::text)`),
 	index("notifications_recipient_idx").using("btree", table.recipient_type.asc().nullsLast().op("text_ops"), table.recipient_id.asc().nullsLast().op("timestamptz_ops"), table.queued_at.desc().nullsFirst().op("text_ops")),
-	check("notifications_recipient_type_check", sql`recipient_type = ANY (ARRAY['customer'::text, 'merchant'::text, 'admin'::text])`),
 	check("notifications_channel_check", sql`channel = ANY (ARRAY['sms'::text, 'email'::text, 'push'::text, 'in_app'::text])`),
 	check("notifications_provider_check", sql`(provider IS NULL) OR (provider = ANY (ARRAY['hubtel'::text, 'arkesel'::text, 'sendgrid'::text, 'postmark'::text, 'fcm'::text]))`),
+	check("notifications_recipient_type_check", sql`recipient_type = ANY (ARRAY['customer'::text, 'merchant'::text, 'admin'::text])`),
 	check("notifications_status_check", sql`status = ANY (ARRAY['queued'::text, 'sent'::text, 'delivered'::text, 'failed'::text, 'bounced'::text])`),
 ]);
 
@@ -595,6 +644,11 @@ export const rule_definitions = pgTable("rule_definitions", {
 	created_by: uuid(),
 }, (table) => [
 	index("rule_definitions_active_idx").using("btree", table.ruleset_version.asc().nullsLast().op("text_ops"), table.is_active.asc().nullsLast().op("text_ops")).where(sql`(is_active = true)`),
+	foreignKey({
+			columns: [table.created_by],
+			foreignColumns: [users.id],
+			name: "rule_definitions_created_by_fk"
+		}).onDelete("set null"),
 	unique("rule_definitions_ruleset_version_rule_id_key").on(table.ruleset_version, table.rule_id),
 	check("rule_definitions_category_check", sql`category = ANY (ARRAY['hard_gate'::text, 'score'::text, 'exposure'::text])`),
 ]);
@@ -614,10 +668,10 @@ export const ledger_entries = pgTable("ledger_entries", {
 }, (table) => [
 	index("ledger_account_balance_idx").using("btree", table.account_type.asc().nullsLast().op("text_ops"), table.account_ref.asc().nullsLast().op("text_ops"), table.occurred_at.asc().nullsLast().op("timestamptz_ops")),
 	index("ledger_transaction_idx").using("btree", table.transaction_id.asc().nullsLast().op("text_ops")),
-	check("ledger_entries_direction_check", sql`direction = ANY (ARRAY['debit'::text, 'credit'::text])`),
 	check("ledger_entries_account_type_check", sql`account_type = ANY (ARRAY['paystack_settlement'::text, 'merchant_payable'::text, 'reserve_held'::text, 'default_pool'::text, 'revenue'::text, 'receivable'::text, 'refund_payable'::text])`),
 	check("ledger_entries_amount_pesewas_check", sql`amount_pesewas > 0`),
 	check("ledger_entries_currency_check", sql`currency = 'GHS'::bpchar`),
+	check("ledger_entries_direction_check", sql`direction = ANY (ARRAY['debit'::text, 'credit'::text])`),
 ]);
 
 export const audit_events = pgTable("audit_events", {
@@ -637,4 +691,48 @@ export const audit_events = pgTable("audit_events", {
 	index("audit_events_entity_idx").using("btree", table.entity_type.asc().nullsLast().op("uuid_ops"), table.entity_id.asc().nullsLast().op("uuid_ops"), table.occurred_at.desc().nullsFirst().op("text_ops")),
 	index("audit_events_time_idx").using("btree", table.occurred_at.desc().nullsFirst().op("timestamptz_ops")),
 	check("audit_events_actor_type_check", sql`actor_type = ANY (ARRAY['system'::text, 'worker'::text, 'admin'::text, 'customer'::text, 'webhook'::text, 'merchant'::text])`),
+]);
+
+export const role_permissions = pgTable("role_permissions", {
+	role_id: uuid().notNull(),
+	permission_id: uuid().notNull(),
+	granted_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("role_permissions_permission_idx").using("btree", table.permission_id.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.permission_id],
+			foreignColumns: [permissions.id],
+			name: "role_permissions_permission_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.role_id],
+			foreignColumns: [roles.id],
+			name: "role_permissions_role_id_fkey"
+		}).onDelete("cascade"),
+	primaryKey({ columns: [table.role_id, table.permission_id], name: "role_permissions_pkey"}),
+]);
+
+export const user_roles = pgTable("user_roles", {
+	user_id: uuid().notNull(),
+	role_id: uuid().notNull(),
+	granted_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	granted_by: uuid(),
+}, (table) => [
+	index("user_roles_role_idx").using("btree", table.role_id.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.granted_by],
+			foreignColumns: [users.id],
+			name: "user_roles_granted_by_fkey"
+		}).onDelete("set null"),
+	foreignKey({
+			columns: [table.role_id],
+			foreignColumns: [roles.id],
+			name: "user_roles_role_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.user_id],
+			foreignColumns: [users.id],
+			name: "user_roles_user_id_fkey"
+		}).onDelete("cascade"),
+	primaryKey({ columns: [table.user_id, table.role_id], name: "user_roles_pkey"}),
 ]);

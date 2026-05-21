@@ -21,6 +21,7 @@
     "test": "echo \"@installment/db: no unit tests yet\" && exit 0",
     "migrate": "tsx src/migrate.ts",
     "reset": "tsx src/reset.ts",
+    "seed:dev": "tsx src/seed.ts",
     "introspect": "drizzle-kit introspect && tsx scripts/fix-introspect.ts"
   },
   "dependencies": {
