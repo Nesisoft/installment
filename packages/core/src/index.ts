@@ -11,5 +11,33 @@ export * from './modules/merchants/state-machine';
 export * from './modules/merchants/dto';
 export * from './modules/merchants/errors';
 export * from './modules/merchants/merchants.service';
+export {
+  registerCustomerSchema,
+  updateCustomerSchema,
+  attachGhanaCardSchema,
+  setMomoSchema,
+  setBlocklistSchema,
+  recordConsentSchema,
+  listCustomersSchema,
+  type RegisterCustomerInput,
+  type UpdateCustomerInput,
+  type AttachGhanaCardInput,
+  type SetMomoInput,
+  type SetBlocklistInput,
+  type RecordConsentInput,
+  type ConsentType,
+  type ListCustomersInput,
+} from './modules/customers/dto';
+export {
+  CustomerNotFoundError,
+  GhanaCardNotAttachedError,
+  GhanaCardVerificationFailedError,
+} from './modules/customers/errors';
+export * from './modules/customers/ghana-card-verifier';
+export {
+  CustomersService,
+  type Customer,
+  type CustomerActor,
+} from './modules/customers/customers.service';
 export * from './shared/constants/system-actors';
 export * from './shared/test-fixtures/users';
