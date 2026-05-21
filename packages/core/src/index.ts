@@ -91,5 +91,33 @@ export {
   type PlanTemplate,
   type PlanTemplateActor,
 } from './modules/plans/plan-templates.service';
+export {
+  createStaffSchema,
+  createMerchantUserSchema,
+  createCustomerUserSchema,
+  type CreateStaffInput,
+  type CreateMerchantUserInput,
+  type CreateCustomerUserInput,
+} from './modules/users/dto';
+export * from './modules/users/errors';
+export { UsersService, type User, type UserActor } from './modules/users/users.service';
+export {
+  loginSchema,
+  otpStartSchema,
+  otpVerifySchema,
+  refreshSchema,
+  type LoginInput,
+  type OtpStartInput,
+  type OtpVerifyInput,
+  type RefreshInput,
+} from './modules/auth/dto';
+export * from './modules/auth/errors';
+export {
+  AuthService,
+  type AuthServiceDeps,
+  type AuthResult,
+  type AuthTokens,
+  type SmsSender,
+} from './modules/auth/auth.service';
 export * from './shared/constants/system-actors';
 export * from './shared/test-fixtures/users';
