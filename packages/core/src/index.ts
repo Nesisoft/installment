@@ -39,5 +39,37 @@ export {
   type Customer,
   type CustomerActor,
 } from './modules/customers/customers.service';
+export * from './modules/employers/state-machine';
+export {
+  createEmployerSchema,
+  updateEmployerSchema,
+  transitionEmployerSchema,
+  listEmployersSchema,
+  linkEmploymentSchema,
+  updateEmploymentSchema,
+  transitionEmploymentSchema,
+  recordPayrollConsentSchema,
+  listEmploymentSchema,
+  type CreateEmployerInput,
+  type UpdateEmployerInput,
+  type TransitionEmployerInput,
+  type ListEmployersInput,
+  type LinkEmploymentInput,
+  type UpdateEmploymentInput,
+  type TransitionEmploymentInput,
+  type RecordPayrollConsentInput,
+  type ListEmploymentInput,
+} from './modules/employers/dto';
+export * from './modules/employers/errors';
+export {
+  EmployersService,
+  type Employer,
+  type EmployerActor,
+} from './modules/employers/employers.service';
+export {
+  CustomerEmploymentService,
+  type Employment,
+  type EmploymentActor,
+} from './modules/employers/customer-employment.service';
 export * from './shared/constants/system-actors';
 export * from './shared/test-fixtures/users';
