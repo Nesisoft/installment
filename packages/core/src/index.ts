@@ -71,5 +71,21 @@ export {
   type Employment,
   type EmploymentActor,
 } from './modules/employers/customer-employment.service';
+export {
+  createPlanTemplateSchema,
+  updatePlanTemplateSchema,
+  listPlanTemplatesSchema,
+  PLAN_TEMPLATE_FREQUENCIES,
+  type CreatePlanTemplateInput,
+  type UpdatePlanTemplateInput,
+  type ListPlanTemplatesInput,
+  type PlanTemplateBusinessModel,
+} from './modules/plans/dto';
+export * from './modules/plans/errors';
+export {
+  PlanTemplatesService,
+  type PlanTemplate,
+  type PlanTemplateActor,
+} from './modules/plans/plan-templates.service';
 export * from './shared/constants/system-actors';
 export * from './shared/test-fixtures/users';
