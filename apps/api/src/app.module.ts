@@ -1,12 +1,17 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv, type Env } from './config/env.validation';
 import { DbModule } from './db/db.module';
 import { RedisModule } from './redis/redis.module';
+import { CoreModule } from './core/core.module';
 import { HealthModule } from './health/health.module';
-import { SentryExceptionFilter } from './sentry/sentry.filter';
+import { AuthController } from './auth/auth.controller';
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { PermissionsGuard } from './auth/permissions.guard';
+import { MerchantsController } from './modules/merchants.controller';
+import { DomainExceptionFilter } from './common/domain-exception.filter';
 
 @Module({
   imports: [
@@ -30,8 +35,15 @@ import { SentryExceptionFilter } from './sentry/sentry.filter';
     }),
     DbModule,
     RedisModule,
+    CoreModule,
     HealthModule,
   ],
-  providers: [{ provide: APP_FILTER, useClass: SentryExceptionFilter }],
+  controllers: [AuthController, MerchantsController],
+  providers: [
+    { provide: APP_FILTER, useClass: DomainExceptionFilter },
+    // Order matters: authenticate first, then check permissions.
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
+  ],
 })
 export class AppModule {}

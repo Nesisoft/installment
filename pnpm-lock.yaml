@@ -43,6 +43,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@installment/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@installment/db':
         specifier: workspace:*
         version: link:../../packages/db
