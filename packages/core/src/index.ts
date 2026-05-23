@@ -9,6 +9,14 @@ export * from './shared/validators/ghana';
 export * from './modules/scoring/types';
 export * from './modules/scoring/ruleset';
 export { ScoringEngine } from './modules/scoring/scoring-engine';
+export * from './modules/applications/state-machine';
+export * from './modules/applications/dto';
+export * from './modules/applications/errors';
+export {
+  ApplicationsService,
+  type Application,
+  type ApplicationActor,
+} from './modules/applications/applications.service';
 export * from './shared/auth/password.service';
 export * from './shared/auth/jwt.service';
 export * from './shared/auth/otp.service';
