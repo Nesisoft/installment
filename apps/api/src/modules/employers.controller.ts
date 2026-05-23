@@ -1,8 +1,11 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import { CustomerEmploymentService, EmployersService, PERMISSIONS } from '@installment/core';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf, numOrUndefined } from '../auth/current-actor';
 
+@ApiTags('employers')
+@ApiBearerAuth()
 @Controller('admin/employers')
 export class EmployersController {
   constructor(

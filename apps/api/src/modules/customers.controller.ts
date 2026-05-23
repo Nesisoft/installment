@@ -1,8 +1,11 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import { CustomersService, PERMISSIONS } from '@installment/core';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf, numOrUndefined } from '../auth/current-actor';
 
+@ApiTags('customers')
+@ApiBearerAuth()
 @Controller('admin/customers')
 export class CustomersController {
   constructor(private readonly customers: CustomersService) {}

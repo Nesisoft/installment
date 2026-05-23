@@ -1,8 +1,11 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import { PERMISSIONS, PlanTemplatesService } from '@installment/core';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf, numOrUndefined } from '../auth/current-actor';
 
+@ApiTags('plan-templates')
+@ApiBearerAuth()
 @Controller('admin/plan-templates')
 export class PlanTemplatesController {
   constructor(private readonly plans: PlanTemplatesService) {}

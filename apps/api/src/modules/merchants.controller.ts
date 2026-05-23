@@ -5,6 +5,7 @@ import {
   type AuditActorType,
   type MerchantActor,
 } from '@installment/core';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 
 function toActorType(userType: string): AuditActorType {
@@ -23,6 +24,8 @@ function toActorType(userType: string): AuditActorType {
 const numOrUndefined = (v: unknown): number | undefined =>
   v === undefined || v === '' ? undefined : Number(v);
 
+@ApiTags('merchants')
+@ApiBearerAuth()
 @Controller('admin/merchants')
 export class MerchantsController {
   constructor(private readonly merchants: MerchantsService) {}

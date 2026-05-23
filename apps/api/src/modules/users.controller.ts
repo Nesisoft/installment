@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
 import { PERMISSIONS, UsersService, type User } from '@installment/core';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
 
@@ -13,6 +14,8 @@ function sanitize(user: User): Omit<User, 'password_hash'> {
  * Admin user management. Creating staff/merchant/customer users and assigning
  * roles all require users:write (held by the admin role).
  */
+@ApiTags('users')
+@ApiBearerAuth()
 @Controller('admin/users')
 export class UsersController {
   constructor(private readonly users: UsersService) {}
