@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PERMISSIONS, PermissionDeniedError, isPermission } from './permissions';
 
 describe('permissions', () => {
-  it('mirrors the names seeded in migration 0002', () => {
+  it('mirrors the names seeded in migrations 0002 + 0003', () => {
     expect(Object.values(PERMISSIONS).sort()).toEqual(
       [
         'applications:review',
@@ -10,9 +10,13 @@ describe('permissions', () => {
         'collections:act',
         'customers:read',
         'customers:write',
+        'employers:read',
+        'employers:write',
         'merchants:read',
         'merchants:write',
+        'plans:read',
         'plans:write',
+        'users:write',
       ].sort(),
     );
   });

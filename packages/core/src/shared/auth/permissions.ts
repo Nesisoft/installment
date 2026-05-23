@@ -1,15 +1,20 @@
 /**
  * Canonical permission names — must mirror the `permissions` rows seeded in
- * migration 0002_users_and_rbac.sql. Format: 'resource:action'.
+ * migrations 0002_users_and_rbac.sql and 0003_phase3_permissions.sql.
+ * Format: 'resource:action'.
  */
 export const PERMISSIONS = {
   MERCHANTS_READ: 'merchants:read',
   MERCHANTS_WRITE: 'merchants:write',
   CUSTOMERS_READ: 'customers:read',
   CUSTOMERS_WRITE: 'customers:write',
+  EMPLOYERS_READ: 'employers:read',
+  EMPLOYERS_WRITE: 'employers:write',
   APPLICATIONS_REVIEW: 'applications:review',
   COLLECTIONS_ACT: 'collections:act',
+  PLANS_READ: 'plans:read',
   PLANS_WRITE: 'plans:write',
+  USERS_WRITE: 'users:write',
   AUDIT_READ: 'audit:read',
 } as const;
 

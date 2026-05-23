@@ -11,6 +11,10 @@ import { AuthController } from './auth/auth.controller';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { PermissionsGuard } from './auth/permissions.guard';
 import { MerchantsController } from './modules/merchants.controller';
+import { CustomersController } from './modules/customers.controller';
+import { EmployersController } from './modules/employers.controller';
+import { PlanTemplatesController } from './modules/plan-templates.controller';
+import { UsersController } from './modules/users.controller';
 import { DomainExceptionFilter } from './common/domain-exception.filter';
 
 @Module({
@@ -38,7 +42,14 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     CoreModule,
     HealthModule,
   ],
-  controllers: [AuthController, MerchantsController],
+  controllers: [
+    AuthController,
+    MerchantsController,
+    CustomersController,
+    EmployersController,
+    PlanTemplatesController,
+    UsersController,
+  ],
   providers: [
     { provide: APP_FILTER, useClass: DomainExceptionFilter },
     // Order matters: authenticate first, then check permissions.

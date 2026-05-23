@@ -4,10 +4,15 @@ import type Redis from 'ioredis';
 import {
   AuditLogger,
   AuthService,
+  CustomerEmploymentService,
+  CustomersService,
+  EmployersService,
   JwtService,
   MerchantsService,
+  MockGhanaCardVerifier,
   OtpService,
   PasswordService,
+  PlanTemplatesService,
   UsersService,
   type SmsSender,
 } from '@installment/core';
@@ -59,6 +64,28 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, AuditLogger],
     },
     {
+      provide: CustomersService,
+      // Real NIA Ghana Card verification arrives in a later phase; mock for now.
+      useFactory: (db: Database, audit: AuditLogger) =>
+        new CustomersService(db, audit, new MockGhanaCardVerifier()),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: EmployersService,
+      useFactory: (db: Database, audit: AuditLogger) => new EmployersService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: CustomerEmploymentService,
+      useFactory: (db: Database, audit: AuditLogger) => new CustomerEmploymentService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: PlanTemplatesService,
+      useFactory: (db: Database, audit: AuditLogger) => new PlanTemplatesService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
       provide: AuthService,
       useFactory: (
         users: UsersService,
@@ -87,6 +114,10 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     UsersService,
     AuthService,
     MerchantsService,
+    CustomersService,
+    EmployersService,
+    CustomerEmploymentService,
+    PlanTemplatesService,
   ],
 })
 export class CoreModule {}
