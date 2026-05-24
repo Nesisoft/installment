@@ -1,9 +1,18 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction } from '../../shared/event-bus/transaction';
 import { ScheduleGenerator, type ScheduleBusinessModel } from './schedule-generator';
-import { CustomerPlanNotFoundError, PlanActivationError, PlanAlreadyActiveError } from './errors';
+import { SCHEDULE_TERMINAL_STATES, type ScheduleStatus } from './state-machine';
+import { recordManualPaymentSchema } from './dto';
+import {
+  CustomerPlanNotFoundError,
+  InstallmentNotPayableError,
+  PlanActivationError,
+  PlanAlreadyActiveError,
+  ScheduleConcurrencyError,
+  ScheduleNotFoundError,
+} from './errors';
 
 const cp = schema.customer_plans;
 const sched = schema.installment_schedule;
@@ -22,6 +31,11 @@ export interface PlanActor {
 export interface ActivatedPlan {
   plan: CustomerPlan;
   schedule: InstallmentScheduleRow[];
+}
+
+export interface ManualPaymentResult {
+  schedule: InstallmentScheduleRow;
+  plan: CustomerPlan;
 }
 
 /**
@@ -151,6 +165,96 @@ export class CustomerPlansService {
 
       schedule.sort((a, b) => a.sequence_number - b.sequence_number);
       return { plan, schedule };
+    });
+  }
+
+  /**
+   * Records an out-of-band payment against one installment (admin override):
+   * marks it paid, decrements the plan's outstanding balance, completes the
+   * plan when nothing remains, and audits each change — all atomically.
+   */
+  async recordManualPayment(
+    scheduleId: string,
+    rawInput: unknown,
+    actor: PlanActor,
+    now: Date = new Date(),
+  ): Promise<ManualPaymentResult> {
+    const input = recordManualPaymentSchema.parse(rawInput);
+    const nowIso = now.toISOString();
+    const providerReference = input.provider_reference ?? 'manual';
+
+    return runInTransaction(this.db, async (tx) => {
+      const installment = (
+        await tx.select().from(sched).where(eq(sched.id, scheduleId)).for('update').limit(1)
+      )[0];
+      if (!installment) throw new ScheduleNotFoundError(scheduleId);
+
+      const from = installment.status as ScheduleStatus;
+      if (from === 'paid' || SCHEDULE_TERMINAL_STATES.has(from)) {
+        throw new InstallmentNotPayableError(scheduleId, from);
+      }
+
+      const amountDue = installment.amount_due_pesewas;
+      const settled = amountDue + installment.late_fee_pesewas;
+      const [updatedSchedule] = await tx
+        .update(sched)
+        .set({
+          status: 'paid',
+          amount_paid_pesewas: settled,
+          paid_at: nowIso,
+          status_changed_at: nowIso,
+          provider_reference: providerReference,
+          version: installment.version + 1,
+        })
+        .where(and(eq(sched.id, scheduleId), eq(sched.version, installment.version)))
+        .returning();
+      if (!updatedSchedule) throw new ScheduleConcurrencyError(scheduleId);
+
+      const plan = (
+        await tx
+          .select()
+          .from(cp)
+          .where(eq(cp.id, installment.customer_plan_id))
+          .for('update')
+          .limit(1)
+      )[0];
+      if (!plan) throw new CustomerPlanNotFoundError(installment.customer_plan_id);
+
+      const newOutstanding = Math.max(0, plan.outstanding_pesewas - amountDue);
+      const completed = newOutstanding === 0 && plan.status === 'active';
+      const [updatedPlan] = await tx
+        .update(cp)
+        .set({
+          outstanding_pesewas: newOutstanding,
+          ...(completed ? { status: 'completed', completed_at: nowIso } : {}),
+        })
+        .where(eq(cp.id, plan.id))
+        .returning();
+
+      await this.audit.append(tx, {
+        entityType: 'installment_schedule',
+        entityId: scheduleId,
+        eventType: 'schedule.manual_payment',
+        fromState: from,
+        toState: 'paid',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reason: input.reason,
+        metadata: { amount_pesewas: settled, provider_reference: providerReference },
+      });
+      if (completed) {
+        await this.audit.append(tx, {
+          entityType: 'customer_plan',
+          entityId: plan.id,
+          eventType: 'customer_plan.completed',
+          fromState: 'active',
+          toState: 'completed',
+          actorId: actor.actorId,
+          actorType: actor.actorType,
+        });
+      }
+
+      return { schedule: updatedSchedule, plan: updatedPlan! };
     });
   }
 

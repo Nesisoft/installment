@@ -10,7 +10,7 @@ import { MockGhanaCardVerifier } from '../customers/ghana-card-verifier';
 import { PlanTemplatesService } from '../plans/plan-templates.service';
 import { ApplicationsService } from '../applications/applications.service';
 import { CustomerPlansService } from './customer-plans.service';
-import { PlanActivationError, PlanAlreadyActiveError } from './errors';
+import { InstallmentNotPayableError, PlanActivationError, PlanAlreadyActiveError } from './errors';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
@@ -162,6 +162,48 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration)', () => {
     const appId = await submit(bnplTemplateId); // left pending
     await expect(plans.activateFromApplication(appId, ACTOR)).rejects.toBeInstanceOf(
       PlanActivationError,
+    );
+  });
+
+  it('records a manual payment, marks the installment paid, and decrements outstanding', async () => {
+    const appId = await approved(bnplTemplateId);
+    const { schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    const { schedule: paid, plan } = await plans.recordManualPayment(
+      schedule[0]!.id,
+      { provider_reference: 'cash-001', reason: 'paid at branch' },
+      ACTOR,
+    );
+
+    expect(paid.status).toBe('paid');
+    expect(paid.amount_paid_pesewas).toBe(25_000);
+    expect(paid.paid_at).not.toBeNull();
+    expect(paid.provider_reference).toBe('cash-001');
+    expect(plan.outstanding_pesewas).toBe(75_000);
+    expect(plan.status).toBe('active');
+  });
+
+  it('completes the plan when the final installment is paid', async () => {
+    const appId = await approved(bnplTemplateId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    let last;
+    for (const installment of schedule) {
+      last = await plans.recordManualPayment(installment.id, {}, ACTOR);
+    }
+
+    expect(last!.plan.outstanding_pesewas).toBe(0);
+    expect(last!.plan.status).toBe('completed');
+    expect(last!.plan.completed_at).not.toBeNull();
+    expect((await plans.get(plan.id)).status).toBe('completed');
+  });
+
+  it('refuses to pay an already-paid installment', async () => {
+    const appId = await approved(bnplTemplateId);
+    const { schedule } = await plans.activateFromApplication(appId, ACTOR);
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    await expect(plans.recordManualPayment(schedule[0]!.id, {}, ACTOR)).rejects.toBeInstanceOf(
+      InstallmentNotPayableError,
     );
   });
 });

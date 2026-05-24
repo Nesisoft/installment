@@ -55,12 +55,14 @@ export {
   type InstallmentKind,
 } from './modules/schedules/schedule-generator';
 export * from './modules/schedules/errors';
+export { recordManualPaymentSchema, type RecordManualPaymentInput } from './modules/schedules/dto';
 export {
   CustomerPlansService,
   type CustomerPlan,
   type InstallmentScheduleRow,
   type PlanActor,
   type ActivatedPlan,
+  type ManualPaymentResult,
 } from './modules/schedules/customer-plans.service';
 export {
   ScheduleStateService,

@@ -41,6 +41,7 @@ const NAME_STATUS: Record<string, number> = {
   IllegalEmploymentTransitionError: HttpStatus.CONFLICT,
   IllegalApplicationTransitionError: HttpStatus.CONFLICT,
   PlanAlreadyActiveError: HttpStatus.CONFLICT,
+  InstallmentNotPayableError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
   // 422
   GhanaCardNotAttachedError: HttpStatus.UNPROCESSABLE_ENTITY,

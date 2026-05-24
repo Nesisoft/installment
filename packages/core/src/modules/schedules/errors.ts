@@ -35,3 +35,11 @@ export class ScheduleConcurrencyError extends Error {
     this.name = 'ScheduleConcurrencyError';
   }
 }
+
+/** The installment is already paid or in a terminal state, so it can't be paid. */
+export class InstallmentNotPayableError extends Error {
+  constructor(id: string, status: string) {
+    super(`Installment ${id} cannot be paid from status "${status}"`);
+    this.name = 'InstallmentNotPayableError';
+  }
+}
