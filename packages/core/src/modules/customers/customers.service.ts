@@ -114,13 +114,12 @@ export class CustomersService {
     return row;
   }
 
-  /** Look up a customer by their (canonicalised) phone. Used to map an
-   * authenticated customer principal to their domain record. */
-  async findByPhone(phone: string): Promise<Customer | undefined> {
+  /** Resolve the customer linked to an authenticated login (users.id). */
+  async findByUserId(userId: string): Promise<Customer | undefined> {
     const rows = await this.db
       .select()
       .from(c)
-      .where(and(eq(c.phone, phone), isNull(c.deleted_at)))
+      .where(and(eq(c.user_id, userId), isNull(c.deleted_at)))
       .limit(1);
     return rows[0];
   }

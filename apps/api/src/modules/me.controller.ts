@@ -4,21 +4,19 @@ import {
   CustomerPlanNotFoundError,
   CustomerPlansService,
   CustomersService,
-  UsersService,
 } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators';
 
 /**
  * Customer self-service. The JWT identifies a `users` row; the domain
- * `customers` record is resolved by the account's (canonicalised) phone.
+ * `customers` record is resolved by the explicit customers.user_id link.
  */
 @ApiTags('me')
 @ApiBearerAuth()
 @Controller('me')
 export class MeController {
   constructor(
-    private readonly users: UsersService,
     private readonly customers: CustomersService,
     private readonly plans: CustomerPlansService,
   ) {}
@@ -41,8 +39,7 @@ export class MeController {
   }
 
   private async resolveCustomerId(user: AuthenticatedUser): Promise<string> {
-    const account = await this.users.getById(user.id);
-    const customer = account.phone ? await this.customers.findByPhone(account.phone) : undefined;
+    const customer = await this.customers.findByUserId(user.id);
     if (!customer) throw new CustomerNotFoundError(user.id);
     return customer.id;
   }

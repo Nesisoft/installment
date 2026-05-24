@@ -73,13 +73,20 @@ export const customers = pgTable("customers", {
 	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
+	user_id: uuid(),
 }, (table) => [
 	index("customers_blocklist_idx").using("btree", table.is_on_blocklist.asc().nullsLast().op("bool_ops")).where(sql`(is_on_blocklist = true)`),
 	index("customers_kyc_tier_idx").using("btree", table.kyc_tier.asc().nullsLast().op("int2_ops")).where(sql`(deleted_at IS NULL)`),
 	index("customers_phone_idx").using("btree", table.phone.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
+	foreignKey({
+			columns: [table.user_id],
+			foreignColumns: [users.id],
+			name: "customers_user_id_fkey"
+		}).onDelete("set null"),
 	unique("customers_email_key").on(table.email),
 	unique("customers_phone_key").on(table.phone),
 	unique("customers_ghana_card_number_key").on(table.ghana_card_number),
+	unique("customers_user_id_key").on(table.user_id),
 	check("customers_kyc_tier_check", sql`kyc_tier = ANY (ARRAY[0, 1, 2])`),
 	check("customers_momo_provider_check", sql`(momo_provider IS NULL) OR (momo_provider = ANY (ARRAY['mtn'::text, 'tgo'::text, 'vod'::text]))`),
 ]);
