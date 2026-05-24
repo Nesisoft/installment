@@ -78,6 +78,22 @@ export {
   type StatementSummary,
   type StatementInput,
 } from './modules/statements/statement';
+export {
+  classifyFailure,
+  PAYSTACK_DECLINE_MAP,
+  type FailureClass,
+} from './modules/payments/failure-classifier';
+export {
+  AttemptRepository,
+  type PaymentAttempt,
+  type PaymentProvider,
+  type PaymentChannel,
+  type PaymentMethod,
+  type AttemptStatus,
+  type CreateAttemptInput,
+  type UpdateAttemptInput,
+} from './modules/payments/attempt-repository';
+export * from './modules/payments/errors';
 export * from './modules/applications/dto';
 export * from './modules/applications/errors';
 export {
