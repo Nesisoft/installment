@@ -16,6 +16,7 @@ import { EmployersController } from './modules/employers.controller';
 import { PlanTemplatesController } from './modules/plan-templates.controller';
 import { UsersController } from './modules/users.controller';
 import { ScoringController } from './modules/scoring.controller';
+import { PlansController } from './modules/plans.controller';
 import { DomainExceptionFilter } from './common/domain-exception.filter';
 
 @Module({
@@ -51,6 +52,7 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     PlanTemplatesController,
     UsersController,
     ScoringController,
+    PlansController,
   ],
   providers: [
     { provide: APP_FILTER, useClass: DomainExceptionFilter },

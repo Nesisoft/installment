@@ -6,6 +6,7 @@ import {
   AuditLogger,
   AuthService,
   CustomerEmploymentService,
+  CustomerPlansService,
   CustomersService,
   EmployersService,
   FeatureCollector,
@@ -107,6 +108,11 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE],
     },
     {
+      provide: CustomerPlansService,
+      useFactory: (db: Database, audit: AuditLogger) => new CustomerPlansService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
       provide: AuthService,
       useFactory: (
         users: UsersService,
@@ -142,6 +148,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     ApplicationsService,
     ScoringService,
     RulesetLoader,
+    CustomerPlansService,
   ],
 })
 export class CoreModule {}

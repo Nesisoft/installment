@@ -30,6 +30,7 @@ const NAME_STATUS: Record<string, number> = {
   PlanTemplateNotFoundError: HttpStatus.NOT_FOUND,
   ApplicationNotFoundError: HttpStatus.NOT_FOUND,
   ScoringDecisionNotFoundError: HttpStatus.NOT_FOUND,
+  CustomerPlanNotFoundError: HttpStatus.NOT_FOUND,
   // 409
   UserConflictError: HttpStatus.CONFLICT,
   MerchantConflictError: HttpStatus.CONFLICT,
@@ -39,11 +40,13 @@ const NAME_STATUS: Record<string, number> = {
   IllegalEmployerTransitionError: HttpStatus.CONFLICT,
   IllegalEmploymentTransitionError: HttpStatus.CONFLICT,
   IllegalApplicationTransitionError: HttpStatus.CONFLICT,
+  PlanAlreadyActiveError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
   // 422
   GhanaCardNotAttachedError: HttpStatus.UNPROCESSABLE_ENTITY,
   GhanaCardVerificationFailedError: HttpStatus.UNPROCESSABLE_ENTITY,
   PlanTemplateInactiveError: HttpStatus.UNPROCESSABLE_ENTITY,
+  PlanActivationError: HttpStatus.UNPROCESSABLE_ENTITY,
   LedgerError: HttpStatus.UNPROCESSABLE_ENTITY,
 };
 
