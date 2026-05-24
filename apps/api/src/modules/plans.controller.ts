@@ -1,5 +1,10 @@
-import { Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
-import { CustomerPlansService, PERMISSIONS } from '@installment/core';
+import { Controller, Get, Header, HttpCode, Param, Post } from '@nestjs/common';
+import {
+  CustomerPlansService,
+  PERMISSIONS,
+  renderStatementCsv,
+  renderStatementHtml,
+} from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
@@ -29,5 +34,29 @@ export class PlansController {
   @ApiOperation({ summary: 'The installment schedule for a plan, ordered by sequence' })
   schedule(@Param('id') id: string) {
     return this.plans.getSchedule(id);
+  }
+
+  @Get(':id/statement')
+  @RequirePermissions(PERMISSIONS.PLANS_READ)
+  @ApiOperation({ summary: 'Customer-facing statement (structured JSON)' })
+  statement(@Param('id') id: string) {
+    return this.plans.getStatement(id);
+  }
+
+  @Get(':id/statement.csv')
+  @RequirePermissions(PERMISSIONS.PLANS_READ)
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="statement.csv"')
+  @ApiOperation({ summary: 'Statement as a CSV download (opens in Excel)' })
+  async statementCsv(@Param('id') id: string): Promise<string> {
+    return renderStatementCsv(await this.plans.getStatement(id));
+  }
+
+  @Get(':id/statement.html')
+  @RequirePermissions(PERMISSIONS.PLANS_READ)
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  @ApiOperation({ summary: 'Printable HTML statement (print → PDF)' })
+  async statementHtml(@Param('id') id: string): Promise<string> {
+    return renderStatementHtml(await this.plans.getStatement(id));
   }
 }

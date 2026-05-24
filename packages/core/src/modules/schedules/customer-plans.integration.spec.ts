@@ -139,6 +139,18 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration)', () => {
     expect(await lastPlanEvent(plan.id)).toBe('customer_plan.activated');
   });
 
+  it('builds a statement from the live plan + schedule + customer/merchant', async () => {
+    const appId = await approved(bnplTemplateId);
+    const { plan } = await plans.activateFromApplication(appId, ACTOR);
+
+    const statement = await plans.getStatement(plan.id);
+    expect(statement.planId).toBe(plan.id);
+    expect(statement.customerName).toBe('Ama Mensah');
+    expect(statement.merchantName).not.toBeNull();
+    expect(statement.summary.totalPayable).toBe('GHS 1,000.00');
+    expect(statement.lines).toHaveLength(4);
+  });
+
   it('activates a hybrid plan into a down-payment row plus 3 installments', async () => {
     const appId = await approved(hybridTemplateId);
     const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);

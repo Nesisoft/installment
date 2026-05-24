@@ -69,6 +69,15 @@ export {
   type ScheduleEventContext,
   type ScheduleTransition,
 } from './modules/schedules/schedule-state.service';
+export {
+  buildStatement,
+  renderStatementCsv,
+  renderStatementHtml,
+  type Statement,
+  type StatementLine,
+  type StatementSummary,
+  type StatementInput,
+} from './modules/statements/statement';
 export * from './modules/applications/dto';
 export * from './modules/applications/errors';
 export {

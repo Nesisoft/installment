@@ -13,12 +13,14 @@ import {
   ScheduleConcurrencyError,
   ScheduleNotFoundError,
 } from './errors';
+import { buildStatement, type Statement } from '../statements/statement';
 
 const cp = schema.customer_plans;
 const sched = schema.installment_schedule;
 const apps = schema.applications;
 const templates = schema.plan_templates;
 const merchants = schema.merchants;
+const customers = schema.customers;
 
 export type CustomerPlan = typeof schema.customer_plans.$inferSelect;
 export type InstallmentScheduleRow = typeof schema.installment_schedule.$inferSelect;
@@ -279,5 +281,33 @@ export class CustomerPlansService {
       .from(sched)
       .where(eq(sched.customer_plan_id, planId))
       .orderBy(sched.sequence_number);
+  }
+
+  /** Assembles a customer-facing statement (plan summary + installment lines). */
+  async getStatement(planId: string, now: Date = new Date()): Promise<Statement> {
+    const plan = await this.get(planId);
+    const schedule = await this.getSchedule(planId);
+    const cust = (
+      await this.db
+        .select({ first: customers.first_name, last: customers.last_name })
+        .from(customers)
+        .where(eq(customers.id, plan.customer_id))
+        .limit(1)
+    )[0];
+    const merch = (
+      await this.db
+        .select({ name: merchants.business_name })
+        .from(merchants)
+        .where(eq(merchants.id, plan.merchant_id))
+        .limit(1)
+    )[0];
+
+    return buildStatement({
+      plan,
+      schedule,
+      customerName: cust ? `${cust.first} ${cust.last}` : 'Unknown',
+      merchantName: merch?.name ?? null,
+      now,
+    });
   }
 }
