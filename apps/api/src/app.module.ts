@@ -18,6 +18,7 @@ import { UsersController } from './modules/users.controller';
 import { ScoringController } from './modules/scoring.controller';
 import { PlansController } from './modules/plans.controller';
 import { InstallmentsController } from './modules/installments.controller';
+import { MeController } from './modules/me.controller';
 import { DomainExceptionFilter } from './common/domain-exception.filter';
 
 @Module({
@@ -55,6 +56,7 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     ScoringController,
     PlansController,
     InstallmentsController,
+    MeController,
   ],
   providers: [
     { provide: APP_FILTER, useClass: DomainExceptionFilter },

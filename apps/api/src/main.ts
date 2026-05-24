@@ -26,6 +26,7 @@ function setupOpenApi(app: INestApplication): void {
     .addTag('users', 'Staff / merchant / customer user administration')
     .addTag('scoring', 'Credit scoring: decisions, dry-runs, rule breakdown')
     .addTag('plans', 'Customer plan activation + installment schedules')
+    .addTag('me', 'Customer self-service: own plans + schedules')
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document, {

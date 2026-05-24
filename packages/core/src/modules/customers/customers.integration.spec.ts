@@ -174,4 +174,12 @@ describe.skipIf(!RUN_DB)('CustomersService (integration)', () => {
       svc.update(randomUUID(), { first_name: 'x' }, SYSTEM_ACTOR),
     ).rejects.toBeInstanceOf(CustomerNotFoundError);
   });
+
+  it('finds a customer by canonicalised phone (and misses unknown numbers)', async () => {
+    const svc = makeSvc();
+    const created = await svc.register(input(), SYSTEM_ACTOR);
+    const found = await svc.findByPhone(created.phone); // stored as +233…
+    expect(found?.id).toBe(created.id);
+    expect(await svc.findByPhone('+233200000001')).toBeUndefined();
+  });
 });

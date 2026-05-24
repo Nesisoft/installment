@@ -114,6 +114,17 @@ export class CustomersService {
     return row;
   }
 
+  /** Look up a customer by their (canonicalised) phone. Used to map an
+   * authenticated customer principal to their domain record. */
+  async findByPhone(phone: string): Promise<Customer | undefined> {
+    const rows = await this.db
+      .select()
+      .from(c)
+      .where(and(eq(c.phone, phone), isNull(c.deleted_at)))
+      .limit(1);
+    return rows[0];
+  }
+
   // --------------------------------------------------------------------- update
 
   async update(id: string, rawPatch: unknown, actor: CustomerActor): Promise<Customer> {
