@@ -1,0 +1,38 @@
+{
+  "name": "@installment/db",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./schema": {
+      "types": "./dist/drizzle/_introspect/schema.d.ts",
+      "default": "./dist/drizzle/_introspect/schema.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "echo \"@installment/db: no unit tests yet\" && exit 0",
+    "migrate": "tsx src/migrate.ts",
+    "reset": "tsx src/reset.ts",
+    "seed:dev": "tsx src/seed.ts",
+    "introspect": "drizzle-kit introspect && tsx scripts/fix-introspect.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "dotenv": "^16.4.5",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

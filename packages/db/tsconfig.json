@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./dist",
+    "baseUrl": "."
+  },
+  "include": ["src/**/*.ts", "drizzle/_introspect/schema.ts", "drizzle/_introspect/relations.ts"],
+  "exclude": ["node_modules", "dist"]
+}

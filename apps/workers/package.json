@@ -1,0 +1,6 @@
+{
+  "name": "@installment/workers",
+  "version": "0.0.0",
+  "private": true,
+  "description": "BullMQ worker entry points. Populated from Phase 7 onward."
+}

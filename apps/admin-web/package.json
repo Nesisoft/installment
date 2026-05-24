@@ -1,0 +1,6 @@
+{
+  "name": "@installment/admin-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React admin / ops console. Populated in Phase 10."
+}

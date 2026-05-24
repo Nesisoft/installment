@@ -1,0 +1,6 @@
+{
+  "name": "@installment/customer-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React customer dashboard. Populated in Phase 10."
+}

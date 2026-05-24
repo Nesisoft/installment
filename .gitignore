@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# turbo
+.turbo/
+
+# test / coverage
+coverage/
+
+# env
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+logs/
+
+# local database / redis state (used for in-container verification)
+.pgdata/
+.redis/
+*.pid
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
