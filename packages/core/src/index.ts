@@ -8,6 +8,13 @@ export * from './shared/idempotency/drizzle-store';
 export * from './shared/validators/ghana';
 export * from './modules/scoring/types';
 export * from './modules/scoring/ruleset';
+export {
+  RULE_LIBRARY,
+  RULE_BLUEPRINTS,
+  buildRule,
+  type RuleBlueprint,
+} from './modules/scoring/rule-library';
+export { RulesetLoader, type RulesetLoaderOptions } from './modules/scoring/ruleset-loader';
 export { ScoringEngine } from './modules/scoring/scoring-engine';
 export type {
   Collector,

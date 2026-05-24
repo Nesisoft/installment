@@ -15,6 +15,7 @@ import {
   OtpService,
   PasswordService,
   PlanTemplatesService,
+  RulesetLoader,
   ScoringEngine,
   ScoringService,
   UsersService,
@@ -101,6 +102,11 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, ApplicationsService],
     },
     {
+      provide: RulesetLoader,
+      useFactory: (db: Database) => new RulesetLoader(db),
+      inject: [DRIZZLE],
+    },
+    {
       provide: AuthService,
       useFactory: (
         users: UsersService,
@@ -135,6 +141,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     PlanTemplatesService,
     ApplicationsService,
     ScoringService,
+    RulesetLoader,
   ],
 })
 export class CoreModule {}
