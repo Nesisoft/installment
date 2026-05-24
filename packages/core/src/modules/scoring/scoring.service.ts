@@ -1,10 +1,11 @@
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { runInTransaction } from '../../shared/event-bus/transaction';
 import { ScoringEngine } from './scoring-engine';
 import { FeatureCollector } from './feature-collector';
 import type { FeatureVector, ScoringDecision } from './types';
 import { toCreditProfileValues, toRecordDecisionInput } from './decision-mapping';
+import { ScoringDecisionNotFoundError } from './errors';
 import {
   ApplicationsService,
   type Application,
@@ -68,6 +69,19 @@ export class ScoringService {
   /** Score an arbitrary feature vector (rule playground). */
   scoreFeatures(features: FeatureVector, now?: Date): ScoringDecision {
     return this.engine.score(features, now);
+  }
+
+  /** The most recent decision recorded for an application, with rule breakdown. */
+  async latestDecision(applicationId: string): Promise<CreditProfile> {
+    const rows = await this.db
+      .select()
+      .from(cp)
+      .where(eq(cp.application_id, applicationId))
+      .orderBy(desc(cp.decided_at))
+      .limit(1);
+    const row = rows[0];
+    if (!row) throw new ScoringDecisionNotFoundError(applicationId);
+    return row;
   }
 
   private async buildFeatures(

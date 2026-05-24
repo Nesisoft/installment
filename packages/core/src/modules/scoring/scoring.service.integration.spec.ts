@@ -13,6 +13,7 @@ import { IllegalApplicationTransitionError } from '../applications/state-machine
 import { ScoringEngine } from './scoring-engine';
 import { FeatureCollector } from './feature-collector';
 import { ScoringService } from './scoring.service';
+import { ScoringDecisionNotFoundError } from './errors';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
@@ -132,6 +133,17 @@ describe.skipIf(!RUN_DB)('ScoringService (integration)', () => {
 
     expect(await lastAppEvent(appId)).toBe('application.decline');
     expect(await profilesFor(appId)).toHaveLength(1);
+
+    const latest = await scoring.latestDecision(appId);
+    expect(latest.id).toBe(creditProfile.id);
+    expect(latest.outcome).toBe('declined');
+  });
+
+  it('latestDecision throws when the application has never been scored', async () => {
+    const appId = await submit(await newCustomerId());
+    await expect(scoring.latestDecision(appId)).rejects.toBeInstanceOf(
+      ScoringDecisionNotFoundError,
+    );
   });
 
   it('dry-runs without persisting anything', async () => {

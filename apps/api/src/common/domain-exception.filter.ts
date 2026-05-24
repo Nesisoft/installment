@@ -28,13 +28,17 @@ const NAME_STATUS: Record<string, number> = {
   EmployerNotFoundError: HttpStatus.NOT_FOUND,
   EmploymentNotFoundError: HttpStatus.NOT_FOUND,
   PlanTemplateNotFoundError: HttpStatus.NOT_FOUND,
+  ApplicationNotFoundError: HttpStatus.NOT_FOUND,
+  ScoringDecisionNotFoundError: HttpStatus.NOT_FOUND,
   // 409
   UserConflictError: HttpStatus.CONFLICT,
   MerchantConflictError: HttpStatus.CONFLICT,
   DuplicateEmploymentError: HttpStatus.CONFLICT,
+  DuplicateApplicationError: HttpStatus.CONFLICT,
   IllegalMerchantTransitionError: HttpStatus.CONFLICT,
   IllegalEmployerTransitionError: HttpStatus.CONFLICT,
   IllegalEmploymentTransitionError: HttpStatus.CONFLICT,
+  IllegalApplicationTransitionError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
   // 422
   GhanaCardNotAttachedError: HttpStatus.UNPROCESSABLE_ENTITY,

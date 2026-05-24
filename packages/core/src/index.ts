@@ -35,6 +35,7 @@ export {
   type CreditProfile,
   type ScoreResult,
 } from './modules/scoring/scoring.service';
+export * from './modules/scoring/errors';
 export * from './modules/applications/state-machine';
 export * from './modules/applications/dto';
 export * from './modules/applications/errors';

@@ -2,17 +2,21 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type Redis from 'ioredis';
 import {
+  ApplicationsService,
   AuditLogger,
   AuthService,
   CustomerEmploymentService,
   CustomersService,
   EmployersService,
+  FeatureCollector,
   JwtService,
   MerchantsService,
   MockGhanaCardVerifier,
   OtpService,
   PasswordService,
   PlanTemplatesService,
+  ScoringEngine,
+  ScoringService,
   UsersService,
   type SmsSender,
 } from '@installment/core';
@@ -86,6 +90,17 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, AuditLogger],
     },
     {
+      provide: ApplicationsService,
+      useFactory: (db: Database, audit: AuditLogger) => new ApplicationsService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: ScoringService,
+      useFactory: (db: Database, applications: ApplicationsService) =>
+        new ScoringService(db, FeatureCollector.fromDb(db), new ScoringEngine(), applications),
+      inject: [DRIZZLE, ApplicationsService],
+    },
+    {
       provide: AuthService,
       useFactory: (
         users: UsersService,
@@ -118,6 +133,8 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     EmployersService,
     CustomerEmploymentService,
     PlanTemplatesService,
+    ApplicationsService,
+    ScoringService,
   ],
 })
 export class CoreModule {}
