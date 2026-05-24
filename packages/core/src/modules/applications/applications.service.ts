@@ -26,6 +26,9 @@ export interface ApplicationActor {
   actorType: AuditActorType;
 }
 
+/** The Drizzle surface {@link ApplicationsService.applyDecision} needs from a tx. */
+export type DecisionExecutor = Pick<Database, 'select' | 'update' | 'insert'>;
+
 const NON_TERMINAL: ApplicationStatus[] = ['pending', 'counter_offered', 'manual_review'];
 
 /** Maps a scoring DecisionOutcome to the application event that records it. */
@@ -106,42 +109,54 @@ export class ApplicationsService {
     actor: ApplicationActor,
   ): Promise<Application> {
     const input: RecordDecisionInput = recordDecisionSchema.parse(rawInput);
+    return runInTransaction(this.db, (tx) => this.applyDecision(tx, id, input, actor));
+  }
+
+  /**
+   * Records a *parsed* decision within the caller's transaction, so the
+   * application transition + audit row commit atomically with whatever else
+   * the caller writes in the same `tx` (e.g. ScoringService's credit_profiles
+   * row). {@link recordDecision} is the standalone, input-parsing entry point.
+   */
+  async applyDecision(
+    tx: DecisionExecutor,
+    id: string,
+    input: RecordDecisionInput,
+    actor: ApplicationActor,
+  ): Promise<Application> {
     const event = OUTCOME_EVENT[input.outcome];
+    const current = await this.loadWithLock(tx, id);
+    const from = current.status as ApplicationStatus;
+    const to = nextApplicationStatus(from, event);
+    const nowIso = new Date().toISOString();
 
-    return runInTransaction(this.db, async (tx) => {
-      const current = await this.loadWithLock(tx, id);
-      const from = current.status as ApplicationStatus;
-      const to = nextApplicationStatus(from, event);
-      const nowIso = new Date().toISOString();
+    const patch: Partial<typeof a.$inferInsert> = { status: to, decision_at: nowIso };
+    if (input.outcome === 'declined') patch.declined_reason = input.declined_reason ?? null;
+    if (input.outcome === 'counter_offer') {
+      patch.counter_down_payment_pesewas = input.counter_down_payment_pesewas;
+      patch.counter_financed_pesewas = input.counter_financed_pesewas;
+    }
 
-      const patch: Partial<typeof a.$inferInsert> = { status: to, decision_at: nowIso };
-      if (input.outcome === 'declined') patch.declined_reason = input.declined_reason ?? null;
-      if (input.outcome === 'counter_offer') {
-        patch.counter_down_payment_pesewas = input.counter_down_payment_pesewas;
-        patch.counter_financed_pesewas = input.counter_financed_pesewas;
-      }
+    const rows = await tx
+      .update(a)
+      .set(patch)
+      .where(and(eq(a.id, id), eq(a.status, from)))
+      .returning();
+    const row = rows[0];
+    if (!row) throw new ApplicationNotFoundError(id);
 
-      const rows = await tx
-        .update(a)
-        .set(patch)
-        .where(and(eq(a.id, id), eq(a.status, from)))
-        .returning();
-      const row = rows[0];
-      if (!row) throw new ApplicationNotFoundError(id);
-
-      await this.audit.append(tx, {
-        entityType: 'application',
-        entityId: id,
-        eventType: `application.${event}`,
-        fromState: from,
-        toState: to,
-        actorId: actor.actorId,
-        actorType: actor.actorType,
-        reason: input.declined_reason,
-        metadata: { outcome: input.outcome },
-      });
-      return row;
+    await this.audit.append(tx, {
+      entityType: 'application',
+      entityId: id,
+      eventType: `application.${event}`,
+      fromState: from,
+      toState: to,
+      actorId: actor.actorId,
+      actorType: actor.actorType,
+      reason: input.declined_reason,
+      metadata: { outcome: input.outcome },
     });
+    return row;
   }
 
   async acceptCounterOffer(id: string, actor: ApplicationActor): Promise<Application> {

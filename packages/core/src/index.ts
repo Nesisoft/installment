@@ -25,6 +25,16 @@ export { TenureCollector } from './modules/scoring/collectors/tenure.collector';
 export { EmploymentCollector } from './modules/scoring/collectors/employment.collector';
 export { ExposureCollector } from './modules/scoring/collectors/exposure.collector';
 export { FeatureCollector } from './modules/scoring/feature-collector';
+export {
+  toCreditProfileValues,
+  toRecordDecisionInput,
+  declineReason,
+} from './modules/scoring/decision-mapping';
+export {
+  ScoringService,
+  type CreditProfile,
+  type ScoreResult,
+} from './modules/scoring/scoring.service';
 export * from './modules/applications/state-machine';
 export * from './modules/applications/dto';
 export * from './modules/applications/errors';
@@ -32,6 +42,7 @@ export {
   ApplicationsService,
   type Application,
   type ApplicationActor,
+  type DecisionExecutor,
 } from './modules/applications/applications.service';
 export * from './shared/auth/password.service';
 export * from './shared/auth/jwt.service';
