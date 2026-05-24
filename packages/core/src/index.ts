@@ -100,6 +100,13 @@ export {
   type ChargeResult,
 } from './modules/payments/payment.service';
 export * from './modules/payments/errors';
+export {
+  WebhookService,
+  type PaystackWebhookEvent,
+  type WebhookSignatureVerifier,
+  type WebhookIngestResult,
+} from './modules/webhooks/webhook.service';
+export * from './modules/webhooks/errors';
 export * from './modules/applications/dto';
 export * from './modules/applications/errors';
 export {
