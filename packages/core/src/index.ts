@@ -93,6 +93,12 @@ export {
   type CreateAttemptInput,
   type UpdateAttemptInput,
 } from './modules/payments/attempt-repository';
+export {
+  PaymentService,
+  type PaystackChargeClient,
+  type ChargeCardInput,
+  type ChargeResult,
+} from './modules/payments/payment.service';
 export * from './modules/payments/errors';
 export * from './modules/applications/dto';
 export * from './modules/applications/errors';

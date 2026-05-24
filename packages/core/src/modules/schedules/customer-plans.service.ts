@@ -1,9 +1,9 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
-import { runInTransaction } from '../../shared/event-bus/transaction';
+import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
 import { ScheduleGenerator, type ScheduleBusinessModel } from './schedule-generator';
-import { SCHEDULE_TERMINAL_STATES, type ScheduleStatus } from './state-machine';
+import { SCHEDULE_TERMINAL_STATES, nextScheduleStatus, type ScheduleStatus } from './state-machine';
 import { recordManualPaymentSchema } from './dto';
 import {
   CustomerPlanNotFoundError,
@@ -196,68 +196,129 @@ export class CustomerPlansService {
         throw new InstallmentNotPayableError(scheduleId, from);
       }
 
-      const amountDue = installment.amount_due_pesewas;
-      const settled = amountDue + installment.late_fee_pesewas;
-      const [updatedSchedule] = await tx
-        .update(sched)
-        .set({
-          status: 'paid',
-          amount_paid_pesewas: settled,
-          paid_at: nowIso,
-          status_changed_at: nowIso,
-          provider_reference: providerReference,
-          version: installment.version + 1,
-        })
-        .where(and(eq(sched.id, scheduleId), eq(sched.version, installment.version)))
-        .returning();
-      if (!updatedSchedule) throw new ScheduleConcurrencyError(scheduleId);
+      return this.finalisePaidInstallment(tx, installment, from, 'schedule.manual_payment', actor, {
+        nowIso,
+        providerReference,
+        reason: input.reason,
+      });
+    });
+  }
 
-      const plan = (
-        await tx
-          .select()
-          .from(cp)
-          .where(eq(cp.id, installment.customer_plan_id))
-          .for('update')
-          .limit(1)
+  /**
+   * Settles an installment that Paystack confirmed as charged. Only valid from
+   * `processing` (the state machine's charge_succeeded transition) — replays
+   * land here as an illegal transition, which the caller treats idempotently.
+   */
+  async recordChargeSuccess(
+    scheduleId: string,
+    opts: { providerReference: string },
+    actor: PlanActor,
+    now: Date = new Date(),
+  ): Promise<ManualPaymentResult> {
+    const nowIso = now.toISOString();
+    return runInTransaction(this.db, async (tx) => {
+      const installment = (
+        await tx.select().from(sched).where(eq(sched.id, scheduleId)).for('update').limit(1)
       )[0];
-      if (!plan) throw new CustomerPlanNotFoundError(installment.customer_plan_id);
+      if (!installment) throw new ScheduleNotFoundError(scheduleId);
 
-      const newOutstanding = Math.max(0, plan.outstanding_pesewas - amountDue);
-      const completed = newOutstanding === 0 && plan.status === 'active';
-      const [updatedPlan] = await tx
-        .update(cp)
-        .set({
-          outstanding_pesewas: newOutstanding,
-          ...(completed ? { status: 'completed', completed_at: nowIso } : {}),
-        })
-        .where(eq(cp.id, plan.id))
-        .returning();
+      const from = installment.status as ScheduleStatus;
+      nextScheduleStatus(from, 'charge_succeeded'); // validates processing → paid
+      return this.finalisePaidInstallment(
+        tx,
+        installment,
+        from,
+        'schedule.charge_succeeded',
+        actor,
+        {
+          nowIso,
+          providerReference: opts.providerReference,
+        },
+      );
+    });
+  }
 
+  /** Loads one installment row (throws if it doesn't exist). */
+  async getInstallment(scheduleId: string): Promise<InstallmentScheduleRow> {
+    const row = (await this.db.select().from(sched).where(eq(sched.id, scheduleId)).limit(1))[0];
+    if (!row) throw new ScheduleNotFoundError(scheduleId);
+    return row;
+  }
+
+  /**
+   * Marks an installment paid and applies the plan-level effect (reduce
+   * outstanding, complete when cleared) within the caller's transaction.
+   * Shared by the manual-override and the charge-success paths.
+   */
+  private async finalisePaidInstallment(
+    tx: TransactionalTx,
+    installment: InstallmentScheduleRow,
+    from: ScheduleStatus,
+    eventType: string,
+    actor: PlanActor,
+    opts: { nowIso: string; providerReference: string; reason?: string },
+  ): Promise<ManualPaymentResult> {
+    const amountDue = installment.amount_due_pesewas;
+    const settled = amountDue + installment.late_fee_pesewas;
+    const [updatedSchedule] = await tx
+      .update(sched)
+      .set({
+        status: 'paid',
+        amount_paid_pesewas: settled,
+        paid_at: opts.nowIso,
+        status_changed_at: opts.nowIso,
+        provider_reference: opts.providerReference,
+        version: installment.version + 1,
+      })
+      .where(and(eq(sched.id, installment.id), eq(sched.version, installment.version)))
+      .returning();
+    if (!updatedSchedule) throw new ScheduleConcurrencyError(installment.id);
+
+    const plan = (
+      await tx
+        .select()
+        .from(cp)
+        .where(eq(cp.id, installment.customer_plan_id))
+        .for('update')
+        .limit(1)
+    )[0];
+    if (!plan) throw new CustomerPlanNotFoundError(installment.customer_plan_id);
+
+    const newOutstanding = Math.max(0, plan.outstanding_pesewas - amountDue);
+    const completed = newOutstanding === 0 && plan.status === 'active';
+    const [updatedPlan] = await tx
+      .update(cp)
+      .set({
+        outstanding_pesewas: newOutstanding,
+        ...(completed ? { status: 'completed', completed_at: opts.nowIso } : {}),
+      })
+      .where(eq(cp.id, plan.id))
+      .returning();
+
+    await this.audit.append(tx, {
+      entityType: 'installment_schedule',
+      entityId: installment.id,
+      eventType,
+      fromState: from,
+      toState: 'paid',
+      actorId: actor.actorId,
+      actorType: actor.actorType,
+      reason: opts.reason,
+      metadata: { amount_pesewas: settled, provider_reference: opts.providerReference },
+    });
+    if (completed) {
       await this.audit.append(tx, {
-        entityType: 'installment_schedule',
-        entityId: scheduleId,
-        eventType: 'schedule.manual_payment',
-        fromState: from,
-        toState: 'paid',
+        entityType: 'customer_plan',
+        entityId: plan.id,
+        eventType: 'customer_plan.completed',
+        fromState: 'active',
+        toState: 'completed',
         actorId: actor.actorId,
         actorType: actor.actorType,
-        reason: input.reason,
-        metadata: { amount_pesewas: settled, provider_reference: providerReference },
       });
-      if (completed) {
-        await this.audit.append(tx, {
-          entityType: 'customer_plan',
-          entityId: plan.id,
-          eventType: 'customer_plan.completed',
-          fromState: 'active',
-          toState: 'completed',
-          actorId: actor.actorId,
-          actorType: actor.actorType,
-        });
-      }
+    }
 
-      return { schedule: updatedSchedule, plan: updatedPlan! };
-    });
+    return { schedule: updatedSchedule, plan: updatedPlan! };
   }
 
   async get(id: string): Promise<CustomerPlan> {
