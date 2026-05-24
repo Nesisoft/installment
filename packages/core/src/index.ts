@@ -9,6 +9,22 @@ export * from './shared/validators/ghana';
 export * from './modules/scoring/types';
 export * from './modules/scoring/ruleset';
 export { ScoringEngine } from './modules/scoring/scoring-engine';
+export type {
+  Collector,
+  IdentitySignals,
+  RepaymentSignals,
+  BehaviorSignals,
+  TenureSignals,
+  EmploymentSignals,
+  ExposureSignals,
+} from './modules/scoring/collectors/types';
+export { IdentityCollector } from './modules/scoring/collectors/identity.collector';
+export { RepaymentCollector } from './modules/scoring/collectors/repayment.collector';
+export { BehaviorCollector } from './modules/scoring/collectors/behavior.collector';
+export { TenureCollector } from './modules/scoring/collectors/tenure.collector';
+export { EmploymentCollector } from './modules/scoring/collectors/employment.collector';
+export { ExposureCollector } from './modules/scoring/collectors/exposure.collector';
+export { FeatureCollector } from './modules/scoring/feature-collector';
 export * from './modules/applications/state-machine';
 export * from './modules/applications/dto';
 export * from './modules/applications/errors';
