@@ -1,0 +1,167 @@
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { and, desc, eq } from 'drizzle-orm';
+import { createDb, schema } from '@installment/db';
+import { AuditLogger } from '../audit/audit-logger.service';
+import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
+import { MerchantsService } from '../merchants/merchants.service';
+import { CustomersService } from '../customers/customers.service';
+import { MockGhanaCardVerifier } from '../customers/ghana-card-verifier';
+import { PlanTemplatesService } from '../plans/plan-templates.service';
+import { ApplicationsService } from '../applications/applications.service';
+import { CustomerPlansService } from './customer-plans.service';
+import { PlanActivationError, PlanAlreadyActiveError } from './errors';
+
+const RUN_DB = Boolean(process.env.DATABASE_URL);
+
+describe.skipIf(!RUN_DB)('CustomerPlansService (integration)', () => {
+  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const audit = new AuditLogger();
+  const merchants = new MerchantsService(db, audit);
+  const customers = new CustomersService(db, audit, new MockGhanaCardVerifier());
+  const planTemplates = new PlanTemplatesService(db, audit);
+  const apps = new ApplicationsService(db, audit);
+  const plans = new CustomerPlansService(db, audit);
+  const ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
+
+  let merchantId: string;
+  let customerId: string;
+  let bnplTemplateId: string;
+  let hybridTemplateId: string;
+
+  beforeAll(async () => {
+    const suffix = randomUUID();
+    merchantId = (
+      await merchants.create(
+        {
+          business_name: `M ${suffix}`,
+          legal_name: `M Ltd ${suffix}`,
+          email: `m+${suffix}@x.gh`,
+          phone: '+233244000000',
+        },
+        ACTOR,
+      )
+    ).id;
+    customerId = (
+      await customers.register(
+        {
+          first_name: 'Ama',
+          last_name: 'Mensah',
+          email: `ama+${suffix}@x.gh`,
+          phone: `024${Math.floor(1_000_000 + Math.random() * 8_999_999)}`,
+        },
+        ACTOR,
+      )
+    ).id;
+    bnplTemplateId = (
+      await planTemplates.create(
+        {
+          name: `BNPL ${suffix}`,
+          business_model: 'bnpl',
+          number_of_installments: 4,
+          installment_frequency_days: 7,
+          min_amount_pesewas: 1_000,
+          max_amount_pesewas: 10_000_000,
+        },
+        ACTOR,
+      )
+    ).id;
+    hybridTemplateId = (
+      await planTemplates.create(
+        {
+          name: `Hybrid ${suffix}`,
+          business_model: 'hybrid',
+          number_of_installments: 3,
+          installment_frequency_days: 30,
+          down_payment_bps: 3_000,
+          min_amount_pesewas: 1_000,
+          max_amount_pesewas: 10_000_000,
+        },
+        ACTOR,
+      )
+    ).id;
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  async function submit(templateId: string): Promise<string> {
+    const app = await apps.submit(
+      {
+        customer_id: customerId,
+        merchant_id: merchantId,
+        plan_template_id: templateId,
+        order_reference: `ORD-${randomUUID()}`,
+        order_amount_pesewas: 100_000,
+        merchant_category: 'electronics',
+      },
+      ACTOR,
+    );
+    return app.id;
+  }
+
+  async function approved(templateId: string): Promise<string> {
+    const id = await submit(templateId);
+    await apps.recordDecision(id, { outcome: 'approved' }, ACTOR);
+    return id;
+  }
+
+  async function lastPlanEvent(planId: string): Promise<string | undefined> {
+    const rows = await db
+      .select({ event_type: schema.audit_events.event_type })
+      .from(schema.audit_events)
+      .where(
+        and(
+          eq(schema.audit_events.entity_id, planId),
+          eq(schema.audit_events.entity_type, 'customer_plan'),
+        ),
+      )
+      .orderBy(desc(schema.audit_events.occurred_at))
+      .limit(1);
+    return rows[0]?.event_type;
+  }
+
+  it('activates an approved BNPL application into an active plan + 4 installments', async () => {
+    const appId = await approved(bnplTemplateId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    expect(plan.status).toBe('active');
+    expect(plan.total_payable_pesewas).toBe(100_000);
+    expect(plan.outstanding_pesewas).toBe(100_000);
+    expect(plan.down_payment_pesewas).toBe(0);
+
+    expect(schedule).toHaveLength(4);
+    expect(schedule.map((r) => r.sequence_number)).toEqual([1, 2, 3, 4]);
+    expect(schedule.map((r) => r.amount_due_pesewas)).toEqual([25_000, 25_000, 25_000, 25_000]);
+    expect(schedule.every((r) => r.status === 'pending')).toBe(true);
+
+    expect(await lastPlanEvent(plan.id)).toBe('customer_plan.activated');
+  });
+
+  it('activates a hybrid plan into a down-payment row plus 3 installments', async () => {
+    const appId = await approved(hybridTemplateId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    expect(plan.down_payment_pesewas).toBe(30_000);
+    expect(plan.financed_amount_pesewas).toBe(70_000);
+    expect(schedule).toHaveLength(4);
+    expect(schedule[0]!.amount_due_pesewas).toBe(30_000); // down payment, sequence 1
+    expect(schedule.slice(1).map((r) => r.amount_due_pesewas)).toEqual([23_334, 23_333, 23_333]);
+  });
+
+  it('is idempotent — refuses to activate the same application twice', async () => {
+    const appId = await approved(bnplTemplateId);
+    await plans.activateFromApplication(appId, ACTOR);
+    await expect(plans.activateFromApplication(appId, ACTOR)).rejects.toBeInstanceOf(
+      PlanAlreadyActiveError,
+    );
+  });
+
+  it('refuses to activate an application that is not approved', async () => {
+    const appId = await submit(bnplTemplateId); // left pending
+    await expect(plans.activateFromApplication(appId, ACTOR)).rejects.toBeInstanceOf(
+      PlanActivationError,
+    );
+  });
+});

@@ -54,6 +54,19 @@ export {
   type GeneratedInstallment,
   type InstallmentKind,
 } from './modules/schedules/schedule-generator';
+export * from './modules/schedules/errors';
+export {
+  CustomerPlansService,
+  type CustomerPlan,
+  type InstallmentScheduleRow,
+  type PlanActor,
+  type ActivatedPlan,
+} from './modules/schedules/customer-plans.service';
+export {
+  ScheduleStateService,
+  type ScheduleEventContext,
+  type ScheduleTransition,
+} from './modules/schedules/schedule-state.service';
 export * from './modules/applications/dto';
 export * from './modules/applications/errors';
 export {
