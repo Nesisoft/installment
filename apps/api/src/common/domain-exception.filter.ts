@@ -21,6 +21,7 @@ const NAME_STATUS: Record<string, number> = {
   // 403
   AccountInactiveError: HttpStatus.FORBIDDEN,
   PermissionDeniedError: HttpStatus.FORBIDDEN,
+  WebhookSignatureError: HttpStatus.FORBIDDEN,
   // 404
   UserNotFoundError: HttpStatus.NOT_FOUND,
   MerchantNotFoundError: HttpStatus.NOT_FOUND,
@@ -31,6 +32,8 @@ const NAME_STATUS: Record<string, number> = {
   ApplicationNotFoundError: HttpStatus.NOT_FOUND,
   ScoringDecisionNotFoundError: HttpStatus.NOT_FOUND,
   CustomerPlanNotFoundError: HttpStatus.NOT_FOUND,
+  ScheduleNotFoundError: HttpStatus.NOT_FOUND,
+  PaymentAttemptNotFoundError: HttpStatus.NOT_FOUND,
   // 409
   UserConflictError: HttpStatus.CONFLICT,
   MerchantConflictError: HttpStatus.CONFLICT,
@@ -42,6 +45,7 @@ const NAME_STATUS: Record<string, number> = {
   IllegalApplicationTransitionError: HttpStatus.CONFLICT,
   PlanAlreadyActiveError: HttpStatus.CONFLICT,
   InstallmentNotPayableError: HttpStatus.CONFLICT,
+  InstallmentNotChargeableError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
   // 422
   GhanaCardNotAttachedError: HttpStatus.UNPROCESSABLE_ENTITY,

@@ -26,7 +26,8 @@ function setupOpenApi(app: INestApplication): void {
     .addTag('users', 'Staff / merchant / customer user administration')
     .addTag('scoring', 'Credit scoring: decisions, dry-runs, rule breakdown')
     .addTag('plans', 'Customer plan activation + installment schedules')
-    .addTag('me', 'Customer self-service: own plans + schedules')
+    .addTag('me', 'Customer self-service: own plans + schedules + card payments')
+    .addTag('webhooks', 'Provider webhooks (Paystack)')
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document, {
@@ -45,7 +46,8 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // rawBody: keep the exact bytes for Paystack webhook signature verification.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   app.useLogger(app.get(Logger));
   app.enableShutdownHooks();
   setupOpenApi(app);

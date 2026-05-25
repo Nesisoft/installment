@@ -1,13 +1,25 @@
-import { Controller, Get, Header, Param } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Post,
+} from '@nestjs/common';
 import {
   CustomerNotFoundError,
   CustomerPlanNotFoundError,
   CustomerPlansService,
   CustomersService,
+  PaymentService,
   renderStatementCsv,
+  type Customer,
 } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators';
+import { actorOf } from '../auth/current-actor';
 
 /**
  * Customer self-service. The JWT identifies a `users` row; the domain
@@ -20,13 +32,14 @@ export class MeController {
   constructor(
     private readonly customers: CustomersService,
     private readonly plans: CustomerPlansService,
+    private readonly payments: PaymentService,
   ) {}
 
   @Get('plans')
   @ApiOperation({ summary: "The authenticated customer's installment plans" })
   async listPlans(@CurrentUser() user: AuthenticatedUser) {
-    const customerId = await this.resolveCustomerId(user);
-    return this.plans.listForCustomer(customerId);
+    const customer = await this.resolveCustomer(user);
+    return this.plans.listForCustomer(customer.id);
   }
 
   @Get('plans/:id/schedule')
@@ -55,16 +68,39 @@ export class MeController {
     return renderStatementCsv(await this.plans.getStatement(id));
   }
 
-  /** Resolves the caller and verifies the plan is theirs (404 otherwise — no leak). */
-  private async assertOwnedPlan(planId: string, user: AuthenticatedUser): Promise<void> {
-    const customerId = await this.resolveCustomerId(user);
-    const plan = await this.plans.get(planId);
-    if (plan.customer_id !== customerId) throw new CustomerPlanNotFoundError(planId);
+  @Post('installments/:scheduleId/pay')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Pay one of my installments now with a tokenised card' })
+  async pay(
+    @Param('scheduleId') scheduleId: string,
+    @Body() body: { authorizationCode?: string },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const customer = await this.resolveCustomer(user);
+    const installment = await this.plans.getInstallment(scheduleId);
+    const plan = await this.plans.get(installment.customer_plan_id);
+    if (plan.customer_id !== customer.id) throw new CustomerPlanNotFoundError(scheduleId);
+
+    const authorizationCode = body?.authorizationCode;
+    if (typeof authorizationCode !== 'string' || authorizationCode.trim() === '') {
+      throw new BadRequestException('authorizationCode is required');
+    }
+    return this.payments.chargeCard(
+      { scheduleId, authorizationCode, email: customer.email },
+      actorOf(user),
+    );
   }
 
-  private async resolveCustomerId(user: AuthenticatedUser): Promise<string> {
+  /** Resolves the caller and verifies the plan is theirs (404 otherwise — no leak). */
+  private async assertOwnedPlan(planId: string, user: AuthenticatedUser): Promise<void> {
+    const customer = await this.resolveCustomer(user);
+    const plan = await this.plans.get(planId);
+    if (plan.customer_id !== customer.id) throw new CustomerPlanNotFoundError(planId);
+  }
+
+  private async resolveCustomer(user: AuthenticatedUser): Promise<Customer> {
     const customer = await this.customers.findByUserId(user.id);
     if (!customer) throw new CustomerNotFoundError(user.id);
-    return customer.id;
+    return customer;
   }
 }

@@ -19,6 +19,7 @@ import { ScoringController } from './modules/scoring.controller';
 import { PlansController } from './modules/plans.controller';
 import { InstallmentsController } from './modules/installments.controller';
 import { MeController } from './modules/me.controller';
+import { WebhookController } from './modules/webhook.controller';
 import { DomainExceptionFilter } from './common/domain-exception.filter';
 
 @Module({
@@ -57,6 +58,7 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     PlansController,
     InstallmentsController,
     MeController,
+    WebhookController,
   ],
   providers: [
     { provide: APP_FILTER, useClass: DomainExceptionFilter },

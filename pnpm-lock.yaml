@@ -49,6 +49,9 @@ importers:
       '@installment/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@installment/paystack-client':
+        specifier: workspace:*
+        version: link:../../packages/paystack-client
       '@nestjs/common':
         specifier: ^11.0.1
         version: 11.1.21(reflect-metadata@0.2.2)(rxjs@7.8.2)

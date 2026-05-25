@@ -3,25 +3,32 @@ import { ConfigService } from '@nestjs/config';
 import type Redis from 'ioredis';
 import {
   ApplicationsService,
+  AttemptRepository,
   AuditLogger,
   AuthService,
   CustomerEmploymentService,
   CustomerPlansService,
   CustomersService,
   EmployersService,
+  EventBus,
   FeatureCollector,
   JwtService,
   MerchantsService,
   MockGhanaCardVerifier,
   OtpService,
   PasswordService,
+  PaymentService,
   PlanTemplatesService,
+  RedisLock,
   RulesetLoader,
+  ScheduleStateService,
   ScoringEngine,
   ScoringService,
   UsersService,
+  WebhookService,
   type SmsSender,
 } from '@installment/core';
+import { PaystackClient } from '@installment/paystack-client';
 import type { Database } from '@installment/db';
 import { DRIZZLE } from '../db/db.module';
 import { REDIS } from '../redis/redis.module';
@@ -112,6 +119,60 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       useFactory: (db: Database, audit: AuditLogger) => new CustomerPlansService(db, audit),
       inject: [DRIZZLE, AuditLogger],
     },
+    { provide: EventBus, useFactory: () => new EventBus() },
+    {
+      provide: RedisLock,
+      useFactory: (redis: Redis) => new RedisLock(redis),
+      inject: [REDIS],
+    },
+    {
+      provide: ScheduleStateService,
+      useFactory: (db: Database, audit: AuditLogger, lock: RedisLock, bus: EventBus) =>
+        new ScheduleStateService(db, audit, lock, bus),
+      inject: [DRIZZLE, AuditLogger, RedisLock, EventBus],
+    },
+    {
+      provide: AttemptRepository,
+      useFactory: (db: Database) => new AttemptRepository(db),
+      inject: [DRIZZLE],
+    },
+    {
+      provide: PaystackClient,
+      useFactory: (config: ConfigService<Env, true>) =>
+        new PaystackClient({
+          // Empty key in dev → a placeholder so boot works; real calls 401 until set.
+          secretKey: config.get('PAYSTACK_SECRET_KEY', { infer: true }) || 'sk_test_unset',
+          baseUrl: config.get('PAYSTACK_BASE_URL', { infer: true }),
+        }),
+      inject: [ConfigService],
+    },
+    {
+      provide: PaymentService,
+      useFactory: (
+        plans: CustomerPlansService,
+        scheduleState: ScheduleStateService,
+        attempts: AttemptRepository,
+        paystack: PaystackClient,
+      ) => new PaymentService(plans, scheduleState, attempts, paystack),
+      inject: [CustomerPlansService, ScheduleStateService, AttemptRepository, PaystackClient],
+    },
+    {
+      provide: WebhookService,
+      useFactory: (
+        db: Database,
+        paystack: PaystackClient,
+        attempts: AttemptRepository,
+        plans: CustomerPlansService,
+        scheduleState: ScheduleStateService,
+      ) => new WebhookService(db, paystack, attempts, plans, scheduleState),
+      inject: [
+        DRIZZLE,
+        PaystackClient,
+        AttemptRepository,
+        CustomerPlansService,
+        ScheduleStateService,
+      ],
+    },
     {
       provide: AuthService,
       useFactory: (
@@ -149,6 +210,8 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     ScoringService,
     RulesetLoader,
     CustomerPlansService,
+    PaymentService,
+    WebhookService,
   ],
 })
 export class CoreModule {}
