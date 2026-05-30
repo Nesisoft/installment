@@ -43,3 +43,11 @@ export class InstallmentNotPayableError extends Error {
     this.name = 'InstallmentNotPayableError';
   }
 }
+
+/** A receipt only exists for a paid installment. */
+export class ReceiptNotAvailableError extends Error {
+  constructor(id: string, status: string) {
+    super(`Installment ${id} has no receipt (status "${status}", not paid)`);
+    this.name = 'ReceiptNotAvailableError';
+  }
+}

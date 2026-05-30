@@ -46,6 +46,7 @@ const NAME_STATUS: Record<string, number> = {
   PlanAlreadyActiveError: HttpStatus.CONFLICT,
   InstallmentNotPayableError: HttpStatus.CONFLICT,
   InstallmentNotChargeableError: HttpStatus.CONFLICT,
+  ReceiptNotAvailableError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
   // 422
   GhanaCardNotAttachedError: HttpStatus.UNPROCESSABLE_ENTITY,

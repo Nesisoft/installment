@@ -14,6 +14,7 @@ import {
   CustomerPlansService,
   CustomersService,
   PaymentService,
+  renderReceiptHtml,
   renderStatementCsv,
   type Customer,
 } from '@installment/core';
@@ -68,6 +69,24 @@ export class MeController {
     return renderStatementCsv(await this.plans.getStatement(id));
   }
 
+  @Get('installments/:scheduleId/receipt')
+  @ApiOperation({ summary: 'Receipt for a paid installment on one of my plans' })
+  async receipt(@Param('scheduleId') scheduleId: string, @CurrentUser() user: AuthenticatedUser) {
+    await this.assertOwnedInstallment(scheduleId, user);
+    return this.plans.getReceipt(scheduleId);
+  }
+
+  @Get('installments/:scheduleId/receipt.html')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  @ApiOperation({ summary: 'Printable HTML receipt for a paid installment on one of my plans' })
+  async receiptHtml(
+    @Param('scheduleId') scheduleId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<string> {
+    await this.assertOwnedInstallment(scheduleId, user);
+    return renderReceiptHtml(await this.plans.getReceipt(scheduleId));
+  }
+
   @Post('installments/:scheduleId/pay')
   @HttpCode(200)
   @ApiOperation({ summary: 'Pay one of my installments now with a tokenised card' })
@@ -96,6 +115,14 @@ export class MeController {
     const customer = await this.resolveCustomer(user);
     const plan = await this.plans.get(planId);
     if (plan.customer_id !== customer.id) throw new CustomerPlanNotFoundError(planId);
+  }
+
+  /** Verifies the installment belongs to a plan the caller owns (404 otherwise). */
+  private async assertOwnedInstallment(scheduleId: string, user: AuthenticatedUser): Promise<void> {
+    const customer = await this.resolveCustomer(user);
+    const installment = await this.plans.getInstallment(scheduleId);
+    const plan = await this.plans.get(installment.customer_plan_id);
+    if (plan.customer_id !== customer.id) throw new CustomerPlanNotFoundError(scheduleId);
   }
 
   private async resolveCustomer(user: AuthenticatedUser): Promise<Customer> {

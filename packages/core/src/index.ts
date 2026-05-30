@@ -79,6 +79,12 @@ export {
   type StatementInput,
 } from './modules/statements/statement';
 export {
+  buildReceipt,
+  renderReceiptHtml,
+  type Receipt,
+  type ReceiptInput,
+} from './modules/receipts/receipt';
+export {
   classifyFailure,
   PAYSTACK_DECLINE_MAP,
   type FailureClass,

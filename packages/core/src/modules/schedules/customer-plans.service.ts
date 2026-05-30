@@ -10,10 +10,12 @@ import {
   InstallmentNotPayableError,
   PlanActivationError,
   PlanAlreadyActiveError,
+  ReceiptNotAvailableError,
   ScheduleConcurrencyError,
   ScheduleNotFoundError,
 } from './errors';
 import { buildStatement, type Statement } from '../statements/statement';
+import { buildReceipt, type Receipt } from '../receipts/receipt';
 
 const cp = schema.customer_plans;
 const sched = schema.installment_schedule;
@@ -348,6 +350,25 @@ export class CustomerPlansService {
   async getStatement(planId: string, now: Date = new Date()): Promise<Statement> {
     const plan = await this.get(planId);
     const schedule = await this.getSchedule(planId);
+    const { customerName, merchantName } = await this.loadParties(plan);
+    return buildStatement({ plan, schedule, customerName, merchantName, now });
+  }
+
+  /** Builds a payment receipt for a paid installment. */
+  async getReceipt(scheduleId: string, now: Date = new Date()): Promise<Receipt> {
+    const installment = await this.getInstallment(scheduleId);
+    if (installment.status !== 'paid') {
+      throw new ReceiptNotAvailableError(scheduleId, installment.status);
+    }
+    const plan = await this.get(installment.customer_plan_id);
+    const { customerName, merchantName } = await this.loadParties(plan);
+    return buildReceipt({ plan, installment, customerName, merchantName, now });
+  }
+
+  /** Resolves the customer + merchant display names for a plan. */
+  private async loadParties(
+    plan: CustomerPlan,
+  ): Promise<{ customerName: string; merchantName: string | null }> {
     const cust = (
       await this.db
         .select({ first: customers.first_name, last: customers.last_name })
@@ -362,13 +383,9 @@ export class CustomerPlansService {
         .where(eq(merchants.id, plan.merchant_id))
         .limit(1)
     )[0];
-
-    return buildStatement({
-      plan,
-      schedule,
+    return {
       customerName: cust ? `${cust.first} ${cust.last}` : 'Unknown',
       merchantName: merch?.name ?? null,
-      now,
-    });
+    };
   }
 }

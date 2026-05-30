@@ -1,5 +1,5 @@
-import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
-import { CustomerPlansService, PERMISSIONS } from '@installment/core';
+import { Body, Controller, Get, Header, HttpCode, Param, Post } from '@nestjs/common';
+import { CustomerPlansService, PERMISSIONS, renderReceiptHtml } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
@@ -22,5 +22,20 @@ export class InstallmentsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.plans.recordManualPayment(scheduleId, body, actorOf(user));
+  }
+
+  @Get(':scheduleId/receipt')
+  @RequirePermissions(PERMISSIONS.PLANS_READ)
+  @ApiOperation({ summary: 'Payment receipt for a paid installment (structured JSON)' })
+  receipt(@Param('scheduleId') scheduleId: string) {
+    return this.plans.getReceipt(scheduleId);
+  }
+
+  @Get(':scheduleId/receipt.html')
+  @RequirePermissions(PERMISSIONS.PLANS_READ)
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  @ApiOperation({ summary: 'Printable HTML receipt for a paid installment (print → PDF)' })
+  async receiptHtml(@Param('scheduleId') scheduleId: string): Promise<string> {
+    return renderReceiptHtml(await this.plans.getReceipt(scheduleId));
   }
 }

@@ -10,7 +10,12 @@ import { MockGhanaCardVerifier } from '../customers/ghana-card-verifier';
 import { PlanTemplatesService } from '../plans/plan-templates.service';
 import { ApplicationsService } from '../applications/applications.service';
 import { CustomerPlansService } from './customer-plans.service';
-import { InstallmentNotPayableError, PlanActivationError, PlanAlreadyActiveError } from './errors';
+import {
+  InstallmentNotPayableError,
+  PlanActivationError,
+  PlanAlreadyActiveError,
+  ReceiptNotAvailableError,
+} from './errors';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
@@ -217,5 +222,21 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration)', () => {
     await expect(plans.recordManualPayment(schedule[0]!.id, {}, ACTOR)).rejects.toBeInstanceOf(
       InstallmentNotPayableError,
     );
+  });
+
+  it('issues a receipt for a paid installment and refuses one for an unpaid installment', async () => {
+    const appId = await approved(bnplTemplateId);
+    const { schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    await expect(plans.getReceipt(schedule[1]!.id)).rejects.toBeInstanceOf(
+      ReceiptNotAvailableError,
+    );
+
+    await plans.recordManualPayment(schedule[0]!.id, { provider_reference: 'cash-007' }, ACTOR);
+    const receipt = await plans.getReceipt(schedule[0]!.id);
+    expect(receipt.receiptNumber).toBe('cash-007');
+    expect(receipt.amountPaid).toBe('GHS 250.00');
+    expect(receipt.installmentSequence).toBe(1);
+    expect(receipt.customerName).toBe('Ama Mensah');
   });
 });
