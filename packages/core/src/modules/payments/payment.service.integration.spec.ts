@@ -18,19 +18,33 @@ import { PaymentService, type PaystackChargeClient } from './payment.service';
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 const ALWAYS_OPEN = { set: async () => 'OK' as const, eval: async () => 1 };
 
-/** A fake Paystack that returns a fixed charge result (or throws). */
-function fakePaystack(
-  result: { reference: string; status: string; gateway_response?: string } | Error,
-): PaystackChargeClient {
+interface PaystackFakeData {
+  reference: string;
+  status: string;
+  gateway_response?: string;
+}
+
+/** A fake Paystack client. Either chargeCard or chargeMobileMoney returns the
+ * configured outcome; the other is a guard that throws if accidentally called. */
+function fakePaystack(opts: {
+  card?: PaystackFakeData | Error;
+  momo?: PaystackFakeData | Error;
+}): PaystackChargeClient {
   return {
     chargeCard: async () => {
-      if (result instanceof Error) throw result;
-      return { data: result };
+      if (!opts.card) throw new Error('chargeCard not stubbed');
+      if (opts.card instanceof Error) throw opts.card;
+      return { data: opts.card };
+    },
+    chargeMobileMoney: async () => {
+      if (!opts.momo) throw new Error('chargeMobileMoney not stubbed');
+      if (opts.momo instanceof Error) throw opts.momo;
+      return { data: opts.momo };
     },
   };
 }
 
-describe.skipIf(!RUN_DB)('PaymentService.chargeCard (integration)', () => {
+describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
   const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
   const audit = new AuditLogger();
   const merchants = new MerchantsService(db, audit);
@@ -115,9 +129,11 @@ describe.skipIf(!RUN_DB)('PaymentService.chargeCard (integration)', () => {
     return new PaymentService(plans, scheduleState, attempts, paystack);
   }
 
+  // ----------------------------------------------------------- card path
+
   it('charges a card successfully → schedule paid, outstanding reduced, attempt succeeded', async () => {
     const { planId, scheduleId } = await freshPlan();
-    const svc = service(fakePaystack({ reference: 'ps_ok', status: 'success' }));
+    const svc = service(fakePaystack({ card: { reference: 'ps_ok', status: 'success' } }));
 
     const result = await svc.chargeCard(
       { scheduleId, authorizationCode: 'AUTH_x', email: 'kofi@x.gh' },
@@ -127,16 +143,14 @@ describe.skipIf(!RUN_DB)('PaymentService.chargeCard (integration)', () => {
     expect(result.status).toBe('succeeded');
     expect(result.attempt.status).toBe('succeeded');
     expect((await plans.getInstallment(scheduleId)).status).toBe('paid');
-    expect((await plans.get(planId)).outstanding_pesewas).toBe(375_000); // 500k − 125k
+    expect((await plans.get(planId)).outstanding_pesewas).toBe(375_000);
   });
 
   it('records a retryable decline → schedule failed, outstanding unchanged', async () => {
     const { planId, scheduleId } = await freshPlan();
     const svc = service(
       fakePaystack({
-        reference: 'ps_no',
-        status: 'failed',
-        gateway_response: 'insufficient_funds',
+        card: { reference: 'ps_no', status: 'failed', gateway_response: 'insufficient_funds' },
       }),
     );
 
@@ -154,29 +168,84 @@ describe.skipIf(!RUN_DB)('PaymentService.chargeCard (integration)', () => {
   it('escalates a non-retryable decline → schedule overdue', async () => {
     const { scheduleId } = await freshPlan();
     const svc = service(
-      fakePaystack({ reference: 'ps_blk', status: 'failed', gateway_response: 'blocked_card' }),
+      fakePaystack({
+        card: { reference: 'ps_blk', status: 'failed', gateway_response: 'blocked_card' },
+      }),
     );
-
     const result = await svc.chargeCard(
       { scheduleId, authorizationCode: 'AUTH_x', email: 'kofi@x.gh' },
       ACTOR,
     );
-
     expect(result.status).toBe('failed');
     expect((await plans.getInstallment(scheduleId)).status).toBe('overdue');
   });
 
   it('leaves the attempt unknown on a network error (schedule stays processing)', async () => {
     const { scheduleId } = await freshPlan();
-    const svc = service(fakePaystack(new Error('socket hang up')));
-
+    const svc = service(fakePaystack({ card: new Error('socket hang up') }));
     const result = await svc.chargeCard(
       { scheduleId, authorizationCode: 'AUTH_x', email: 'kofi@x.gh' },
       ACTOR,
     );
-
     expect(result.status).toBe('unknown');
     expect(result.attempt.status).toBe('unknown');
     expect((await plans.getInstallment(scheduleId)).status).toBe('processing');
+  });
+
+  // ----------------------------------------------------------- MoMo path
+
+  it('charges MoMo → pay_offline leaves the attempt in-flight (webhook resolves it)', async () => {
+    const { planId, scheduleId } = await freshPlan();
+    const svc = service(
+      fakePaystack({ momo: { reference: 'ps_momo_pending', status: 'pay_offline' } }),
+    );
+
+    const result = await svc.chargeMobileMoney(
+      { scheduleId, email: 'kofi@x.gh', phone: '+233244000111', provider: 'mtn' },
+      ACTOR,
+    );
+
+    expect(result.status).toBe('pending');
+    expect(result.attempt.status).toBe('in_flight');
+    expect(result.providerReference).toBe('ps_momo_pending');
+    // Schedule + plan are unchanged until the webhook lands.
+    expect((await plans.getInstallment(scheduleId)).status).toBe('processing');
+    expect((await plans.get(planId)).outstanding_pesewas).toBe(500_000);
+  });
+
+  it('settles immediately on a synchronous MoMo success (rare but supported)', async () => {
+    const { planId, scheduleId } = await freshPlan();
+    const svc = service(fakePaystack({ momo: { reference: 'ps_momo_ok', status: 'success' } }));
+
+    const result = await svc.chargeMobileMoney(
+      { scheduleId, email: 'kofi@x.gh', phone: '+233244000111', provider: 'mtn' },
+      ACTOR,
+    );
+
+    expect(result.status).toBe('succeeded');
+    expect((await plans.getInstallment(scheduleId)).status).toBe('paid');
+    expect((await plans.get(planId)).outstanding_pesewas).toBe(375_000);
+  });
+
+  it('records a MoMo decline like a card decline', async () => {
+    const { scheduleId } = await freshPlan();
+    const svc = service(
+      fakePaystack({
+        momo: {
+          reference: 'ps_momo_no',
+          status: 'failed',
+          gateway_response: 'declined_by_customer',
+        },
+      }),
+    );
+
+    const result = await svc.chargeMobileMoney(
+      { scheduleId, email: 'kofi@x.gh', phone: '+233244000111', provider: 'mtn' },
+      ACTOR,
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.failureReason).toBe('declined_by_customer');
+    expect((await plans.getInstallment(scheduleId)).status).toBe('failed');
   });
 });

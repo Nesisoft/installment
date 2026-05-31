@@ -90,6 +90,12 @@ export {
   type FailureClass,
 } from './modules/payments/failure-classifier';
 export {
+  RETRY_POLICY,
+  MAX_ATTEMPTS,
+  retryStepFor,
+  type RetryStep,
+} from './modules/payments/retry-policy';
+export {
   AttemptRepository,
   type PaymentAttempt,
   type PaymentProvider,
@@ -103,6 +109,7 @@ export {
   PaymentService,
   type PaystackChargeClient,
   type ChargeCardInput,
+  type ChargeMobileMoneyInput,
   type ChargeResult,
 } from './modules/payments/payment.service';
 export * from './modules/payments/errors';
