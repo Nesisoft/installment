@@ -92,6 +92,7 @@ export {
 export {
   RETRY_POLICY,
   MAX_ATTEMPTS,
+  MAX_VERIFY_POLLS,
   retryStepFor,
   type RetryStep,
 } from './modules/payments/retry-policy';

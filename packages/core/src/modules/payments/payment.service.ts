@@ -4,9 +4,14 @@ import {
   type PlanActor,
 } from '../schedules/customer-plans.service';
 import { ScheduleStateService } from '../schedules/schedule-state.service';
+import {
+  IllegalScheduleTransitionError,
+  ScheduleTerminalStateError,
+} from '../schedules/state-machine';
 import { AttemptRepository, type PaymentAttempt, type PaymentMethod } from './attempt-repository';
 import { classifyFailure } from './failure-classifier';
-import { InstallmentNotChargeableError } from './errors';
+import { InstallmentNotChargeableError, PaymentAttemptNotFoundError } from './errors';
+import { MAX_VERIFY_POLLS } from './retry-policy';
 
 interface PaystackChargeResponse {
   data: {
@@ -17,7 +22,15 @@ interface PaystackChargeResponse {
   };
 }
 
-/** The slice of the Paystack client this service needs (card + MoMo charges). */
+interface PaystackVerifyResponse {
+  data: {
+    reference: string;
+    status: string;
+    gateway_response?: string;
+  };
+}
+
+/** The slice of the Paystack client this service needs (card + MoMo + verify). */
 export interface PaystackChargeClient {
   chargeCard(req: {
     email: string;
@@ -36,6 +49,7 @@ export interface PaystackChargeClient {
     reference: string;
     metadata?: Record<string, unknown>;
   }): Promise<PaystackChargeResponse>;
+  verifyTransaction(reference: string): Promise<PaystackVerifyResponse>;
 }
 
 export interface ChargeCardInput {
@@ -58,8 +72,8 @@ export interface ChargeMobileMoneyInput {
 export interface ChargeResult {
   /**
    * succeeded — money received, schedule paid;
-   * failed    — declined synchronously, schedule failed (or overdue if non-retryable);
-   * pending   — async charge initiated (MoMo pay_offline), webhook or verify resolves it;
+   * failed    — declined, schedule failed (or overdue if non-retryable);
+   * pending   — async charge initiated (MoMo pay_offline) or verify still pending;
    * unknown   — network / 5xx error, leave it for a verify poll.
    */
   status: 'succeeded' | 'failed' | 'pending' | 'unknown';
@@ -76,6 +90,10 @@ export interface ChargeResult {
  *                   poll) resolves it (MoMo's normal path)
  *   - failed     → record the decline, classify, escalate if non-retryable
  *   - network    → mark the attempt `unknown` (never assume "didn't charge")
+ *
+ * verifyAttempt is the safety net for lost webhooks: it polls Paystack
+ * directly and resolves a stuck attempt idempotently — a webhook that
+ * later arrives is a no-op, and a verify that races a webhook is too.
  */
 export class PaymentService {
   constructor(
@@ -106,7 +124,6 @@ export class PaymentService {
       return this.markAttemptUnknown(attempt.id, err);
     }
 
-    // Card responses are synchronous: success or decline, no pay_offline.
     if (response.data.status === 'success') {
       return this.settleAttemptSuccess(attempt.id, installment.id, response, actor);
     }
@@ -137,11 +154,9 @@ export class PaymentService {
 
     const status = response.data.status;
     if (status === 'success') {
-      // Rare for MoMo but possible: immediate success.
       return this.settleAttemptSuccess(attempt.id, installment.id, response, actor);
     }
     if (status === 'pay_offline' || status === 'pending') {
-      // Customer prompted on their phone; the webhook (or a verify poll) lands the outcome.
       const updated = await this.attempts.update(attempt.id, {
         providerReference: response.data.reference,
         rawResponse: response,
@@ -151,13 +166,78 @@ export class PaymentService {
     return this.handleSyncFailure(attempt.id, installment.id, response, actor);
   }
 
+  /**
+   * Polls Paystack directly for a stuck attempt and applies the outcome.
+   * Already-resolved attempts return immediately. State transitions are
+   * idempotent: a settle/fail call that races a webhook is a no-op.
+   */
+  async verifyAttempt(attemptId: string, actor: PlanActor): Promise<ChargeResult> {
+    const attempt = await this.attempts.findById(attemptId);
+    if (!attempt) throw new PaymentAttemptNotFoundError(attemptId);
+
+    // Already terminal — no-op.
+    if (attempt.status === 'succeeded') {
+      return {
+        status: 'succeeded',
+        attempt,
+        providerReference: attempt.provider_reference ?? undefined,
+      };
+    }
+    if (attempt.status === 'failed') {
+      return { status: 'failed', attempt, failureReason: attempt.failure_reason ?? undefined };
+    }
+
+    // No reference — Paystack never gave us one to verify. Treat as failed.
+    if (!attempt.provider_reference) {
+      return this.recordVerifyFailure(attempt, 'no_reference_issued', null, actor);
+    }
+
+    let response: PaystackVerifyResponse;
+    try {
+      response = await this.paystack.verifyTransaction(attempt.provider_reference);
+    } catch (err) {
+      // Verify itself failed — bump the poll count and stay unknown.
+      const updated = await this.attempts.update(attempt.id, {
+        status: 'unknown',
+        lastVerifiedAt: new Date(),
+        verifyPollCount: attempt.verify_poll_count + 1,
+        failureReason: err instanceof Error ? err.message : 'verify_error',
+      });
+      return { status: 'unknown', attempt: updated };
+    }
+
+    const data = response.data;
+    if (data.status === 'success') {
+      return this.recordVerifySuccess(attempt, data.reference, response, actor);
+    }
+    if (data.status === 'failed') {
+      return this.recordVerifyFailure(
+        attempt,
+        data.gateway_response ?? 'verify_returned_failed',
+        response,
+        actor,
+      );
+    }
+    if (data.status === 'pending' || data.status === 'ongoing') {
+      const nextCount = attempt.verify_poll_count + 1;
+      if (nextCount >= MAX_VERIFY_POLLS) {
+        return this.recordVerifyFailure(attempt, 'timeout_no_resolution', response, actor);
+      }
+      const updated = await this.attempts.update(attempt.id, {
+        lastVerifiedAt: new Date(),
+        verifyPollCount: nextCount,
+      });
+      return {
+        status: 'pending',
+        attempt: updated,
+        providerReference: attempt.provider_reference,
+      };
+    }
+    return this.recordVerifyFailure(attempt, `unknown_status:${data.status}`, response, actor);
+  }
+
   // ---------------------------------------------------------------- internals
 
-  /**
-   * Drives the installment to `processing` and creates the in-flight attempt
-   * row + a stable provider reference. Returns the loaded installment so the
-   * caller can use its amount + customer-plan id.
-   */
   private async beginAttempt(
     scheduleId: string,
     paymentMethod: PaymentMethod,
@@ -170,7 +250,6 @@ export class PaymentService {
   }> {
     const installment = await this.plans.getInstallment(scheduleId);
     await this.ensureProcessing(installment, actor);
-    // Stable across retries → a Paystack 500 + replay won't double-charge.
     const idempotencyKey = `${scheduleId}:${installment.attempt_count + 1}`;
     const reference = `INSTL-${scheduleId}-${idempotencyKey}`;
     const amount = installment.amount_due_pesewas + installment.late_fee_pesewas;
@@ -224,12 +303,78 @@ export class PaymentService {
   }
 
   private async markAttemptUnknown(attemptId: string, err: unknown): Promise<ChargeResult> {
-    // HTTP 5xx / timeout / network — DON'T mark failed. Leave it for a verify poll.
     const updated = await this.attempts.update(attemptId, {
       status: 'unknown',
       failureReason: err instanceof Error ? err.message : 'network_error',
     });
     return { status: 'unknown', attempt: updated };
+  }
+
+  private async recordVerifySuccess(
+    attempt: PaymentAttempt,
+    providerReference: string,
+    rawResponse: unknown,
+    actor: PlanActor,
+  ): Promise<ChargeResult> {
+    const succeeded = await this.attempts.update(attempt.id, {
+      status: 'succeeded',
+      providerReference,
+      rawResponse,
+      settledAt: new Date(),
+      lastVerifiedAt: new Date(),
+      verifyPollCount: attempt.verify_poll_count + 1,
+    });
+    await this.idempotent(() =>
+      this.plans.recordChargeSuccess(attempt.schedule_id, { providerReference }, actor),
+    );
+    return { status: 'succeeded', attempt: succeeded, providerReference };
+  }
+
+  private async recordVerifyFailure(
+    attempt: PaymentAttempt,
+    reason: string,
+    rawResponse: unknown,
+    actor: PlanActor,
+  ): Promise<ChargeResult> {
+    const failed = await this.attempts.update(attempt.id, {
+      status: 'failed',
+      failureReason: reason,
+      rawResponse: rawResponse ?? undefined,
+      failedAt: new Date(),
+      lastVerifiedAt: new Date(),
+      verifyPollCount: attempt.verify_poll_count + 1,
+    });
+    await this.idempotent(() =>
+      this.schedules.applyEvent(attempt.schedule_id, 'charge_failed', { ...actor, reason }),
+    );
+    if (classifyFailure(reason) === 'non_retryable') {
+      await this.idempotent(() =>
+        this.schedules.applyEvent(attempt.schedule_id, 'non_retryable_decline', {
+          ...actor,
+          reason,
+        }),
+      );
+    }
+    return { status: 'failed', attempt: failed, failureReason: reason };
+  }
+
+  /**
+   * Swallows "already in the target state" transitions — a verify that races
+   * a webhook hits an illegal transition (e.g. paid → paid) and that's
+   * exactly the no-op we want.
+   */
+  private async idempotent(fn: () => Promise<unknown>): Promise<void> {
+    try {
+      await fn();
+    } catch (err) {
+      if (
+        err instanceof IllegalScheduleTransitionError ||
+        err instanceof ScheduleTerminalStateError
+      ) {
+        return;
+      }
+      throw err;
+    }
   }
 
   /** Drives a chargeable installment to `processing` via the state machine. */

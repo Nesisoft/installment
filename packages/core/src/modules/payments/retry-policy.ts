@@ -34,3 +34,6 @@ export function retryStepFor(attempt: number): RetryStep | undefined {
   if (!Number.isInteger(attempt) || attempt < 1) return undefined;
   return RETRY_POLICY[attempt - 1];
 }
+
+/** Max times to poll /transaction/verify for one attempt before giving up. */
+export const MAX_VERIFY_POLLS = 2;
