@@ -16,6 +16,8 @@ import {
 } from './errors';
 import { buildStatement, type Statement } from '../statements/statement';
 import { buildReceipt, type Receipt } from '../receipts/receipt';
+import type { PayoutRecorder } from '../settlements/payout-recorder';
+import type { BusinessModel } from '../settlements/model-config';
 
 const cp = schema.customer_plans;
 const sched = schema.installment_schedule;
@@ -52,6 +54,11 @@ export class CustomerPlansService {
     private readonly db: Database,
     private readonly audit: AuditLogger,
     private readonly generator: ScheduleGenerator = new ScheduleGenerator(),
+    /**
+     * Books merchant payout accruals as plans hit their model-defined triggers.
+     * Optional so framework-free callers / tests can omit settlement plumbing.
+     */
+    private readonly payoutRecorder?: PayoutRecorder,
   ) {}
 
   async activateFromApplication(
@@ -166,6 +173,22 @@ export class CustomerPlansService {
           total_payable_pesewas: generated.totalPayablePesewas,
         },
       });
+
+      // Book the order_approved accrual atomically with activation. MODEL_CONFIG
+      // decides whether anything books — bnpl/rent_to_own pay 100% here, hybrid/
+      // layaway pay nothing on activation (the recorder returns null).
+      if (this.payoutRecorder) {
+        await this.payoutRecorder.recordPayoutAccrual(
+          {
+            customerPlanId: plan.id,
+            merchantId: application.merchant_id,
+            orderAmountPesewas: application.order_amount_pesewas,
+            model: template.business_model as BusinessModel,
+            trigger: 'order_approved',
+          },
+          tx,
+        );
+      }
 
       schedule.sort((a, b) => a.sequence_number - b.sequence_number);
       return { plan, schedule };
@@ -318,6 +341,32 @@ export class CustomerPlansService {
         actorId: actor.actorId,
         actorType: actor.actorType,
       });
+    }
+
+    // Payout accruals — MODEL_CONFIG decides whether each trigger books anything;
+    // the recorder returns null on unmapped triggers, so it's safe to attempt
+    // both. Stays in the caller's tx so the accrual lives or dies with the row.
+    if (this.payoutRecorder) {
+      const accrualInput = {
+        customerPlanId: plan.id,
+        merchantId: plan.merchant_id,
+        orderAmountPesewas: plan.order_amount_pesewas,
+        model: plan.business_model as BusinessModel,
+      };
+      // Hybrid plans accrue 40% when the down-payment row (sequence 1) settles.
+      if (installment.sequence_number === 1) {
+        await this.payoutRecorder.recordPayoutAccrual(
+          { ...accrualInput, trigger: 'down_payment_received' },
+          tx,
+        );
+      }
+      // Layaway 100% / hybrid 60% accrue at completion.
+      if (completed) {
+        await this.payoutRecorder.recordPayoutAccrual(
+          { ...accrualInput, trigger: 'plan_completed' },
+          tx,
+        );
+      }
     }
 
     return { schedule: updatedSchedule, plan: updatedPlan! };

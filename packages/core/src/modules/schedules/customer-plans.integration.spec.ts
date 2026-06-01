@@ -9,6 +9,8 @@ import { CustomersService } from '../customers/customers.service';
 import { MockGhanaCardVerifier } from '../customers/ghana-card-verifier';
 import { PlanTemplatesService } from '../plans/plan-templates.service';
 import { ApplicationsService } from '../applications/applications.service';
+import { LedgerService } from '../../shared/ledger/ledger.service';
+import { PayoutRecorder } from '../settlements/payout-recorder';
 import { CustomerPlansService } from './customer-plans.service';
 import {
   InstallmentNotPayableError,
@@ -238,5 +240,238 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration)', () => {
     expect(receipt.amountPaid).toBe('GHS 250.00');
     expect(receipt.installmentSequence).toBe(1);
     expect(receipt.customerName).toBe('Ama Mensah');
+  });
+});
+
+describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — payout accruals', () => {
+  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const audit = new AuditLogger();
+  const ledger = new LedgerService(db);
+  const payouts = new PayoutRecorder(db, ledger);
+  const merchants = new MerchantsService(db, audit);
+  const customers = new CustomersService(db, audit, new MockGhanaCardVerifier());
+  const planTemplates = new PlanTemplatesService(db, audit);
+  const apps = new ApplicationsService(db, audit);
+  const plans = new CustomerPlansService(db, audit, undefined, payouts);
+  const ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
+
+  let bnplTemplateId: string;
+  let hybridTemplateId: string;
+  let layawayTemplateId: string;
+  let rtoTemplateId: string;
+
+  beforeAll(async () => {
+    const suffix = randomUUID();
+    bnplTemplateId = (
+      await planTemplates.create(
+        {
+          name: `BNPL-pay ${suffix}`,
+          business_model: 'bnpl',
+          number_of_installments: 4,
+          installment_frequency_days: 7,
+          min_amount_pesewas: 1_000,
+          max_amount_pesewas: 10_000_000,
+        },
+        ACTOR,
+      )
+    ).id;
+    hybridTemplateId = (
+      await planTemplates.create(
+        {
+          name: `Hybrid-pay ${suffix}`,
+          business_model: 'hybrid',
+          number_of_installments: 3,
+          installment_frequency_days: 30,
+          down_payment_bps: 4_000,
+          min_amount_pesewas: 1_000,
+          max_amount_pesewas: 10_000_000,
+        },
+        ACTOR,
+      )
+    ).id;
+    layawayTemplateId = (
+      await planTemplates.create(
+        {
+          name: `Layaway-pay ${suffix}`,
+          business_model: 'layaway',
+          number_of_installments: 4,
+          installment_frequency_days: 7,
+          min_amount_pesewas: 1_000,
+          max_amount_pesewas: 10_000_000,
+        },
+        ACTOR,
+      )
+    ).id;
+    rtoTemplateId = (
+      await planTemplates.create(
+        {
+          name: `RTO-pay ${suffix}`,
+          business_model: 'rent_to_own',
+          number_of_installments: 12,
+          installment_frequency_days: 30,
+          min_amount_pesewas: 1_000,
+          max_amount_pesewas: 10_000_000,
+        },
+        ACTOR,
+      )
+    ).id;
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  async function freshMerchant(): Promise<string> {
+    const suffix = randomUUID();
+    return (
+      await merchants.create(
+        {
+          business_name: `M ${suffix}`,
+          legal_name: `M Ltd ${suffix}`,
+          email: `m+${suffix}@x.gh`,
+          phone: '+233244000000',
+        },
+        ACTOR,
+      )
+    ).id;
+  }
+
+  async function freshCustomer(): Promise<string> {
+    const suffix = randomUUID();
+    return (
+      await customers.register(
+        {
+          first_name: 'Pay',
+          last_name: 'Test',
+          email: `pay+${suffix}@x.gh`,
+          phone: `024${Math.floor(1_000_000 + Math.random() * 8_999_999)}`,
+        },
+        ACTOR,
+      )
+    ).id;
+  }
+
+  async function approved(
+    templateId: string,
+    merchantId: string,
+    customerId: string,
+    orderAmountPesewas = 100_000,
+  ): Promise<string> {
+    const app = await apps.submit(
+      {
+        customer_id: customerId,
+        merchant_id: merchantId,
+        plan_template_id: templateId,
+        order_reference: `ORD-${randomUUID()}`,
+        order_amount_pesewas: orderAmountPesewas,
+        merchant_category: 'electronics',
+      },
+      ACTOR,
+    );
+    await apps.recordDecision(app.id, { outcome: 'approved' }, ACTOR);
+    return app.id;
+  }
+
+  it('books an order_approved accrual on BNPL activation (100% gross, 91% net)', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(bnplTemplateId, merchantId, customerId);
+    const { plan } = await plans.activateFromApplication(appId, ACTOR);
+
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(91_000);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(5_000);
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-100_000);
+
+    // Revenue is a global account; assert the per-transaction rows landed
+    // (4: debit receivable, credit merchant_payable, credit revenue, credit reserve).
+    const rows = await db
+      .select()
+      .from(schema.ledger_entries)
+      .where(eq(schema.ledger_entries.transaction_id, `accrue:${plan.id}:order_approved`));
+    expect(rows).toHaveLength(4);
+  });
+
+  it('books an order_approved accrual on rent_to_own activation (88% net, 12% reserve)', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(rtoTemplateId, merchantId, customerId);
+    const { plan } = await plans.activateFromApplication(appId, ACTOR);
+
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(83_000); // 100k - 5k MDR - 12k reserve
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(12_000);
+  });
+
+  it('books nothing on hybrid activation — accrual waits for the down payment', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(hybridTemplateId, merchantId, customerId);
+    const { plan } = await plans.activateFromApplication(appId, ACTOR);
+
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(0);
+  });
+
+  it('books down_payment_received when the hybrid first installment is paid (40% gross)', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(hybridTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    await plans.recordManualPayment(schedule[0]!.id, { provider_reference: 'down-001' }, ACTOR);
+
+    // 40% of 100k → gross 40k, MDR 4% = 1_600, reserve 7% = 2_800, net = 35_600
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(35_600);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(2_800);
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-40_000);
+  });
+
+  it('books both hybrid slices once the plan completes (40% + 60% = 100% gross)', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(hybridTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    for (const row of schedule) {
+      await plans.recordManualPayment(row.id, {}, ACTOR);
+    }
+
+    // gross totals: 100k; MDR 4% of 100k = 4k; reserve 7% of 100k = 7k; net = 89k
+    expect((await plans.get(plan.id)).status).toBe('completed');
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(89_000);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(7_000);
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-100_000);
+  });
+
+  it('books plan_completed (100%) for layaway only when the plan completes', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(layawayTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0); // none on activation
+
+    for (const row of schedule.slice(0, -1)) {
+      await plans.recordManualPayment(row.id, {}, ACTOR);
+    }
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0); // none mid-plan
+
+    await plans.recordManualPayment(schedule.at(-1)!.id, {}, ACTOR);
+    // 100k order, 3% MDR, 2% reserve → net 95k, reserve 2k
+    expect((await plans.get(plan.id)).status).toBe('completed');
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(95_000);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(2_000);
+  });
+
+  it('is idempotent — replaying activation throws (cannot double-book order_approved)', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(bnplTemplateId, merchantId, customerId);
+
+    await plans.activateFromApplication(appId, ACTOR);
+    await expect(plans.activateFromApplication(appId, ACTOR)).rejects.toBeInstanceOf(
+      PlanAlreadyActiveError,
+    );
+    // First activation booked once; balance unchanged by the rejected replay.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(91_000);
   });
 });
