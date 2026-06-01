@@ -7,11 +7,15 @@ import { ScheduleStateService } from '../schedules/schedule-state.service';
 import {
   IllegalScheduleTransitionError,
   ScheduleTerminalStateError,
+  type ScheduleEvent,
 } from '../schedules/state-machine';
 import { AttemptRepository, type PaymentAttempt, type PaymentMethod } from './attempt-repository';
 import { classifyFailure } from './failure-classifier';
 import { InstallmentNotChargeableError, PaymentAttemptNotFoundError } from './errors';
-import { MAX_VERIFY_POLLS } from './retry-policy';
+import { MAX_VERIFY_POLLS, retryStepFor } from './retry-policy';
+import type { RetryScheduler } from './retry-scheduler';
+
+const HOUR_MS = 3_600_000;
 
 interface PaystackChargeResponse {
   data: {
@@ -72,7 +76,8 @@ export interface ChargeMobileMoneyInput {
 export interface ChargeResult {
   /**
    * succeeded — money received, schedule paid;
-   * failed    — declined, schedule failed (or overdue if non-retryable);
+   * failed    — declined; schedule retry_scheduled (retry enqueued), overdue
+   *             (non-retryable), or failed (retries exhausted / no scheduler);
    * pending   — async charge initiated (MoMo pay_offline) or verify still pending;
    * unknown   — network / 5xx error, leave it for a verify poll.
    */
@@ -88,12 +93,14 @@ export interface ChargeResult {
  *   - success    → settle (schedule → paid, plan outstanding reduced)
  *   - pay_offline → leave the attempt in-flight; the webhook (or a verify
  *                   poll) resolves it (MoMo's normal path)
- *   - failed     → record the decline, classify, escalate if non-retryable
+ *   - failed     → record the decline, then escalate (non-retryable → overdue)
+ *                  or schedule the next retry (retryable → retry_scheduled)
  *   - network    → mark the attempt `unknown` (never assume "didn't charge")
  *
- * verifyAttempt is the safety net for lost webhooks: it polls Paystack
- * directly and resolves a stuck attempt idempotently — a webhook that
- * later arrives is a no-op, and a verify that races a webhook is too.
+ * Retry scheduling is opt-in: when a {@link RetryScheduler} is injected, a
+ * retryable failure with attempts remaining transitions the schedule to
+ * `retry_scheduled` and enqueues the next attempt at the policy delay.
+ * verifyAttempt is the safety net for lost webhooks.
  */
 export class PaymentService {
   constructor(
@@ -101,6 +108,7 @@ export class PaymentService {
     private readonly schedules: ScheduleStateService,
     private readonly attempts: AttemptRepository,
     private readonly paystack: PaystackChargeClient,
+    private readonly retryScheduler?: RetryScheduler,
   ) {}
 
   async chargeCard(input: ChargeCardInput, actor: PlanActor): Promise<ChargeResult> {
@@ -175,7 +183,6 @@ export class PaymentService {
     const attempt = await this.attempts.findById(attemptId);
     if (!attempt) throw new PaymentAttemptNotFoundError(attemptId);
 
-    // Already terminal — no-op.
     if (attempt.status === 'succeeded') {
       return {
         status: 'succeeded',
@@ -187,7 +194,6 @@ export class PaymentService {
       return { status: 'failed', attempt, failureReason: attempt.failure_reason ?? undefined };
     }
 
-    // No reference — Paystack never gave us one to verify. Treat as failed.
     if (!attempt.provider_reference) {
       return this.recordVerifyFailure(attempt, 'no_reference_issued', null, actor);
     }
@@ -196,7 +202,6 @@ export class PaymentService {
     try {
       response = await this.paystack.verifyTransaction(attempt.provider_reference);
     } catch (err) {
-      // Verify itself failed — bump the poll count and stay unknown.
       const updated = await this.attempts.update(attempt.id, {
         status: 'unknown',
         lastVerifiedAt: new Date(),
@@ -295,10 +300,8 @@ export class PaymentService {
       rawResponse: response,
       failedAt: new Date(),
     });
-    await this.schedules.applyEvent(scheduleId, 'charge_failed', { ...actor, reason });
-    if (classifyFailure(reason) === 'non_retryable') {
-      await this.schedules.applyEvent(scheduleId, 'non_retryable_decline', { ...actor, reason });
-    }
+    await this.tryEvent(scheduleId, 'charge_failed', { ...actor, reason });
+    await this.afterFailure(scheduleId, reason, actor);
     return { status: 'failed', attempt: failed, failureReason: reason };
   }
 
@@ -344,25 +347,65 @@ export class PaymentService {
       lastVerifiedAt: new Date(),
       verifyPollCount: attempt.verify_poll_count + 1,
     });
-    await this.idempotent(() =>
-      this.schedules.applyEvent(attempt.schedule_id, 'charge_failed', { ...actor, reason }),
-    );
-    if (classifyFailure(reason) === 'non_retryable') {
-      await this.idempotent(() =>
-        this.schedules.applyEvent(attempt.schedule_id, 'non_retryable_decline', {
-          ...actor,
-          reason,
-        }),
-      );
-    }
+    await this.tryEvent(attempt.schedule_id, 'charge_failed', { ...actor, reason });
+    await this.afterFailure(attempt.schedule_id, reason, actor);
     return { status: 'failed', attempt: failed, failureReason: reason };
   }
 
   /**
-   * Swallows "already in the target state" transitions — a verify that races
-   * a webhook hits an illegal transition (e.g. paid → paid) and that's
-   * exactly the no-op we want.
+   * After a failure lands the schedule in `failed`: a non-retryable reason
+   * escalates to `overdue`; a retryable one (with attempts remaining and a
+   * scheduler wired) transitions to `retry_scheduled` and enqueues the next
+   * attempt — otherwise the row is left at `failed`.
    */
+  private async afterFailure(scheduleId: string, reason: string, actor: PlanActor): Promise<void> {
+    if (classifyFailure(reason) === 'non_retryable') {
+      await this.tryEvent(scheduleId, 'non_retryable_decline', { ...actor, reason });
+      return;
+    }
+    if (!this.retryScheduler) return;
+
+    const installment = await this.plans.getInstallment(scheduleId);
+    const nextAttempt = installment.attempt_count + 1;
+    const step = retryStepFor(nextAttempt);
+    if (!step) return; // out of retries — grace-expiry worker escalates later
+
+    const moved = await this.tryEvent(scheduleId, 'retryable', { ...actor, reason });
+    if (moved) {
+      await this.retryScheduler.scheduleRetry({
+        scheduleId,
+        attempt: nextAttempt,
+        channel: step.channel,
+        delayMs: step.delayHours * HOUR_MS,
+      });
+    }
+  }
+
+  /**
+   * Applies a schedule event, returning whether it actually transitioned.
+   * "Already in the target state" (illegal / terminal) returns false rather
+   * than throwing — a transition that races a webhook is a safe no-op.
+   */
+  private async tryEvent(
+    scheduleId: string,
+    event: ScheduleEvent,
+    ctx: { actorId: string; actorType: PlanActor['actorType']; reason?: string },
+  ): Promise<boolean> {
+    try {
+      await this.schedules.applyEvent(scheduleId, event, ctx);
+      return true;
+    } catch (err) {
+      if (
+        err instanceof IllegalScheduleTransitionError ||
+        err instanceof ScheduleTerminalStateError
+      ) {
+        return false;
+      }
+      throw err;
+    }
+  }
+
+  /** Swallows illegal/terminal transition errors thrown from within `fn`. */
   private async idempotent(fn: () => Promise<unknown>): Promise<void> {
     try {
       await fn();

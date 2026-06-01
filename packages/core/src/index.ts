@@ -113,6 +113,7 @@ export {
   type ChargeMobileMoneyInput,
   type ChargeResult,
 } from './modules/payments/payment.service';
+export type { RetryScheduler, RetryJob } from './modules/payments/retry-scheduler';
 export * from './modules/payments/errors';
 export {
   WebhookService,

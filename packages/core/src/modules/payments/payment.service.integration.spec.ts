@@ -14,9 +14,16 @@ import { CustomerPlansService } from '../schedules/customer-plans.service';
 import { ScheduleStateService } from '../schedules/schedule-state.service';
 import { AttemptRepository } from './attempt-repository';
 import { PaymentService, type PaystackChargeClient } from './payment.service';
+import type { RetryJob, RetryScheduler } from './retry-scheduler';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 const ALWAYS_OPEN = { set: async () => 'OK' as const, eval: async () => 1 };
+
+/** Records the retry jobs it was asked to enqueue. */
+function fakeRetryScheduler(): RetryScheduler & { jobs: RetryJob[] } {
+  const jobs: RetryJob[] = [];
+  return { jobs, scheduleRetry: async (job) => void jobs.push(job) };
+}
 
 interface PaystackFakeData {
   reference: string;
@@ -155,6 +162,10 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
 
   function service(paystack: PaystackChargeClient): PaymentService {
     return new PaymentService(plans, scheduleState, attempts, paystack);
+  }
+
+  function serviceWithRetry(paystack: PaystackChargeClient, retry: RetryScheduler): PaymentService {
+    return new PaymentService(plans, scheduleState, attempts, paystack, retry);
   }
 
   // ----------------------------------------------------------- card path
@@ -327,5 +338,68 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
     expect(result.attempt.status).toBe('succeeded');
     // No double-settle — schedule is still paid, plan still 375_000.
     expect((await plans.getInstallment(scheduleId)).status).toBe('paid');
+  });
+
+  // ----------------------------------------------------------- retry scheduling
+
+  it('schedules the next retry on a retryable decline (schedule → retry_scheduled)', async () => {
+    const { scheduleId } = await freshPlan();
+    const retry = fakeRetryScheduler();
+    const svc = serviceWithRetry(
+      fakePaystack({
+        card: { reference: 'ps_no', status: 'failed', gateway_response: 'insufficient_funds' },
+      }),
+      retry,
+    );
+
+    const result = await svc.chargeCard(
+      { scheduleId, authorizationCode: 'AUTH_x', email: 'kofi@x.gh' },
+      ACTOR,
+    );
+
+    expect(result.status).toBe('failed');
+    expect((await plans.getInstallment(scheduleId)).status).toBe('retry_scheduled');
+    expect(retry.jobs).toHaveLength(1);
+    expect(retry.jobs[0]).toMatchObject({
+      scheduleId,
+      attempt: 2,
+      channel: 'auto_debit',
+      delayMs: 4 * 3_600_000, // retry #2 fires at T+4h
+    });
+  });
+
+  it('does not schedule a retry for a non-retryable decline (escalates to overdue)', async () => {
+    const { scheduleId } = await freshPlan();
+    const retry = fakeRetryScheduler();
+    const svc = serviceWithRetry(
+      fakePaystack({
+        card: { reference: 'ps_blk', status: 'failed', gateway_response: 'blocked_card' },
+      }),
+      retry,
+    );
+
+    await svc.chargeCard({ scheduleId, authorizationCode: 'AUTH_x', email: 'kofi@x.gh' }, ACTOR);
+
+    expect((await plans.getInstallment(scheduleId)).status).toBe('overdue');
+    expect(retry.jobs).toHaveLength(0);
+  });
+
+  it('leaves the schedule failed (no retry) once attempts are exhausted', async () => {
+    const { scheduleId } = await freshPlan();
+    const retry = fakeRetryScheduler();
+    const decline = fakePaystack({
+      card: { reference: 'ps_no', status: 'failed', gateway_response: 'insufficient_funds' },
+    });
+    const svc = serviceWithRetry(decline, retry);
+
+    // Attempts 1..3 each fail and schedule the next; attempt 4 fails with no further retry.
+    for (let i = 0; i < 4; i++) {
+      await svc.chargeCard({ scheduleId, authorizationCode: 'AUTH_x', email: 'kofi@x.gh' }, ACTOR);
+    }
+
+    expect((await plans.getInstallment(scheduleId)).status).toBe('failed');
+    // 3 retries enqueued (for attempts 2, 3, 4); attempt 4's failure has none.
+    expect(retry.jobs.map((j) => j.attempt)).toEqual([2, 3, 4]);
+    expect(retry.jobs.at(-1)?.channel).toBe('payment_link'); // attempt 4 → link fallback
   });
 });
