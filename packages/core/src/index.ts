@@ -114,6 +114,15 @@ export {
   type ChargeResult,
 } from './modules/payments/payment.service';
 export type { RetryScheduler, RetryJob } from './modules/payments/retry-scheduler';
+export {
+  MODEL_CONFIG,
+  type BusinessModel,
+  type PayoutTrigger,
+  type PayoutSplit,
+  type ReleasePolicy,
+  type ModelConfig,
+} from './modules/settlements/model-config';
+export { PayoutCalculator, type PayoutBreakdown } from './modules/settlements/payout-calculator';
 export * from './modules/payments/errors';
 export {
   WebhookService,
