@@ -123,6 +123,11 @@ export {
   type ModelConfig,
 } from './modules/settlements/model-config';
 export { PayoutCalculator, type PayoutBreakdown } from './modules/settlements/payout-calculator';
+export {
+  PayoutRecorder,
+  PLATFORM_ACCOUNT_REF,
+  type RecordPayoutAccrualInput,
+} from './modules/settlements/payout-recorder';
 export * from './modules/payments/errors';
 export {
   WebhookService,
