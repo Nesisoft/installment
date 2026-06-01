@@ -110,6 +110,34 @@ export class MeController {
     );
   }
 
+  @Post('installments/:scheduleId/pay-momo')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Pay one of my installments now via Mobile Money' })
+  async payMomo(
+    @Param('scheduleId') scheduleId: string,
+    @Body() body: { phone?: string; provider?: string },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const customer = await this.resolveCustomer(user);
+    const installment = await this.plans.getInstallment(scheduleId);
+    const plan = await this.plans.get(installment.customer_plan_id);
+    if (plan.customer_id !== customer.id) throw new CustomerPlanNotFoundError(scheduleId);
+
+    // Charge against the request body's MoMo details if given; otherwise the saved ones.
+    const phone = body?.phone?.trim() || customer.momo_phone || '';
+    const provider = body?.provider?.trim() || customer.momo_provider || '';
+    if (!phone) {
+      throw new BadRequestException('Mobile Money phone is required (none on file)');
+    }
+    if (provider !== 'mtn' && provider !== 'tgo' && provider !== 'vod') {
+      throw new BadRequestException('Mobile Money provider must be one of mtn, tgo, vod');
+    }
+    return this.payments.chargeMobileMoney(
+      { scheduleId, email: customer.email, phone, provider },
+      actorOf(user),
+    );
+  }
+
   /** Resolves the caller and verifies the plan is theirs (404 otherwise — no leak). */
   private async assertOwnedPlan(planId: string, user: AuthenticatedUser): Promise<void> {
     const customer = await this.resolveCustomer(user);
