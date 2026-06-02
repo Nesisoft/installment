@@ -20,6 +20,7 @@ import {
   PasswordService,
   PaymentService,
   PayoutRecorder,
+  ReserveReleaseService,
   PlanTemplatesService,
   RedisLock,
   RulesetLoader,
@@ -127,10 +128,19 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, LedgerService],
     },
     {
+      provide: ReserveReleaseService,
+      useFactory: (db: Database, ledger: LedgerService) => new ReserveReleaseService(db, ledger),
+      inject: [DRIZZLE, LedgerService],
+    },
+    {
       provide: CustomerPlansService,
-      useFactory: (db: Database, audit: AuditLogger, payouts: PayoutRecorder) =>
-        new CustomerPlansService(db, audit, undefined, payouts),
-      inject: [DRIZZLE, AuditLogger, PayoutRecorder],
+      useFactory: (
+        db: Database,
+        audit: AuditLogger,
+        payouts: PayoutRecorder,
+        reserves: ReserveReleaseService,
+      ) => new CustomerPlansService(db, audit, undefined, payouts, reserves),
+      inject: [DRIZZLE, AuditLogger, PayoutRecorder, ReserveReleaseService],
     },
     { provide: EventBus, useFactory: () => new EventBus() },
     {
@@ -225,6 +235,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     CustomerPlansService,
     LedgerService,
     PayoutRecorder,
+    ReserveReleaseService,
     PaymentService,
     WebhookService,
   ],

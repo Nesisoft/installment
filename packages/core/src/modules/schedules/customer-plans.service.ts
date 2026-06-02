@@ -16,7 +16,8 @@ import {
 } from './errors';
 import { buildStatement, type Statement } from '../statements/statement';
 import { buildReceipt, type Receipt } from '../receipts/receipt';
-import type { PayoutRecorder } from '../settlements/payout-recorder';
+import type { PayoutRecorder, RecordPayoutAccrualInput } from '../settlements/payout-recorder';
+import type { ReserveReleaseService } from '../settlements/reserve-release.service';
 import type { BusinessModel } from '../settlements/model-config';
 
 const cp = schema.customer_plans;
@@ -59,7 +60,38 @@ export class CustomerPlansService {
      * Optional so framework-free callers / tests can omit settlement plumbing.
      */
     private readonly payoutRecorder?: PayoutRecorder,
+    /**
+     * Tracks the reserve withheld by each accrual for later release. Wired
+     * alongside {@link payoutRecorder}; optional for the same reason.
+     */
+    private readonly reserveRelease?: ReserveReleaseService,
   ) {}
+
+  /**
+   * Books one accrual and, when it withholds reserve, records the matching
+   * held-reserve tracking row — both inside the caller's transaction. Returns
+   * nothing; callers fire it per trigger.
+   */
+  private async accrueAndTrack(
+    tx: TransactionalTx,
+    input: RecordPayoutAccrualInput,
+    heldAt: Date,
+  ): Promise<void> {
+    if (!this.payoutRecorder) return;
+    const breakdown = await this.payoutRecorder.recordPayoutAccrual(input, tx);
+    if (breakdown && breakdown.reservePesewas > 0 && this.reserveRelease) {
+      await this.reserveRelease.recordHeldReserve(
+        {
+          merchantId: input.merchantId,
+          customerPlanId: input.customerPlanId,
+          model: input.model,
+          amountPesewas: breakdown.reservePesewas,
+          heldAt,
+        },
+        tx,
+      );
+    }
+  }
 
   async activateFromApplication(
     applicationId: string,
@@ -177,18 +209,17 @@ export class CustomerPlansService {
       // Book the order_approved accrual atomically with activation. MODEL_CONFIG
       // decides whether anything books — bnpl/rent_to_own pay 100% here, hybrid/
       // layaway pay nothing on activation (the recorder returns null).
-      if (this.payoutRecorder) {
-        await this.payoutRecorder.recordPayoutAccrual(
-          {
-            customerPlanId: plan.id,
-            merchantId: application.merchant_id,
-            orderAmountPesewas: application.order_amount_pesewas,
-            model: template.business_model as BusinessModel,
-            trigger: 'order_approved',
-          },
-          tx,
-        );
-      }
+      await this.accrueAndTrack(
+        tx,
+        {
+          customerPlanId: plan.id,
+          merchantId: application.merchant_id,
+          orderAmountPesewas: application.order_amount_pesewas,
+          model: template.business_model as BusinessModel,
+          trigger: 'order_approved',
+        },
+        now,
+      );
 
       schedule.sort((a, b) => a.sequence_number - b.sequence_number);
       return { plan, schedule };
@@ -451,25 +482,22 @@ export class CustomerPlansService {
     // the recorder returns null on unmapped triggers, so it's safe to attempt
     // both. Stays in the caller's tx so the accrual lives or dies with the row.
     if (this.payoutRecorder) {
-      const accrualInput = {
+      const base = {
         customerPlanId: plan.id,
         merchantId: plan.merchant_id,
         orderAmountPesewas: plan.order_amount_pesewas,
         model: plan.business_model as BusinessModel,
       };
+      const heldAt = new Date(opts.nowIso);
       // Hybrid plans accrue 40% when the down-payment row (sequence 1) settles.
       if (installment.sequence_number === 1) {
-        await this.payoutRecorder.recordPayoutAccrual(
-          { ...accrualInput, trigger: 'down_payment_received' },
-          tx,
-        );
+        await this.accrueAndTrack(tx, { ...base, trigger: 'down_payment_received' }, heldAt);
       }
       // Layaway 100% / hybrid 60% accrue at completion.
       if (completed) {
-        await this.payoutRecorder.recordPayoutAccrual(
-          { ...accrualInput, trigger: 'plan_completed' },
-          tx,
-        );
+        await this.accrueAndTrack(tx, { ...base, trigger: 'plan_completed' }, heldAt);
+        // Both buffer-policy models start their release clock at completion.
+        await this.reserveRelease?.markPlanCompleted(plan.id, heldAt, tx);
       }
     }
 

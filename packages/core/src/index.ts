@@ -130,6 +130,14 @@ export {
   type ReverseAccrualsForRefundInput,
   type RefundReversalSummary,
 } from './modules/settlements/payout-recorder';
+export {
+  ReserveReleaseService,
+  type HeldReserve,
+  type RecordHeldReserveInput,
+  type ReserveReleaseResult,
+  type ReserveReleaseSummary,
+  type ReserveExecutor,
+} from './modules/settlements/reserve-release.service';
 export * from './modules/payments/errors';
 export {
   WebhookService,
