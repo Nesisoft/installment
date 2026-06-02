@@ -24,6 +24,21 @@ export class InstallmentsController {
     return this.plans.recordManualPayment(scheduleId, body, actorOf(user));
   }
 
+  @Post(':scheduleId/refund')
+  @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Refund a paid installment — flips schedule to refunded, bumps outstanding, and reverses the proportional ledger accrual',
+  })
+  refund(
+    @Param('scheduleId') scheduleId: string,
+    @Body() body: { reason?: string } | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.plans.refundInstallment(scheduleId, { reason: body?.reason }, actorOf(user));
+  }
+
   @Get(':scheduleId/receipt')
   @RequirePermissions(PERMISSIONS.PLANS_READ)
   @ApiOperation({ summary: 'Payment receipt for a paid installment (structured JSON)' })

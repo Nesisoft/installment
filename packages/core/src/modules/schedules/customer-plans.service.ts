@@ -271,6 +271,110 @@ export class CustomerPlansService {
   }
 
   /**
+   * Reverses a paid installment: schedule → refunded, plan outstanding bumped
+   * back up (un-completing it if the refund re-opens balance), and a
+   * proportional ledger reversal of every accrual that has fired for the plan.
+   * All atomic in one transaction.
+   *
+   * The state machine enforces the precondition (only `paid` may refund);
+   * replays land on `refunded`, which is terminal, so a re-call throws
+   * {@link ScheduleTerminalStateError}.
+   */
+  async refundInstallment(
+    scheduleId: string,
+    opts: { reason?: string } = {},
+    actor: PlanActor,
+    now: Date = new Date(),
+  ): Promise<ManualPaymentResult> {
+    const nowIso = now.toISOString();
+    return runInTransaction(this.db, async (tx) => {
+      const installment = (
+        await tx.select().from(sched).where(eq(sched.id, scheduleId)).for('update').limit(1)
+      )[0];
+      if (!installment) throw new ScheduleNotFoundError(scheduleId);
+
+      const from = installment.status as ScheduleStatus;
+      nextScheduleStatus(from, 'refund_issued'); // only `paid` allowed; throws otherwise
+
+      const plan = (
+        await tx
+          .select()
+          .from(cp)
+          .where(eq(cp.id, installment.customer_plan_id))
+          .for('update')
+          .limit(1)
+      )[0];
+      if (!plan) throw new CustomerPlanNotFoundError(installment.customer_plan_id);
+
+      const refundAmount = installment.amount_paid_pesewas;
+
+      const [updatedSchedule] = await tx
+        .update(sched)
+        .set({
+          status: 'refunded',
+          status_changed_at: nowIso,
+          version: installment.version + 1,
+        })
+        .where(and(eq(sched.id, installment.id), eq(sched.version, installment.version)))
+        .returning();
+      if (!updatedSchedule) throw new ScheduleConcurrencyError(installment.id);
+
+      // Re-open the plan if the refund pushes outstanding back above zero.
+      // (Conceptually the order is no longer satisfied — the customer is owed
+      // money back, so the plan can't remain in `completed`.)
+      const newOutstanding = plan.outstanding_pesewas + refundAmount;
+      const reopen = plan.status === 'completed' && newOutstanding > 0;
+      const [updatedPlan] = await tx
+        .update(cp)
+        .set({
+          outstanding_pesewas: newOutstanding,
+          ...(reopen ? { status: 'active', completed_at: null } : {}),
+        })
+        .where(eq(cp.id, plan.id))
+        .returning();
+      if (!updatedPlan) throw new Error('customer_plans update returned no row');
+
+      await this.audit.append(tx, {
+        entityType: 'installment_schedule',
+        entityId: installment.id,
+        eventType: 'schedule.refund_issued',
+        fromState: from,
+        toState: 'refunded',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reason: opts.reason,
+        metadata: { refund_amount_pesewas: refundAmount },
+      });
+      if (reopen) {
+        await this.audit.append(tx, {
+          entityType: 'customer_plan',
+          entityId: plan.id,
+          eventType: 'customer_plan.reopened',
+          fromState: 'completed',
+          toState: 'active',
+          actorId: actor.actorId,
+          actorType: actor.actorType,
+          reason: 'refund_issued',
+        });
+      }
+
+      if (this.payoutRecorder && refundAmount > 0) {
+        await this.payoutRecorder.reverseAccrualsForRefund(
+          {
+            customerPlanId: plan.id,
+            scheduleId: installment.id,
+            refundAmountPesewas: refundAmount,
+            model: plan.business_model as BusinessModel,
+          },
+          tx,
+        );
+      }
+
+      return { schedule: updatedSchedule, plan: updatedPlan };
+    });
+  }
+
+  /**
    * Marks an installment paid and applies the plan-level effect (reduce
    * outstanding, complete when cleared) within the caller's transaction.
    * Shared by the manual-override and the charge-success paths.

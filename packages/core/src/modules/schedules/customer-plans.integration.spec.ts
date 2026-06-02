@@ -18,6 +18,7 @@ import {
   PlanAlreadyActiveError,
   ReceiptNotAvailableError,
 } from './errors';
+import { IllegalScheduleTransitionError, ScheduleTerminalStateError } from './state-machine';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
@@ -473,5 +474,252 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — payout accruals
     );
     // First activation booked once; balance unchanged by the rejected replay.
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(91_000);
+  });
+});
+
+describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () => {
+  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const audit = new AuditLogger();
+  const ledger = new LedgerService(db);
+  const payouts = new PayoutRecorder(db, ledger);
+  const merchants = new MerchantsService(db, audit);
+  const customers = new CustomersService(db, audit, new MockGhanaCardVerifier());
+  const planTemplates = new PlanTemplatesService(db, audit);
+  const apps = new ApplicationsService(db, audit);
+  const plans = new CustomerPlansService(db, audit, undefined, payouts);
+  const ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
+
+  let bnplTemplateId: string;
+  let hybridTemplateId: string;
+  let layawayTemplateId: string;
+
+  beforeAll(async () => {
+    const suffix = randomUUID();
+    bnplTemplateId = (
+      await planTemplates.create(
+        {
+          name: `BNPL-rfnd ${suffix}`,
+          business_model: 'bnpl',
+          number_of_installments: 4,
+          installment_frequency_days: 7,
+          min_amount_pesewas: 1_000,
+          max_amount_pesewas: 10_000_000,
+        },
+        ACTOR,
+      )
+    ).id;
+    hybridTemplateId = (
+      await planTemplates.create(
+        {
+          name: `Hybrid-rfnd ${suffix}`,
+          business_model: 'hybrid',
+          number_of_installments: 3,
+          installment_frequency_days: 30,
+          down_payment_bps: 4_000,
+          min_amount_pesewas: 1_000,
+          max_amount_pesewas: 10_000_000,
+        },
+        ACTOR,
+      )
+    ).id;
+    layawayTemplateId = (
+      await planTemplates.create(
+        {
+          name: `Layaway-rfnd ${suffix}`,
+          business_model: 'layaway',
+          number_of_installments: 4,
+          installment_frequency_days: 7,
+          min_amount_pesewas: 1_000,
+          max_amount_pesewas: 10_000_000,
+        },
+        ACTOR,
+      )
+    ).id;
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  async function freshMerchant(): Promise<string> {
+    const suffix = randomUUID();
+    return (
+      await merchants.create(
+        {
+          business_name: `M ${suffix}`,
+          legal_name: `M Ltd ${suffix}`,
+          email: `m+${suffix}@x.gh`,
+          phone: '+233244000000',
+        },
+        ACTOR,
+      )
+    ).id;
+  }
+
+  async function freshCustomer(): Promise<string> {
+    const suffix = randomUUID();
+    return (
+      await customers.register(
+        {
+          first_name: 'Refund',
+          last_name: 'Test',
+          email: `r+${suffix}@x.gh`,
+          phone: `024${Math.floor(1_000_000 + Math.random() * 8_999_999)}`,
+        },
+        ACTOR,
+      )
+    ).id;
+  }
+
+  async function approved(
+    templateId: string,
+    merchantId: string,
+    customerId: string,
+    orderAmountPesewas = 100_000,
+  ): Promise<string> {
+    const app = await apps.submit(
+      {
+        customer_id: customerId,
+        merchant_id: merchantId,
+        plan_template_id: templateId,
+        order_reference: `ORD-${randomUUID()}`,
+        order_amount_pesewas: orderAmountPesewas,
+        merchant_category: 'electronics',
+      },
+      ACTOR,
+    );
+    await apps.recordDecision(app.id, { outcome: 'approved' }, ACTOR);
+    return app.id;
+  }
+
+  it('refunds a paid BNPL installment, reverses 25% of the accrual, bumps outstanding', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(bnplTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    await plans.recordManualPayment(schedule[0]!.id, { provider_reference: 'cash-r1' }, ACTOR);
+    // Snapshot pre-refund: full 100k order_approved accrual booked.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(91_000);
+
+    const { schedule: refunded, plan: reopenedPlan } = await plans.refundInstallment(
+      schedule[0]!.id,
+      { reason: 'goods returned' },
+      ACTOR,
+    );
+
+    expect(refunded.status).toBe('refunded');
+    // Outstanding goes from 75k (after the 25k payment) back up to 100k.
+    expect(reopenedPlan.outstanding_pesewas).toBe(100_000);
+    expect(reopenedPlan.status).toBe('active');
+
+    // 25k refund of 100k accrued = 25% reversal: 22,750 net + 1,000 mdr + 1,250 reserve = 25,000 gross
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(91_000 - 22_750);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(5_000 - 1_250);
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-100_000 + 25_000);
+  });
+
+  it('reopens a completed plan when the final installment is refunded', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(bnplTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    for (const row of schedule) await plans.recordManualPayment(row.id, {}, ACTOR);
+    expect((await plans.get(plan.id)).status).toBe('completed');
+
+    const { plan: reopened } = await plans.refundInstallment(schedule.at(-1)!.id, {}, ACTOR);
+    expect(reopened.status).toBe('active');
+    expect(reopened.outstanding_pesewas).toBe(25_000);
+    expect(reopened.completed_at).toBeNull();
+  });
+
+  it('refunds the hybrid down-payment installment in full when only that accrual has fired', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(hybridTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    // Down payment accrual: 40k gross, 35,600 net, 1,600 mdr, 2,800 reserve
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(35_600);
+
+    await plans.refundInstallment(schedule[0]!.id, {}, ACTOR);
+    // Refund == total accrued (both 40k), so the entire down accrual is reversed.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(0);
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(0);
+  });
+
+  it('reverses both hybrid accruals proportionally when refunding mid-plan', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(hybridTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    for (const row of schedule) await plans.recordManualPayment(row.id, {}, ACTOR);
+    // After completion: 40k + 60k = 100k accrued; net 35,600 + 53,400 = 89,000
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(89_000);
+
+    // Refund installment 2 (a 23,334 regular installment).
+    const target = schedule[1]!;
+    expect(target.amount_due_pesewas).toBe(23_334);
+    await plans.refundInstallment(target.id, {}, ACTOR);
+
+    // scaleBps = round(23_334 * 10_000 / 100_000) = 2_333.
+    // Down accrual (gross 40k):  40_000 × 2333/10000 = 9_332 gross
+    //   mdr  = 9_332 × 4%  = 373;  reserve = 9_332 × 7% = 653;  net = 8_306
+    // Completion accrual (gross 60k): 60_000 × 2333/10000 = 13_998 gross
+    //   mdr  = 13_998 × 4% = 560;  reserve = 13_998 × 7% = 980; net = 12_458
+    // Totals: gross 23_330, net 20_764, reserve 1_633.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(89_000 - 20_764);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(7_000 - 1_633);
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-100_000 + 23_330);
+  });
+
+  it('refunds a layaway installment with no ledger reversal before completion', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(layawayTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    // No accruals fired for layaway pre-completion.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
+
+    const { schedule: refunded, plan: updated } = await plans.refundInstallment(
+      schedule[0]!.id,
+      {},
+      ACTOR,
+    );
+    expect(refunded.status).toBe('refunded');
+    expect(updated.outstanding_pesewas).toBe(100_000); // bumped back to full
+    // Still nothing to reverse — no accruals existed.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(0);
+  });
+
+  it('refuses to refund an unpaid installment', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(bnplTemplateId, merchantId, customerId);
+    const { schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    await expect(plans.refundInstallment(schedule[0]!.id, {}, ACTOR)).rejects.toBeInstanceOf(
+      IllegalScheduleTransitionError,
+    );
+  });
+
+  it('refuses to refund an already-refunded installment (terminal state)', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(bnplTemplateId, merchantId, customerId);
+    const { schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    await plans.refundInstallment(schedule[0]!.id, {}, ACTOR);
+    await expect(plans.refundInstallment(schedule[0]!.id, {}, ACTOR)).rejects.toBeInstanceOf(
+      ScheduleTerminalStateError,
+    );
   });
 });

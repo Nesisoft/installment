@@ -127,6 +127,8 @@ export {
   PayoutRecorder,
   PLATFORM_ACCOUNT_REF,
   type RecordPayoutAccrualInput,
+  type ReverseAccrualsForRefundInput,
+  type RefundReversalSummary,
 } from './modules/settlements/payout-recorder';
 export * from './modules/payments/errors';
 export {
