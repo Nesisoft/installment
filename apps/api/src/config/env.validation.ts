@@ -13,6 +13,9 @@ export const envSchema = z.object({
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   JWT_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
   SMS_SENDER_ID: z.string().default('Installmt'),
+  // Paystack — empty in dev keeps boot friction-free; charging/webhooks need a real key.
+  PAYSTACK_SECRET_KEY: z.string().default(''),
+  PAYSTACK_BASE_URL: z.string().default('https://api.paystack.co'),
   SENTRY_DSN: z.string().default(''),
   SENTRY_ENVIRONMENT: z.string().default('development'),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),

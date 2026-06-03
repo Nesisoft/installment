@@ -44,6 +44,124 @@ export {
 } from './modules/scoring/scoring.service';
 export * from './modules/scoring/errors';
 export * from './modules/applications/state-machine';
+export * from './modules/schedules/state-machine';
+export {
+  ScheduleGenerator,
+  ScheduleGenerationError,
+  type ScheduleBusinessModel,
+  type ScheduleGenerationInput,
+  type GeneratedSchedule,
+  type GeneratedInstallment,
+  type InstallmentKind,
+} from './modules/schedules/schedule-generator';
+export * from './modules/schedules/errors';
+export { recordManualPaymentSchema, type RecordManualPaymentInput } from './modules/schedules/dto';
+export {
+  CustomerPlansService,
+  type CustomerPlan,
+  type InstallmentScheduleRow,
+  type PlanActor,
+  type ActivatedPlan,
+  type ManualPaymentResult,
+} from './modules/schedules/customer-plans.service';
+export {
+  ScheduleStateService,
+  type ScheduleEventContext,
+  type ScheduleTransition,
+} from './modules/schedules/schedule-state.service';
+export {
+  buildStatement,
+  renderStatementCsv,
+  renderStatementHtml,
+  type Statement,
+  type StatementLine,
+  type StatementSummary,
+  type StatementInput,
+} from './modules/statements/statement';
+export {
+  buildReceipt,
+  renderReceiptHtml,
+  type Receipt,
+  type ReceiptInput,
+} from './modules/receipts/receipt';
+export {
+  classifyFailure,
+  PAYSTACK_DECLINE_MAP,
+  type FailureClass,
+} from './modules/payments/failure-classifier';
+export {
+  RETRY_POLICY,
+  MAX_ATTEMPTS,
+  MAX_VERIFY_POLLS,
+  retryStepFor,
+  type RetryStep,
+} from './modules/payments/retry-policy';
+export {
+  AttemptRepository,
+  type PaymentAttempt,
+  type PaymentProvider,
+  type PaymentChannel,
+  type PaymentMethod,
+  type AttemptStatus,
+  type CreateAttemptInput,
+  type UpdateAttemptInput,
+} from './modules/payments/attempt-repository';
+export {
+  PaymentService,
+  type PaystackChargeClient,
+  type ChargeCardInput,
+  type ChargeMobileMoneyInput,
+  type ChargeResult,
+} from './modules/payments/payment.service';
+export type { RetryScheduler, RetryJob } from './modules/payments/retry-scheduler';
+export {
+  MODEL_CONFIG,
+  type BusinessModel,
+  type PayoutTrigger,
+  type PayoutSplit,
+  type ReleasePolicy,
+  type ModelConfig,
+} from './modules/settlements/model-config';
+export { PayoutCalculator, type PayoutBreakdown } from './modules/settlements/payout-calculator';
+export {
+  PayoutRecorder,
+  PLATFORM_ACCOUNT_REF,
+  type RecordPayoutAccrualInput,
+  type ReverseAccrualsForRefundInput,
+  type RefundReversalSummary,
+} from './modules/settlements/payout-recorder';
+export {
+  ReserveReleaseService,
+  type HeldReserve,
+  type RecordHeldReserveInput,
+  type ReserveReleaseResult,
+  type ReserveReleaseSummary,
+  type ReserveExecutor,
+} from './modules/settlements/reserve-release.service';
+export {
+  SettlementService,
+  SETTLEMENT_CASH_REF,
+  PayoutNotFoundError,
+  type PayoutTransferClient,
+  type PayoutStatus,
+  type SettlementResult,
+  type DailySettlementSummary,
+} from './modules/settlements/settlement.service';
+export {
+  ReconciliationService,
+  type TransferVerifyClient,
+  type ReconciliationOutcome,
+  type ReconciliationResult,
+  type ReconciliationSummary,
+} from './modules/settlements/reconciliation.service';
+export * from './modules/payments/errors';
+export {
+  WebhookService,
+  type PaystackWebhookEvent,
+  type WebhookSignatureVerifier,
+  type WebhookIngestResult,
+} from './modules/webhooks/webhook.service';
+export * from './modules/webhooks/errors';
 export * from './modules/applications/dto';
 export * from './modules/applications/errors';
 export {

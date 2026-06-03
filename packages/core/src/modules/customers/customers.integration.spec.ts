@@ -4,6 +4,8 @@ import { and, desc, eq } from 'drizzle-orm';
 import { createDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
+import { PasswordService } from '../../shared/auth/password.service';
+import { UsersService } from '../users/users.service';
 import { CustomersService } from './customers.service';
 import { MockGhanaCardVerifier } from './ghana-card-verifier';
 import {
@@ -173,5 +175,24 @@ describe.skipIf(!RUN_DB)('CustomersService (integration)', () => {
     await expect(
       svc.update(randomUUID(), { first_name: 'x' }, SYSTEM_ACTOR),
     ).rejects.toBeInstanceOf(CustomerNotFoundError);
+  });
+
+  it('links a customer to its login at user creation and resolves by user id', async () => {
+    const svc = makeSvc();
+    const users = new UsersService(db, audit, new PasswordService());
+    const reg = input();
+    const customer = await svc.register(reg, SYSTEM_ACTOR);
+
+    // Before a login exists, the customer is unlinked.
+    expect(customer.user_id).toBeNull();
+
+    const user = await users.createCustomerUser(
+      { phone: reg.phone, name: 'Ama Mensah' },
+      SYSTEM_ACTOR,
+    );
+
+    const resolved = await svc.findByUserId(user.id);
+    expect(resolved?.id).toBe(customer.id);
+    expect(await svc.findByUserId(randomUUID())).toBeUndefined();
   });
 });

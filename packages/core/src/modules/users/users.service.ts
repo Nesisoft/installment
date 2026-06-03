@@ -81,6 +81,7 @@ export class UsersService {
       },
       input.roleNames ?? ['customer'],
       actor,
+      input.phone,
     );
   }
 
@@ -160,6 +161,13 @@ export class UsersService {
     values: typeof u.$inferInsert,
     roleNames: string[],
     actor: UserActor,
+    /**
+     * When creating a customer login, the (canonicalised) phone of the domain
+     * record to bind to. The link is established once here and only claims an
+     * as-yet-unlinked customer — a recycled number can never steal one already
+     * bound to another login.
+     */
+    linkCustomerByPhone?: string,
   ): Promise<User> {
     return runInTransaction(this.db, async (tx) => {
       let row: User;
@@ -175,6 +183,14 @@ export class UsersService {
       }
 
       await this.assignRolesTx(tx, row.id, roleNames, actor);
+      if (linkCustomerByPhone) {
+        await tx
+          .update(schema.customers)
+          .set({ user_id: row.id })
+          .where(
+            and(eq(schema.customers.phone, linkCustomerByPhone), isNull(schema.customers.user_id)),
+          );
+      }
       await this.audit.append(tx, {
         entityType: 'user',
         entityId: row.id,
