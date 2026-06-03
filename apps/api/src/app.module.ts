@@ -18,6 +18,7 @@ import { UsersController } from './modules/users.controller';
 import { ScoringController } from './modules/scoring.controller';
 import { PlansController } from './modules/plans.controller';
 import { InstallmentsController } from './modules/installments.controller';
+import { SettlementsController } from './modules/settlements.controller';
 import { MeController } from './modules/me.controller';
 import { WebhookController } from './modules/webhook.controller';
 import { DomainExceptionFilter } from './common/domain-exception.filter';
@@ -57,6 +58,7 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     ScoringController,
     PlansController,
     InstallmentsController,
+    SettlementsController,
     MeController,
     WebhookController,
   ],

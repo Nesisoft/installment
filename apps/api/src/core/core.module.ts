@@ -21,6 +21,7 @@ import {
   PaymentService,
   PayoutRecorder,
   ReserveReleaseService,
+  SettlementService,
   PlanTemplatesService,
   RedisLock,
   RulesetLoader,
@@ -133,6 +134,16 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, LedgerService],
     },
     {
+      provide: SettlementService,
+      useFactory: (
+        db: Database,
+        ledger: LedgerService,
+        audit: AuditLogger,
+        paystack: PaystackClient,
+      ) => new SettlementService(db, ledger, audit, paystack),
+      inject: [DRIZZLE, LedgerService, AuditLogger, PaystackClient],
+    },
+    {
       provide: CustomerPlansService,
       useFactory: (
         db: Database,
@@ -236,6 +247,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     LedgerService,
     PayoutRecorder,
     ReserveReleaseService,
+    SettlementService,
     PaymentService,
     WebhookService,
   ],

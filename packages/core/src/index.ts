@@ -138,6 +138,15 @@ export {
   type ReserveReleaseSummary,
   type ReserveExecutor,
 } from './modules/settlements/reserve-release.service';
+export {
+  SettlementService,
+  SETTLEMENT_CASH_REF,
+  PayoutNotFoundError,
+  type PayoutTransferClient,
+  type PayoutStatus,
+  type SettlementResult,
+  type DailySettlementSummary,
+} from './modules/settlements/settlement.service';
 export * from './modules/payments/errors';
 export {
   WebhookService,
