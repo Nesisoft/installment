@@ -147,6 +147,13 @@ export {
   type SettlementResult,
   type DailySettlementSummary,
 } from './modules/settlements/settlement.service';
+export {
+  ReconciliationService,
+  type TransferVerifyClient,
+  type ReconciliationOutcome,
+  type ReconciliationResult,
+  type ReconciliationSummary,
+} from './modules/settlements/reconciliation.service';
 export * from './modules/payments/errors';
 export {
   WebhookService,

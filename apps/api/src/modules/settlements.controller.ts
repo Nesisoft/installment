@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
-import { PERMISSIONS, SettlementService } from '@installment/core';
+import { PERMISSIONS, ReconciliationService, SettlementService } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../auth/decorators';
 
@@ -11,7 +11,10 @@ import { RequirePermissions } from '../auth/decorators';
 @ApiBearerAuth()
 @Controller('admin/settlements')
 export class SettlementsController {
-  constructor(private readonly settlements: SettlementService) {}
+  constructor(
+    private readonly settlements: SettlementService,
+    private readonly reconciliation: ReconciliationService,
+  ) {}
 
   @Post('run')
   @RequirePermissions(PERMISSIONS.PLANS_WRITE)
@@ -31,5 +34,15 @@ export class SettlementsController {
   runOne(@Param('merchantId') merchantId: string, @Body() body: { asOf?: string } | undefined) {
     const asOf = body?.asOf ? new Date(body.asOf) : new Date();
     return this.settlements.settleMerchant(merchantId, asOf);
+  }
+
+  @Post('reconcile')
+  @RequirePermissions(PERMISSIONS.PLANS_WRITE)
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Verify in-flight payouts (pending/unknown) against Paystack and resolve them',
+  })
+  reconcile(@Body() body: { limit?: number } | undefined) {
+    return this.reconciliation.reconcilePendingPayouts({ limit: body?.limit });
   }
 }
