@@ -9,6 +9,7 @@ import {
   CustomerEmploymentService,
   CustomerPlansService,
   CustomersService,
+  DefaultService,
   EmployersService,
   EventBus,
   FeatureCollector,
@@ -135,6 +136,12 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, LedgerService],
     },
     {
+      provide: DefaultService,
+      useFactory: (db: Database, ledger: LedgerService, reserves: ReserveReleaseService) =>
+        new DefaultService(db, ledger, reserves),
+      inject: [DRIZZLE, LedgerService, ReserveReleaseService],
+    },
+    {
       provide: SettlementService,
       useFactory: (
         db: Database,
@@ -157,8 +164,9 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         audit: AuditLogger,
         payouts: PayoutRecorder,
         reserves: ReserveReleaseService,
-      ) => new CustomerPlansService(db, audit, undefined, payouts, reserves),
-      inject: [DRIZZLE, AuditLogger, PayoutRecorder, ReserveReleaseService],
+        defaults: DefaultService,
+      ) => new CustomerPlansService(db, audit, undefined, payouts, reserves, defaults),
+      inject: [DRIZZLE, AuditLogger, PayoutRecorder, ReserveReleaseService, DefaultService],
     },
     { provide: EventBus, useFactory: () => new EventBus() },
     {
@@ -254,6 +262,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     LedgerService,
     PayoutRecorder,
     ReserveReleaseService,
+    DefaultService,
     SettlementService,
     ReconciliationService,
     PaymentService,

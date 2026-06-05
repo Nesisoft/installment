@@ -10,6 +10,7 @@ import {
   InstallmentNotPayableError,
   PlanActivationError,
   PlanAlreadyActiveError,
+  PlanDefaultError,
   ReceiptNotAvailableError,
   ScheduleConcurrencyError,
   ScheduleNotFoundError,
@@ -18,6 +19,7 @@ import { buildStatement, type Statement } from '../statements/statement';
 import { buildReceipt, type Receipt } from '../receipts/receipt';
 import type { PayoutRecorder, RecordPayoutAccrualInput } from '../settlements/payout-recorder';
 import type { ReserveReleaseService } from '../settlements/reserve-release.service';
+import type { DefaultService } from '../settlements/default.service';
 import type { BusinessModel } from '../settlements/model-config';
 
 const cp = schema.customer_plans;
@@ -65,6 +67,11 @@ export class CustomerPlansService {
      * alongside {@link payoutRecorder}; optional for the same reason.
      */
     private readonly reserveRelease?: ReserveReleaseService,
+    /**
+     * Allocates the loss when a plan defaults. Wired alongside the other
+     * settlement services; optional for the same reason.
+     */
+    private readonly defaultService?: DefaultService,
   ) {}
 
   /**
@@ -402,6 +409,61 @@ export class CustomerPlansService {
       }
 
       return { schedule: updatedSchedule, plan: updatedPlan };
+    });
+  }
+
+  /**
+   * Writes a plan off as defaulted: transitions the plan active → defaulted,
+   * stamps `defaulted_at`, and allocates the unrecovered loss across the
+   * model's risk split (reserve / merchant claw-back / platform pool) — all in
+   * one transaction. The unrecovered amount defaults to the plan's outstanding.
+   */
+  async markPlanDefaulted(
+    planId: string,
+    opts: { reason?: string; unrecoveredAmountPesewas?: number },
+    actor: PlanActor,
+    now: Date = new Date(),
+  ): Promise<CustomerPlan> {
+    const nowIso = now.toISOString();
+    return runInTransaction(this.db, async (tx) => {
+      const plan = (await tx.select().from(cp).where(eq(cp.id, planId)).for('update').limit(1))[0];
+      if (!plan) throw new CustomerPlanNotFoundError(planId);
+      if (plan.status !== 'active') throw new PlanDefaultError(planId, plan.status);
+
+      const unrecovered = opts.unrecoveredAmountPesewas ?? plan.outstanding_pesewas;
+
+      const [updated] = await tx
+        .update(cp)
+        .set({ status: 'defaulted', defaulted_at: nowIso })
+        .where(eq(cp.id, planId))
+        .returning();
+      if (!updated) throw new Error('customer_plans update returned no row');
+
+      await this.audit.append(tx, {
+        entityType: 'customer_plan',
+        entityId: planId,
+        eventType: 'customer_plan.defaulted',
+        fromState: 'active',
+        toState: 'defaulted',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reason: opts.reason,
+        metadata: { unrecovered_amount_pesewas: unrecovered },
+      });
+
+      if (this.defaultService) {
+        await this.defaultService.handleDefault(
+          {
+            customerPlanId: planId,
+            merchantId: plan.merchant_id,
+            model: plan.business_model as BusinessModel,
+            unrecoveredAmountPesewas: unrecovered,
+          },
+          tx,
+        );
+      }
+
+      return updated;
     });
   }
 

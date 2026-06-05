@@ -139,6 +139,11 @@ export {
   type ReserveExecutor,
 } from './modules/settlements/reserve-release.service';
 export {
+  DefaultService,
+  type HandleDefaultInput,
+  type DefaultAllocation,
+} from './modules/settlements/default.service';
+export {
   SettlementService,
   SETTLEMENT_CASH_REF,
   PayoutNotFoundError,
