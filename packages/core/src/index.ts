@@ -115,6 +115,21 @@ export {
   type ChargeResult,
 } from './modules/payments/payment.service';
 export { ChargeReceiptService } from './modules/notifications/charge-receipt.service';
+export {
+  CollectionsService,
+  type CollectionsCase,
+  type CollectionsActor,
+  type CollectionsSweepSummary,
+} from './modules/collections/collections.service';
+export {
+  COLLECTIONS_STAGES,
+  STAGE_AGE_DAYS,
+  stageForAge,
+  isLaterStage,
+  stageOrder,
+  isTerminalStage,
+  type CollectionsStage,
+} from './modules/collections/stage-policy';
 export type { RetryScheduler, RetryJob } from './modules/payments/retry-scheduler';
 export {
   DebitRunner,

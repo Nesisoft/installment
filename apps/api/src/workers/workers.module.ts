@@ -5,6 +5,7 @@ import { ReserveReleaseCron } from './reserve-release.cron';
 import { ReconciliationCron } from './reconciliation.cron';
 import { DebitSchedulerCron } from './debit-scheduler.cron';
 import { VerifyPollCron } from './verify-poll.cron';
+import { CollectionsCron } from './collections.cron';
 import { RetryWorker } from './retry.worker';
 
 /**
@@ -24,6 +25,7 @@ import { RetryWorker } from './retry.worker';
     ReconciliationCron,
     DebitSchedulerCron,
     VerifyPollCron,
+    CollectionsCron,
     RetryWorker,
   ],
 })

@@ -8,6 +8,7 @@ import {
   AuthService,
   CustomerEmploymentService,
   ChargeReceiptService,
+  CollectionsService,
   CustomerPlansService,
   CustomersService,
   DebitRunner,
@@ -168,6 +169,11 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       provide: MerchantDashboardService,
       useFactory: (db: Database, ledger: LedgerService) => new MerchantDashboardService(db, ledger),
       inject: [DRIZZLE, LedgerService],
+    },
+    {
+      provide: CollectionsService,
+      useFactory: (db: Database, audit: AuditLogger) => new CollectionsService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
     },
     {
       provide: CustomerPlansService,
@@ -339,6 +345,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     SettlementService,
     ReconciliationService,
     MerchantDashboardService,
+    CollectionsService,
     PaymentService,
     DebitRunner,
     VerifyRunner,
