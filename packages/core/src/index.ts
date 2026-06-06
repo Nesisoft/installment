@@ -125,6 +125,25 @@ export {
   type VerifySweepSummary,
 } from './modules/payments/verify-runner';
 export {
+  NotificationService,
+  type Notification,
+  type NotificationSmsSender,
+  type SendNotificationInput,
+  type NotificationResult,
+  type NotificationRecipientType,
+} from './modules/notifications/notification.service';
+export {
+  renderNotification,
+  NOTIFICATION_TEMPLATES,
+  NotificationTemplateError,
+  type NotificationTemplateId,
+} from './modules/notifications/notification-templates';
+export {
+  PaymentLinkDispatcher,
+  type PaymentLinkClient,
+  type PaymentLinkOutcome,
+} from './modules/payments/payment-link-dispatcher';
+export {
   MODEL_CONFIG,
   type BusinessModel,
   type PayoutTrigger,

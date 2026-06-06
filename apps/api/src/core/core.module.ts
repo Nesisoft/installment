@@ -22,7 +22,9 @@ import {
   OtpService,
   PasswordService,
   MerchantDashboardService,
+  NotificationService,
   PaymentService,
+  PaymentLinkDispatcher,
   PayoutRecorder,
   ReconciliationService,
   ReserveReleaseService,
@@ -242,6 +244,29 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [AttemptRepository, PaymentService],
     },
     {
+      provide: NotificationService,
+      useFactory: (db: Database, sms: SmsSender, config: ConfigService<Env, true>) =>
+        new NotificationService(db, sms, config.get('SMS_SENDER_ID', { infer: true })),
+      inject: [DRIZZLE, SMS_SENDER, ConfigService],
+    },
+    {
+      provide: PaymentLinkDispatcher,
+      useFactory: (
+        plans: CustomerPlansService,
+        customers: CustomersService,
+        attempts: AttemptRepository,
+        notifications: NotificationService,
+        paystack: PaystackClient,
+      ) => new PaymentLinkDispatcher(plans, customers, attempts, notifications, paystack),
+      inject: [
+        CustomerPlansService,
+        CustomersService,
+        AttemptRepository,
+        NotificationService,
+        PaystackClient,
+      ],
+    },
+    {
       provide: WebhookService,
       useFactory: (
         db: Database,
@@ -305,6 +330,8 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     PaymentService,
     DebitRunner,
     VerifyRunner,
+    NotificationService,
+    PaymentLinkDispatcher,
     WebhookService,
   ],
 })

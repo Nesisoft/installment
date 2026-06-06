@@ -33,7 +33,13 @@ describe('RetryWorker.process', () => {
       status: 'succeeded' as const,
       providerReference: 'ps-1',
     }));
-    const worker = new RetryWorker({ attemptAutoDebit } as never, makeConfig(), makeLogger());
+    const dispatch = vi.fn();
+    const worker = new RetryWorker(
+      { attemptAutoDebit } as never,
+      { dispatch } as never,
+      makeConfig(),
+      makeLogger(),
+    );
 
     const result = await worker.process(autoDebitJob);
 
@@ -41,22 +47,35 @@ describe('RetryWorker.process', () => {
       's1',
       expect.objectContaining({ actorType: 'system' }),
     );
+    expect(dispatch).not.toHaveBeenCalled();
     expect(result).toMatchObject({ scheduleId: 's1', status: 'succeeded' });
   });
 
-  it('defers payment_link jobs (link dispatch not yet implemented)', async () => {
+  it('dispatches a payment link for payment_link jobs', async () => {
     const attemptAutoDebit = vi.fn();
-    const worker = new RetryWorker({ attemptAutoDebit } as never, makeConfig(), makeLogger());
+    const dispatch = vi.fn(async () => ({
+      scheduleId: 's1',
+      status: 'sent' as const,
+      url: 'https://paystack/pay/abc',
+    }));
+    const worker = new RetryWorker(
+      { attemptAutoDebit } as never,
+      { dispatch } as never,
+      makeConfig(),
+      makeLogger(),
+    );
 
     const result = await worker.process(linkJob);
 
     expect(attemptAutoDebit).not.toHaveBeenCalled();
-    expect(result).toEqual({ scheduleId: 's1', status: 'deferred' });
+    expect(dispatch).toHaveBeenCalledWith('s1', 4);
+    expect(result).toMatchObject({ scheduleId: 's1', status: 'sent' });
   });
 
   it('onModuleInit is a no-op when workers are disabled (no Worker constructed)', () => {
     const worker = new RetryWorker(
       { attemptAutoDebit: vi.fn() } as never,
+      { dispatch: vi.fn() } as never,
       makeConfig(),
       makeLogger(),
     );

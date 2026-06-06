@@ -4,8 +4,10 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Worker } from 'bullmq';
 import {
   DebitRunner,
+  PaymentLinkDispatcher,
   SYSTEM_ACTORS,
   type DebitAttemptOutcome,
+  type PaymentLinkOutcome,
   type RetryJob,
 } from '@installment/core';
 import type { Env } from '../config/env.validation';
@@ -13,7 +15,7 @@ import { RETRY_QUEUE, createQueueConnection } from './retry-queue';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.DEBIT_WORKER, actorType: 'system' as const };
 
-export type RetryProcessResult = DebitAttemptOutcome | { scheduleId: string; status: 'deferred' };
+export type RetryProcessResult = DebitAttemptOutcome | PaymentLinkOutcome;
 
 /**
  * Consumes the BullMQ retry queue. `auto_debit` jobs re-attempt the charge via
@@ -32,6 +34,7 @@ export class RetryWorker implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly debitRunner: DebitRunner,
+    private readonly paymentLink: PaymentLinkDispatcher,
     private readonly config: ConfigService<Env, true>,
     @InjectPinoLogger(RetryWorker.name) private readonly logger: PinoLogger,
   ) {
@@ -52,11 +55,17 @@ export class RetryWorker implements OnModuleInit, OnModuleDestroy {
   /** Processes one retry job. Extracted so it can be unit-tested without BullMQ. */
   async process(job: RetryJob): Promise<RetryProcessResult> {
     if (job.channel === 'payment_link') {
+      const linkOutcome = await this.paymentLink.dispatch(job.scheduleId, job.attempt);
       this.logger.info(
-        { scheduleId: job.scheduleId, attempt: job.attempt },
-        'payment_link retry — link dispatch not yet implemented',
+        {
+          scheduleId: job.scheduleId,
+          attempt: job.attempt,
+          outcome: linkOutcome.status,
+          reason: linkOutcome.reason,
+        },
+        'payment_link dispatch complete',
       );
-      return { scheduleId: job.scheduleId, status: 'deferred' };
+      return linkOutcome;
     }
 
     const outcome = await this.debitRunner.attemptAutoDebit(job.scheduleId, ACTOR);
