@@ -7,6 +7,7 @@ import {
   AuditLogger,
   AuthService,
   CustomerEmploymentService,
+  ChargeReceiptService,
   CustomerPlansService,
   CustomersService,
   DebitRunner,
@@ -212,6 +213,15 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [ConfigService],
     },
     {
+      provide: ChargeReceiptService,
+      useFactory: (
+        plans: CustomerPlansService,
+        customers: CustomersService,
+        notifications: NotificationService,
+      ) => new ChargeReceiptService(plans, customers, notifications),
+      inject: [CustomerPlansService, CustomersService, NotificationService],
+    },
+    {
       provide: PaymentService,
       useFactory: (
         plans: CustomerPlansService,
@@ -219,13 +229,15 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         attempts: AttemptRepository,
         paystack: PaystackClient,
         retryScheduler: BullMqRetryScheduler,
-      ) => new PaymentService(plans, scheduleState, attempts, paystack, retryScheduler),
+        receipts: ChargeReceiptService,
+      ) => new PaymentService(plans, scheduleState, attempts, paystack, retryScheduler, receipts),
       inject: [
         CustomerPlansService,
         ScheduleStateService,
         AttemptRepository,
         PaystackClient,
         BullMqRetryScheduler,
+        ChargeReceiptService,
       ],
     },
     {

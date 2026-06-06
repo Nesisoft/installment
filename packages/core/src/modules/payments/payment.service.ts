@@ -56,6 +56,16 @@ export interface PaystackChargeClient {
   verifyTransaction(reference: string): Promise<PaystackVerifyResponse>;
 }
 
+/**
+ * Customer-facing receipt SMS port. Fired after a terminal charge outcome
+ * lands. Implementations must be best-effort (never throw, never block the
+ * charge); PaymentService still wraps calls in try/catch as belt-and-braces.
+ */
+export interface ChargeReceiptNotifier {
+  notifyChargeSucceeded(scheduleId: string, amountPesewas: number): Promise<void>;
+  notifyChargeFailed(scheduleId: string, amountPesewas: number): Promise<void>;
+}
+
 export interface ChargeCardInput {
   scheduleId: string;
   /** Paystack authorization code from a prior tokenised card (Inline). */
@@ -109,7 +119,17 @@ export class PaymentService {
     private readonly attempts: AttemptRepository,
     private readonly paystack: PaystackChargeClient,
     private readonly retryScheduler?: RetryScheduler,
+    /** Optional receipt SMS — best-effort; a failure never affects the charge. */
+    private readonly receipts?: ChargeReceiptNotifier,
   ) {}
+
+  /** Fires a receipt SMS without ever letting it affect the charge outcome. */
+  private notify(fn: (n: ChargeReceiptNotifier) => Promise<void>): void {
+    if (!this.receipts) return;
+    void fn(this.receipts).catch(() => {
+      // Best-effort: receipts must never surface as a charge failure.
+    });
+  }
 
   async chargeCard(input: ChargeCardInput, actor: PlanActor): Promise<ChargeResult> {
     const { attempt, reference, amount, installment } = await this.beginAttempt(
@@ -284,6 +304,7 @@ export class PaymentService {
       settledAt: new Date(),
     });
     await this.plans.recordChargeSuccess(scheduleId, { providerReference }, actor);
+    this.notify((n) => n.notifyChargeSucceeded(scheduleId, succeeded.amount_pesewas));
     return { status: 'succeeded', attempt: succeeded, providerReference };
   }
 
@@ -330,6 +351,7 @@ export class PaymentService {
     await this.idempotent(() =>
       this.plans.recordChargeSuccess(attempt.schedule_id, { providerReference }, actor),
     );
+    this.notify((n) => n.notifyChargeSucceeded(attempt.schedule_id, succeeded.amount_pesewas));
     return { status: 'succeeded', attempt: succeeded, providerReference };
   }
 
@@ -359,17 +381,30 @@ export class PaymentService {
    * attempt — otherwise the row is left at `failed`.
    */
   private async afterFailure(scheduleId: string, reason: string, actor: PlanActor): Promise<void> {
+    const installment = await this.plans.getInstallment(scheduleId);
+    const amount = installment.amount_due_pesewas + installment.late_fee_pesewas;
+
     if (classifyFailure(reason) === 'non_retryable') {
       await this.tryEvent(scheduleId, 'non_retryable_decline', { ...actor, reason });
+      this.notify((n) => n.notifyChargeFailed(scheduleId, amount)); // terminal
       return;
     }
-    if (!this.retryScheduler) return;
+    // No scheduler wired → the row stays `failed`, which is terminal here.
+    if (!this.retryScheduler) {
+      this.notify((n) => n.notifyChargeFailed(scheduleId, amount));
+      return;
+    }
 
-    const installment = await this.plans.getInstallment(scheduleId);
     const nextAttempt = installment.attempt_count + 1;
     const step = retryStepFor(nextAttempt);
-    if (!step) return; // out of retries — grace-expiry worker escalates later
+    if (!step) {
+      // Out of retries — terminal failure; the grace-expiry worker escalates.
+      this.notify((n) => n.notifyChargeFailed(scheduleId, amount));
+      return;
+    }
 
+    // Retryable with attempts left: no SMS now — the retry / payment-link
+    // messaging covers it, so the customer isn't pinged on every attempt.
     const moved = await this.tryEvent(scheduleId, 'retryable', { ...actor, reason });
     if (moved) {
       await this.retryScheduler.scheduleRetry({

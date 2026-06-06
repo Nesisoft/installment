@@ -109,10 +109,12 @@ export {
 export {
   PaymentService,
   type PaystackChargeClient,
+  type ChargeReceiptNotifier,
   type ChargeCardInput,
   type ChargeMobileMoneyInput,
   type ChargeResult,
 } from './modules/payments/payment.service';
+export { ChargeReceiptService } from './modules/notifications/charge-receipt.service';
 export type { RetryScheduler, RetryJob } from './modules/payments/retry-scheduler';
 export {
   DebitRunner,
