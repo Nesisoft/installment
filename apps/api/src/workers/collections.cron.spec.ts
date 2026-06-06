@@ -17,6 +17,7 @@ describe('CollectionsCron', () => {
       graceExpired: 2,
       casesOpened: 1,
       stagesAdvanced: 3,
+      writtenOff: 1,
       advances: [],
     }));
     const logger = makeLogger();
@@ -26,7 +27,12 @@ describe('CollectionsCron', () => {
 
     expect(runSweep).toHaveBeenCalledOnce();
     const [meta] = (logger.info as ReturnType<typeof vi.fn>).mock.calls[0]!;
-    expect(meta).toMatchObject({ graceExpired: 2, casesOpened: 1, stagesAdvanced: 3 });
+    expect(meta).toMatchObject({
+      graceExpired: 2,
+      casesOpened: 1,
+      stagesAdvanced: 3,
+      writtenOff: 1,
+    });
   });
 
   it('stays quiet when nothing moved', async () => {
@@ -34,6 +40,7 @@ describe('CollectionsCron', () => {
       graceExpired: 0,
       casesOpened: 0,
       stagesAdvanced: 0,
+      writtenOff: 0,
       advances: [],
     }));
     const logger = makeLogger();

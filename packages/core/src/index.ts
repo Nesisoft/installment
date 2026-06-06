@@ -120,6 +120,7 @@ export {
   type CollectionsCase,
   type CollectionsActor,
   type CollectionsSweepSummary,
+  type PlanDefaulter,
 } from './modules/collections/collections.service';
 export {
   COLLECTIONS_STAGES,

@@ -172,8 +172,9 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     },
     {
       provide: CollectionsService,
-      useFactory: (db: Database, audit: AuditLogger) => new CollectionsService(db, audit),
-      inject: [DRIZZLE, AuditLogger],
+      useFactory: (db: Database, audit: AuditLogger, plans: CustomerPlansService) =>
+        new CollectionsService(db, audit, plans),
+      inject: [DRIZZLE, AuditLogger, CustomerPlansService],
     },
     {
       provide: CustomerPlansService,

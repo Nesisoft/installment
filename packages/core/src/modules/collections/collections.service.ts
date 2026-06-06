@@ -3,6 +3,7 @@ import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction } from '../../shared/event-bus/transaction';
 import { nextScheduleStatus, type ScheduleStatus } from '../schedules/state-machine';
+import { PlanDefaultError } from '../schedules/errors';
 import {
   COLLECTIONS_STAGES,
   isLaterStage,
@@ -23,10 +24,24 @@ export interface CollectionsActor {
   actorType: AuditActorType;
 }
 
+/**
+ * What CollectionsService needs to default a plan once a case writes off —
+ * satisfied by CustomerPlansService.markPlanDefaulted. Optional so collections
+ * works without the settlement side wired (tests, framework-free callers).
+ */
+export interface PlanDefaulter {
+  markPlanDefaulted(
+    planId: string,
+    opts: { reason?: string },
+    actor: CollectionsActor,
+  ): Promise<unknown>;
+}
+
 export interface CollectionsSweepSummary {
   graceExpired: number;
   casesOpened: number;
   stagesAdvanced: number;
+  writtenOff: number;
   advances: Array<{ caseId: string; from: CollectionsStage; to: CollectionsStage }>;
 }
 
@@ -47,6 +62,8 @@ export class CollectionsService {
   constructor(
     private readonly db: Database,
     private readonly audit: AuditLogger,
+    /** Books the plan default when a case reaches write_off. */
+    private readonly planDefaulter?: PlanDefaulter,
   ) {}
 
   /** Moves due/failed installments past their grace date to `overdue`. */
@@ -258,6 +275,96 @@ export class CollectionsService {
     });
   }
 
+  /**
+   * Resolves cases that have reached `write_off`: defaults the plan (booking the
+   * loss for its full outstanding) and closes the case as `defaulted`, moving
+   * its installment in_collections → defaulted. Idempotent — re-running skips
+   * already-closed cases, and the plan default is no-op'd if a sibling case
+   * already triggered it.
+   */
+  async defaultWrittenOffCases(actor: CollectionsActor, now: Date = new Date()): Promise<number> {
+    const writeOffs = await this.db
+      .select()
+      .from(cases)
+      .where(and(eq(cases.current_stage, 'write_off'), isNull(cases.closed_at)));
+
+    let resolved = 0;
+    for (const c of writeOffs) {
+      if (await this.resolveWriteOff(c, actor, now)) resolved += 1;
+    }
+    return resolved;
+  }
+
+  private async resolveWriteOff(
+    c: CollectionsCase,
+    actor: CollectionsActor,
+    now: Date,
+  ): Promise<boolean> {
+    // 1. Default the plan first (full-outstanding loss). A sibling case may have
+    //    already defaulted it → PlanDefaultError, which is a safe no-op here.
+    if (this.planDefaulter) {
+      try {
+        await this.planDefaulter.markPlanDefaulted(
+          c.customer_plan_id,
+          { reason: 'collections_write_off' },
+          actor,
+        );
+      } catch (err) {
+        if (!(err instanceof PlanDefaultError)) throw err;
+      }
+    }
+
+    // 2. Close the case + move its installment to defaulted, atomically.
+    return runInTransaction(this.db, async (tx) => {
+      const row = (
+        await tx.select().from(cases).where(eq(cases.id, c.id)).for('update').limit(1)
+      )[0];
+      if (!row || row.closed_at) return false;
+
+      if (row.schedule_id) {
+        const s = (
+          await tx.select().from(sched).where(eq(sched.id, row.schedule_id)).for('update').limit(1)
+        )[0];
+        if (s && (s.status as ScheduleStatus) === 'in_collections') {
+          nextScheduleStatus('in_collections', 'default_threshold_hit'); // → defaulted
+          await tx
+            .update(sched)
+            .set({
+              status: 'defaulted',
+              status_changed_at: now.toISOString(),
+              version: s.version + 1,
+            })
+            .where(and(eq(sched.id, s.id), eq(sched.version, s.version)));
+          await this.audit.append(tx, {
+            entityType: 'installment_schedule',
+            entityId: s.id,
+            eventType: 'schedule.default_threshold_hit',
+            fromState: 'in_collections',
+            toState: 'defaulted',
+            actorId: actor.actorId,
+            actorType: actor.actorType,
+          });
+        }
+      }
+
+      await tx
+        .update(cases)
+        .set({ resolution: 'defaulted', closed_at: now.toISOString() })
+        .where(eq(cases.id, c.id));
+      await this.audit.append(tx, {
+        entityType: 'collections_case',
+        entityId: c.id,
+        eventType: 'collections_case.closed',
+        fromState: 'write_off',
+        toState: 'defaulted',
+        reason: 'write_off',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+      });
+      return true;
+    });
+  }
+
   /** Runs the full daily collections sweep in order. */
   async runSweep(
     actor: CollectionsActor,
@@ -266,10 +373,12 @@ export class CollectionsService {
     const graceExpired = await this.escalateGraceExpired(asOf, actor);
     const casesOpened = await this.openCasesForOverdue(actor, asOf);
     const advances = await this.advanceStages(asOf, actor);
+    const writtenOff = await this.defaultWrittenOffCases(actor, asOf);
     return {
       graceExpired,
       casesOpened,
       stagesAdvanced: advances.length,
+      writtenOff,
       advances,
     };
   }

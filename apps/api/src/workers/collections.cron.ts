@@ -29,7 +29,12 @@ export class CollectionsCron {
     if (!this.enabled) return;
     try {
       const summary = await this.collections.runSweep(ACTOR, new Date());
-      if (summary.graceExpired === 0 && summary.casesOpened === 0 && summary.stagesAdvanced === 0) {
+      if (
+        summary.graceExpired === 0 &&
+        summary.casesOpened === 0 &&
+        summary.stagesAdvanced === 0 &&
+        summary.writtenOff === 0
+      ) {
         return; // nothing moved
       }
       this.logger.info(
@@ -37,6 +42,7 @@ export class CollectionsCron {
           graceExpired: summary.graceExpired,
           casesOpened: summary.casesOpened,
           stagesAdvanced: summary.stagesAdvanced,
+          writtenOff: summary.writtenOff,
         },
         'collections sweep complete',
       );

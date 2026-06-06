@@ -185,4 +185,43 @@ describe.skipIf(!RUN_DB)('CollectionsService (integration)', () => {
     // The case opened "now" (sweep asOf) so it advances straight to write_off (>90d old vs opened_at? opened at asOf, so age 0 → soft_reminder). No advance this pass.
     expect((await loadSchedule(schedule[0]!.id))!.status).toBe('in_collections');
   });
+
+  it('defaults the plan and closes the case when a case reaches write_off', async () => {
+    const defaulted: string[] = [];
+    const planDefaulter = {
+      async markPlanDefaulted(planId: string) {
+        defaulted.push(planId);
+      },
+    };
+    const withDefaulter = new CollectionsService(db, audit, planDefaulter);
+
+    const { plan, schedule } = await activatedSchedule();
+    await setStatus(schedule[0]!.id, 'overdue');
+    await withDefaulter.openCasesForOverdue(ACTOR);
+    const [opened] = await db
+      .select()
+      .from(schema.collections_cases)
+      .where(eq(schema.collections_cases.schedule_id, schedule[0]!.id));
+
+    // Push the case to write_off (100 days old), then resolve write-offs.
+    await withDefaulter.advanceStages(
+      new Date(new Date(opened!.opened_at).getTime() + 100 * DAY_MS),
+      ACTOR,
+    );
+    const resolved = await withDefaulter.defaultWrittenOffCases(ACTOR);
+
+    expect(resolved).toBeGreaterThanOrEqual(1);
+    expect(defaulted).toContain(plan.id); // plan default was triggered
+    expect((await loadSchedule(schedule[0]!.id))!.status).toBe('defaulted');
+
+    const [closed] = await db
+      .select()
+      .from(schema.collections_cases)
+      .where(eq(schema.collections_cases.id, opened!.id));
+    expect(closed!.resolution).toBe('defaulted');
+    expect(closed!.closed_at).not.toBeNull();
+
+    // Idempotent: re-running resolves nothing (the case is already closed).
+    expect(await withDefaulter.defaultWrittenOffCases(ACTOR)).toBe(0);
+  });
 });
