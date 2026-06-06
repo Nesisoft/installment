@@ -263,4 +263,110 @@ describe.skipIf(!RUN_DB)('MerchantDashboardService (integration)', () => {
   it('getPlanSettlement returns null for an unknown plan', async () => {
     expect(await dashboard.getPlanSettlement(randomUUID())).toBeNull();
   });
+
+  /**
+   * Books a balanced merchant_payable movement at a chosen instant. Services
+   * always stamp occurred_at = NOW(), so the statement period tests insert
+   * directly to place activity in specific months.
+   */
+  async function bookAt(
+    merchantId: string,
+    transactionId: string,
+    direction: 'debit' | 'credit',
+    amountPesewas: number,
+    occurredAtIso: string,
+  ) {
+    await db.insert(schema.ledger_entries).values([
+      {
+        transaction_id: transactionId,
+        account_type: 'merchant_payable',
+        account_ref: merchantId,
+        direction,
+        amount_pesewas: amountPesewas,
+        currency: 'GHS',
+        description: `${transactionId} ${direction}`,
+        occurred_at: occurredAtIso,
+      },
+      {
+        transaction_id: transactionId,
+        account_type: 'paystack_settlement',
+        account_ref: 'main',
+        direction: direction === 'credit' ? 'debit' : 'credit',
+        amount_pesewas: amountPesewas,
+        currency: 'GHS',
+        description: `${transactionId} contra`,
+        occurred_at: occurredAtIso,
+      },
+    ]);
+  }
+
+  it('getMonthlyStatement carries the opening balance, filters to the month, totals the period', async () => {
+    const merchantId = await freshMerchant();
+
+    // Prior months → opening balance at 1 Mar = 50_000 − 20_000 = 30_000.
+    await bookAt(
+      merchantId,
+      `accrue:${randomUUID()}:order_approved`,
+      'credit',
+      50_000,
+      '2026-01-15T09:00:00.000Z',
+    );
+    await bookAt(merchantId, `payout:${randomUUID()}`, 'debit', 20_000, '2026-02-10T09:00:00.000Z');
+    // March activity.
+    await bookAt(
+      merchantId,
+      `accrue:${randomUUID()}:order_approved`,
+      'credit',
+      91_000,
+      '2026-03-05T09:00:00.000Z',
+    );
+    await bookAt(
+      merchantId,
+      `payout:${randomUUID()}`,
+      'debit',
+      100_000,
+      '2026-03-20T09:00:00.000Z',
+    );
+    await bookAt(
+      merchantId,
+      `release:${randomUUID()}:2026-03-25`,
+      'credit',
+      5_000,
+      '2026-03-25T09:00:00.000Z',
+    );
+    // Next month → excluded from the March statement.
+    await bookAt(
+      merchantId,
+      `accrue:${randomUUID()}:order_approved`,
+      'credit',
+      12_000,
+      '2026-04-02T09:00:00.000Z',
+    );
+
+    const s = await dashboard.getMonthlyStatement(merchantId, 2026, 3);
+
+    expect(s.period).toBe('2026-03');
+    expect(s.periodStart).toBe('2026-03-01');
+    expect(s.periodEnd).toBe('2026-03-31');
+    expect(s.merchantName).not.toBeNull();
+
+    expect(s.summary.openingBalance).toBe('GHS 300.00'); // 30_000
+    expect(s.lines).toHaveLength(3); // only March movements
+    expect(s.summary.totalCredited).toBe('GHS 960.00'); // 96_000
+    expect(s.summary.totalDebited).toBe('GHS 1,000.00'); // 100_000
+    expect(s.summary.reserveReleased).toBe('GHS 50.00'); // 5_000
+    expect(s.summary.paidOut).toBe('GHS 1,000.00'); // 100_000
+    // 30_000 + 96_000 − 100_000 = 26_000
+    expect(s.summary.closingBalance).toBe('GHS 260.00');
+
+    // Lines are ascending by occurred_at and classified by transaction id.
+    expect(s.lines.map((l) => l.kind)).toEqual(['accrual', 'payout', 'reserve_release']);
+  });
+
+  it('getMonthlyStatement rejects an out-of-range month', async () => {
+    const merchantId = await freshMerchant();
+    await expect(dashboard.getMonthlyStatement(merchantId, 2026, 13)).rejects.toBeInstanceOf(
+      RangeError,
+    );
+  });
 });

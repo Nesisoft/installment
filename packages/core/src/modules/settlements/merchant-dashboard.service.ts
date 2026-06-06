@@ -1,12 +1,14 @@
-import { and, count, desc, eq, isNotNull, isNull, sum } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, isNotNull, isNull, lt, sql, sum } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { LedgerService } from '../../shared/ledger/ledger.service';
 import { MODEL_CONFIG, type BusinessModel } from './model-config';
+import { buildMerchantStatement, type MerchantStatement } from './merchant-statement';
 
 const cp = schema.customer_plans;
 const ledgerTbl = schema.ledger_entries;
 const payoutsTbl = schema.payouts;
 const heldTbl = schema.held_reserves;
+const merchantsTbl = schema.merchants;
 
 export interface MerchantBalances {
   merchantId: string;
@@ -249,6 +251,76 @@ export class MerchantDashboardService {
       defaultClawedFromMerchantPesewas: defaultFromMerchant,
       defaultConsumedFromReservePesewas: defaultFromReserve,
     };
+  }
+
+  /**
+   * Monthly account statement for a merchant — every `merchant_payable`
+   * movement in the calendar month (UTC), with the opening balance carried in
+   * from all prior activity and the closing balance rolled forward. `month` is
+   * 1-based.
+   */
+  async getMonthlyStatement(
+    merchantId: string,
+    year: number,
+    month: number,
+  ): Promise<MerchantStatement> {
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new RangeError(`month must be 1..12, got ${month}`);
+    }
+    const startIso = new Date(Date.UTC(year, month - 1, 1)).toISOString();
+    const endIso = new Date(Date.UTC(year, month, 1)).toISOString();
+
+    const payableFilter = and(
+      eq(ledgerTbl.account_type, 'merchant_payable'),
+      eq(ledgerTbl.account_ref, merchantId),
+    );
+
+    const [merchantRow, openingRows, entryRows] = await Promise.all([
+      this.db
+        .select({ name: merchantsTbl.business_name })
+        .from(merchantsTbl)
+        .where(eq(merchantsTbl.id, merchantId))
+        .limit(1),
+      // Opening balance = signed sum of every movement strictly before the period.
+      this.db
+        .select({
+          balance: sql<string>`coalesce(sum(${ledgerTbl.amount_pesewas} * case ${ledgerTbl.direction} when 'credit' then 1 else -1 end), 0)`,
+        })
+        .from(ledgerTbl)
+        .where(and(payableFilter, lt(ledgerTbl.occurred_at, startIso))),
+      this.db
+        .select({
+          occurredAt: ledgerTbl.occurred_at,
+          transactionId: ledgerTbl.transaction_id,
+          description: ledgerTbl.description,
+          direction: ledgerTbl.direction,
+          amountPesewas: ledgerTbl.amount_pesewas,
+        })
+        .from(ledgerTbl)
+        .where(
+          and(
+            payableFilter,
+            gte(ledgerTbl.occurred_at, startIso),
+            lt(ledgerTbl.occurred_at, endIso),
+          ),
+        )
+        .orderBy(asc(ledgerTbl.occurred_at)),
+    ]);
+
+    return buildMerchantStatement({
+      merchantId,
+      merchantName: merchantRow[0]?.name ?? null,
+      year,
+      month,
+      openingBalancePesewas: Number(openingRows[0]?.balance ?? '0'),
+      entries: entryRows.map((e) => ({
+        occurredAt: e.occurredAt,
+        transactionId: e.transactionId,
+        description: e.description,
+        direction: e.direction as 'debit' | 'credit',
+        amountPesewas: Number(e.amountPesewas),
+      })),
+    });
   }
 
   /** Earliest date the policy lets us release this row, given the stamped triggers. */

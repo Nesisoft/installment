@@ -1,12 +1,25 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   MerchantDashboardService,
   MerchantsService,
   PERMISSIONS,
+  renderMerchantStatementCsv,
+  renderMerchantStatementHtml,
   type AuditActorType,
   type MerchantActor,
 } from '@installment/core';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 
 function toActorType(userType: string): AuditActorType {
@@ -111,4 +124,53 @@ export class MerchantsController {
     const open = query.open === undefined ? true : query.open !== 'false';
     return this.dashboard.listHeldReserves(id, { open });
   }
+
+  @Get(':id/statement')
+  @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
+  @ApiOperation({ summary: 'Monthly merchant account statement (JSON) — ?year=&month=' })
+  statement(@Param('id') id: string, @Query() query: Record<string, string>) {
+    const { year, month } = parsePeriod(query);
+    return this.dashboard.getMonthlyStatement(id, year, month);
+  }
+
+  @Get(':id/statement.csv')
+  @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="merchant-statement.csv"')
+  @ApiOperation({ summary: 'Monthly merchant statement as a CSV download — ?year=&month=' })
+  async statementCsv(
+    @Param('id') id: string,
+    @Query() query: Record<string, string>,
+  ): Promise<string> {
+    const { year, month } = parsePeriod(query);
+    return renderMerchantStatementCsv(await this.dashboard.getMonthlyStatement(id, year, month));
+  }
+
+  @Get(':id/statement.html')
+  @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  @ApiOperation({
+    summary: 'Monthly merchant statement as printable HTML (print → PDF) — ?year=&month=',
+  })
+  async statementHtml(
+    @Param('id') id: string,
+    @Query() query: Record<string, string>,
+  ): Promise<string> {
+    const { year, month } = parsePeriod(query);
+    return renderMerchantStatementHtml(await this.dashboard.getMonthlyStatement(id, year, month));
+  }
+}
+
+/** Parses + validates ?year=&month= (defaults to the current UTC month). */
+function parsePeriod(query: Record<string, string>): { year: number; month: number } {
+  const now = new Date();
+  const year = query.year ? Number(query.year) : now.getUTCFullYear();
+  const month = query.month ? Number(query.month) : now.getUTCMonth() + 1;
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new BadRequestException('year must be a 4-digit year');
+  }
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new BadRequestException('month must be 1..12');
+  }
+  return { year, month };
 }

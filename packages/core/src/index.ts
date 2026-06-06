@@ -152,6 +152,18 @@ export {
   type PlanSettlementView,
 } from './modules/settlements/merchant-dashboard.service';
 export {
+  buildMerchantStatement,
+  renderMerchantStatementCsv,
+  renderMerchantStatementHtml,
+  classifyStatementKind,
+  type MerchantStatement,
+  type MerchantStatementLine,
+  type MerchantStatementSummary,
+  type MerchantStatementInput,
+  type MerchantStatementEntry,
+  type MerchantStatementKind,
+} from './modules/settlements/merchant-statement';
+export {
   SettlementService,
   SETTLEMENT_CASH_REF,
   PayoutNotFoundError,
