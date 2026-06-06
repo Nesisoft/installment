@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, isNull, lt, or } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { PaymentAttemptNotFoundError } from './errors';
 
@@ -92,5 +92,26 @@ export class AttemptRepository {
 
   async findByIdempotencyKey(key: string): Promise<PaymentAttempt | undefined> {
     return (await this.db.select().from(pa).where(eq(pa.idempotency_key, key)).limit(1))[0];
+  }
+
+  /**
+   * In-flight attempts that started before `staleBefore` and haven't been
+   * verified since — the lost-webhook backlog the verify-poll worker drains.
+   * Oldest first so the longest-stuck attempts resolve first.
+   */
+  async findStaleInFlight(staleBefore: Date, limit = 200): Promise<PaymentAttempt[]> {
+    const cutoff = staleBefore.toISOString();
+    return this.db
+      .select()
+      .from(pa)
+      .where(
+        and(
+          eq(pa.status, 'in_flight'),
+          lt(pa.initiated_at, cutoff),
+          or(isNull(pa.last_verified_at), lt(pa.last_verified_at, cutoff)),
+        ),
+      )
+      .orderBy(asc(pa.initiated_at))
+      .limit(limit);
   }
 }

@@ -4,16 +4,17 @@ import { SettlementCron } from './settlement.cron';
 import { ReserveReleaseCron } from './reserve-release.cron';
 import { ReconciliationCron } from './reconciliation.cron';
 import { DebitSchedulerCron } from './debit-scheduler.cron';
+import { VerifyPollCron } from './verify-poll.cron';
 import { RetryWorker } from './retry.worker';
 
 /**
- * Scheduled + queued workers — hourly auto-debit sweep, daily settlement
- * (06:00 UTC), reserve-release sweep (07:00 UTC), payout reconciliation (every
- * 30 minutes), and the BullMQ retry consumer. Each is gated by
- * ENABLE_SCHEDULED_WORKERS so dev / tests don't spin them up. CoreModule is
- * `@Global`, so the services they depend on (incl. DebitRunner) resolve
- * automatically. The retry *producer* lives in CoreModule (PaymentService
- * needs it); the *consumer* (RetryWorker) lives here.
+ * Scheduled + queued workers — hourly auto-debit sweep, verify-poll sweep
+ * (every 5 min), daily settlement (06:00 UTC), reserve-release sweep
+ * (07:00 UTC), payout reconciliation (every 30 min), and the BullMQ retry
+ * consumer. Each is gated by ENABLE_SCHEDULED_WORKERS so dev / tests don't spin
+ * them up. CoreModule is `@Global`, so the services they depend on (incl.
+ * DebitRunner / VerifyRunner) resolve automatically. The retry *producer* lives
+ * in CoreModule (PaymentService needs it); the *consumer* (RetryWorker) here.
  */
 @Module({
   imports: [ScheduleModule.forRoot()],
@@ -22,6 +23,7 @@ import { RetryWorker } from './retry.worker';
     ReserveReleaseCron,
     ReconciliationCron,
     DebitSchedulerCron,
+    VerifyPollCron,
     RetryWorker,
   ],
 })

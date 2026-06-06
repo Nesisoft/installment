@@ -12,6 +12,7 @@ import {
   DebitRunner,
   DefaultService,
   EmployersService,
+  VerifyRunner,
   EventBus,
   FeatureCollector,
   JwtService,
@@ -235,6 +236,12 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [CustomerPlansService, CustomersService, PaymentService],
     },
     {
+      provide: VerifyRunner,
+      useFactory: (attempts: AttemptRepository, payments: PaymentService) =>
+        new VerifyRunner(attempts, payments),
+      inject: [AttemptRepository, PaymentService],
+    },
+    {
       provide: WebhookService,
       useFactory: (
         db: Database,
@@ -297,6 +304,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     MerchantDashboardService,
     PaymentService,
     DebitRunner,
+    VerifyRunner,
     WebhookService,
   ],
 })

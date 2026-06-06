@@ -120,6 +120,11 @@ export {
   type DebitSweepSummary,
 } from './modules/payments/debit-runner';
 export {
+  VerifyRunner,
+  type VerifyOutcome,
+  type VerifySweepSummary,
+} from './modules/payments/verify-runner';
+export {
   MODEL_CONFIG,
   type BusinessModel,
   type PayoutTrigger,
