@@ -242,6 +242,31 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration)', () => {
     expect(receipt.installmentSequence).toBe(1);
     expect(receipt.customerName).toBe('Ama Mensah');
   });
+
+  it('listDueForAutoDebit picks pending/due rows on or before asOf, skipping paid ones', async () => {
+    // BNPL: 4 weekly installments, the first due today.
+    const appId = await approved(bnplTemplateId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+    const ours = new Set(schedule.map((r) => r.id));
+
+    // As of today: only installment 1 (due today) is picked up.
+    const dueToday = (await plans.listDueForAutoDebit(new Date())).filter((r) => ours.has(r.id));
+    expect(dueToday.map((r) => r.sequence_number)).toEqual([1]);
+
+    // Three weeks out: all four are on/past their due date.
+    const dueLater = (
+      await plans.listDueForAutoDebit(new Date(Date.now() + 21 * 86_400_000))
+    ).filter((r) => ours.has(r.id));
+    expect(dueLater).toHaveLength(4);
+
+    // Pay installment 1 → it drops out of the due list.
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    const afterPay = (
+      await plans.listDueForAutoDebit(new Date(Date.now() + 21 * 86_400_000))
+    ).filter((r) => ours.has(r.id));
+    expect(afterPay.map((r) => r.sequence_number)).toEqual([2, 3, 4]);
+    expect(afterPay.every((r) => r.customer_plan_id === plan.id)).toBe(true);
+  });
 });
 
 describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — payout accruals', () => {

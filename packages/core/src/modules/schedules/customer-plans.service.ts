@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, lte } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
@@ -587,6 +587,25 @@ export class CustomerPlansService {
       .from(sched)
       .where(eq(sched.customer_plan_id, planId))
       .orderBy(sched.sequence_number);
+  }
+
+  /**
+   * Installments ripe for a first auto-debit attempt: `pending`/`due` and on or
+   * past their due date as of `asOf`. Excludes `retry_scheduled` (owned by the
+   * retry queue) and `processing`/terminal rows, so the debit sweep and the
+   * retry worker never contend for the same installment. Oldest first.
+   */
+  async listDueForAutoDebit(
+    asOf: Date = new Date(),
+    limit = 500,
+  ): Promise<InstallmentScheduleRow[]> {
+    const dueDate = asOf.toISOString().slice(0, 10);
+    return this.db
+      .select()
+      .from(sched)
+      .where(and(inArray(sched.status, ['pending', 'due']), lte(sched.due_date, dueDate)))
+      .orderBy(sched.due_date)
+      .limit(limit);
   }
 
   /** Assembles a customer-facing statement (plan summary + installment lines). */

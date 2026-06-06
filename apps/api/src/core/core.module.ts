@@ -9,6 +9,7 @@ import {
   CustomerEmploymentService,
   CustomerPlansService,
   CustomersService,
+  DebitRunner,
   DefaultService,
   EmployersService,
   EventBus,
@@ -42,6 +43,7 @@ import { REDIS } from '../redis/redis.module';
 import type { Env } from '../config/env.validation';
 import { RedisOtpStore } from './redis-otp-store';
 import { ConsoleSmsSender } from './console-sms-sender';
+import { BullMqRetryScheduler } from '../workers/bullmq-retry-scheduler';
 
 export const SMS_SENDER = Symbol('SMS_SENDER');
 
@@ -202,14 +204,35 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [ConfigService],
     },
     {
+      provide: BullMqRetryScheduler,
+      useFactory: (config: ConfigService<Env, true>) => new BullMqRetryScheduler(config),
+      inject: [ConfigService],
+    },
+    {
       provide: PaymentService,
       useFactory: (
         plans: CustomerPlansService,
         scheduleState: ScheduleStateService,
         attempts: AttemptRepository,
         paystack: PaystackClient,
-      ) => new PaymentService(plans, scheduleState, attempts, paystack),
-      inject: [CustomerPlansService, ScheduleStateService, AttemptRepository, PaystackClient],
+        retryScheduler: BullMqRetryScheduler,
+      ) => new PaymentService(plans, scheduleState, attempts, paystack, retryScheduler),
+      inject: [
+        CustomerPlansService,
+        ScheduleStateService,
+        AttemptRepository,
+        PaystackClient,
+        BullMqRetryScheduler,
+      ],
+    },
+    {
+      provide: DebitRunner,
+      useFactory: (
+        plans: CustomerPlansService,
+        customers: CustomersService,
+        payments: PaymentService,
+      ) => new DebitRunner(plans, customers, payments),
+      inject: [CustomerPlansService, CustomersService, PaymentService],
     },
     {
       provide: WebhookService,
@@ -273,6 +296,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     ReconciliationService,
     MerchantDashboardService,
     PaymentService,
+    DebitRunner,
     WebhookService,
   ],
 })

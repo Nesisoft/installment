@@ -22,6 +22,7 @@
     "@nestjs/schedule": "^5.0.1",
     "@nestjs/swagger": "^11.0.0",
     "@sentry/node": "^8.42.0",
+    "bullmq": "^5.78.0",
     "ioredis": "^5.4.2",
     "nestjs-pino": "^4.2.0",
     "pino": "^9.5.0",

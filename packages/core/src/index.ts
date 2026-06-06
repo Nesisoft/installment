@@ -115,6 +115,11 @@ export {
 } from './modules/payments/payment.service';
 export type { RetryScheduler, RetryJob } from './modules/payments/retry-scheduler';
 export {
+  DebitRunner,
+  type DebitAttemptOutcome,
+  type DebitSweepSummary,
+} from './modules/payments/debit-runner';
+export {
   MODEL_CONFIG,
   type BusinessModel,
   type PayoutTrigger,
