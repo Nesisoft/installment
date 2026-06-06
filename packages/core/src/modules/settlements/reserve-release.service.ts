@@ -39,6 +39,13 @@ export interface ReserveReleaseSummary {
   releases: ReserveReleaseResult[];
 }
 
+export interface ReserveSweepSummary {
+  asOf: string;
+  merchantsChecked: number;
+  totalReleasedPesewas: number;
+  perMerchant: ReserveReleaseSummary[];
+}
+
 /**
  * Owns the `held_reserves` lifecycle: records a tracking row when an accrual
  * withholds reserve, stamps the policy triggers (plan completion / delivery),
@@ -190,6 +197,34 @@ export class ReserveReleaseService {
     }
 
     return { merchantId, totalReleasedPesewas: totalReleased, releases };
+  }
+
+  /**
+   * Walks every merchant with an open held-reserve row and runs the maturity
+   * release for them. Drives the daily reserve-release cron — at worst it does
+   * one no-op pass per merchant (each row is filtered by its own maturity
+   * date), which is what we want for an idempotent sweep.
+   */
+  async runSweep(asOf: Date = new Date()): Promise<ReserveSweepSummary> {
+    const merchants = await this.db
+      .selectDistinct({ merchantId: held.merchant_id })
+      .from(held)
+      .where(isNull(held.fully_released_at));
+
+    const perMerchant: ReserveReleaseSummary[] = [];
+    let totalReleased = 0;
+    for (const { merchantId } of merchants) {
+      const summary = await this.releaseMaturedReserves(merchantId, asOf);
+      perMerchant.push(summary);
+      totalReleased += summary.totalReleasedPesewas;
+    }
+
+    return {
+      asOf: asOf.toISOString(),
+      merchantsChecked: merchants.length,
+      totalReleasedPesewas: totalReleased,
+      perMerchant,
+    };
   }
 
   /** Books one row's matured release + bookkeeping atomically. */

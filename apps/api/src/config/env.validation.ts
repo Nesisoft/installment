@@ -19,6 +19,13 @@ export const envSchema = z.object({
   SENTRY_DSN: z.string().default(''),
   SENTRY_ENVIRONMENT: z.string().default('development'),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
+  // Scheduled workers (settlement / reserve-release / reconciliation crons).
+  // Keep OFF in tests and local single-instance dev; turn ON exactly once per
+  // production deployment (a future leader-election step picks the runner).
+  ENABLE_SCHEDULED_WORKERS: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => v === true || v === 'true' || v === '1')
+    .default(false),
 });
 
 export type Env = z.infer<typeof envSchema>;

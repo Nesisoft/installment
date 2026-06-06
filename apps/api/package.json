@@ -19,6 +19,7 @@
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/schedule": "^5.0.1",
     "@nestjs/swagger": "^11.0.0",
     "@sentry/node": "^8.42.0",
     "ioredis": "^5.4.2",

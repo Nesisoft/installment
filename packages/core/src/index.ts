@@ -136,6 +136,7 @@ export {
   type RecordHeldReserveInput,
   type ReserveReleaseResult,
   type ReserveReleaseSummary,
+  type ReserveSweepSummary,
   type ReserveExecutor,
 } from './modules/settlements/reserve-release.service';
 export {
