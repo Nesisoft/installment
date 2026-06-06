@@ -19,6 +19,7 @@ import {
   MockGhanaCardVerifier,
   OtpService,
   PasswordService,
+  MerchantDashboardService,
   PaymentService,
   PayoutRecorder,
   ReconciliationService,
@@ -158,6 +159,11 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, SettlementService, PaystackClient],
     },
     {
+      provide: MerchantDashboardService,
+      useFactory: (db: Database, ledger: LedgerService) => new MerchantDashboardService(db, ledger),
+      inject: [DRIZZLE, LedgerService],
+    },
+    {
       provide: CustomerPlansService,
       useFactory: (
         db: Database,
@@ -265,6 +271,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     DefaultService,
     SettlementService,
     ReconciliationService,
+    MerchantDashboardService,
     PaymentService,
     WebhookService,
   ],

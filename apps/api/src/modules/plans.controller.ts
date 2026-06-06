@@ -1,6 +1,16 @@
-import { Body, Controller, Get, Header, HttpCode, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Post,
+} from '@nestjs/common';
 import {
   CustomerPlansService,
+  MerchantDashboardService,
   PERMISSIONS,
   renderStatementCsv,
   renderStatementHtml,
@@ -13,7 +23,10 @@ import { actorOf } from '../auth/current-actor';
 @ApiBearerAuth()
 @Controller('admin/plans')
 export class PlansController {
-  constructor(private readonly plans: CustomerPlansService) {}
+  constructor(
+    private readonly plans: CustomerPlansService,
+    private readonly dashboard: MerchantDashboardService,
+  ) {}
 
   @Post('from-application/:applicationId')
   @RequirePermissions(PERMISSIONS.APPLICATIONS_REVIEW)
@@ -77,5 +90,16 @@ export class PlansController {
   @ApiOperation({ summary: 'Printable HTML statement (print → PDF)' })
   async statementHtml(@Param('id') id: string): Promise<string> {
     return renderStatementHtml(await this.plans.getStatement(id));
+  }
+
+  @Get(':id/settlement')
+  @RequirePermissions(PERMISSIONS.PLANS_READ)
+  @ApiOperation({
+    summary: 'Per-plan settlement view (accruals, refunds, reserve, default footprint)',
+  })
+  async settlement(@Param('id') id: string) {
+    const view = await this.dashboard.getPlanSettlement(id);
+    if (!view) throw new NotFoundException(`Plan ${id} not found`);
+    return view;
   }
 }

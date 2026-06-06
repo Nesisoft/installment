@@ -144,6 +144,14 @@ export {
   type DefaultAllocation,
 } from './modules/settlements/default.service';
 export {
+  MerchantDashboardService,
+  type MerchantBalances,
+  type MerchantPayoutRow,
+  type MerchantPayoutsPage,
+  type MerchantHeldReserveRow,
+  type PlanSettlementView,
+} from './modules/settlements/merchant-dashboard.service';
+export {
   SettlementService,
   SETTLEMENT_CASH_REF,
   PayoutNotFoundError,
