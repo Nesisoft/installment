@@ -37,6 +37,15 @@ export interface PlanDefaulter {
   ): Promise<unknown>;
 }
 
+/** Optional port: fires a customer-facing SMS when a case enters a new stage. */
+export interface StageNotifier {
+  notifyStageEntered(args: {
+    customerPlanId: string;
+    scheduleId: string | null;
+    stage: CollectionsStage;
+  }): Promise<void>;
+}
+
 export interface CollectionsSweepSummary {
   graceExpired: number;
   casesOpened: number;
@@ -64,7 +73,21 @@ export class CollectionsService {
     private readonly audit: AuditLogger,
     /** Books the plan default when a case reaches write_off. */
     private readonly planDefaulter?: PlanDefaulter,
+    /** Texts the customer when a case enters a customer-facing stage. */
+    private readonly stageNotifier?: StageNotifier,
   ) {}
+
+  /** Fire-and-forget stage SMS: never throws, never blocks the transition. */
+  private notifyStage(
+    customerPlanId: string,
+    scheduleId: string | null,
+    stage: CollectionsStage,
+  ): void {
+    if (!this.stageNotifier) return;
+    void this.stageNotifier.notifyStageEntered({ customerPlanId, scheduleId, stage }).catch(() => {
+      // best-effort
+    });
+  }
 
   /** Moves due/failed installments past their grace date to `overdue`. */
   async escalateGraceExpired(
@@ -211,6 +234,7 @@ export class CollectionsService {
         actorType: actor.actorType,
         metadata: { schedule_id: scheduleId, customer_plan_id: row.customer_plan_id },
       });
+      this.notifyStage(row.customer_plan_id, scheduleId, 'soft_reminder');
       return openedCase;
     });
   }
@@ -271,6 +295,7 @@ export class CollectionsService {
         actorId: actor.actorId,
         actorType: actor.actorType,
       });
+      this.notifyStage(row.customer_plan_id, row.schedule_id, to);
       return true;
     });
   }

@@ -8,6 +8,7 @@ import {
   AuthService,
   CustomerEmploymentService,
   ChargeReceiptService,
+  CollectionsNotifierService,
   CollectionsService,
   CustomerPlansService,
   CustomersService,
@@ -172,10 +173,23 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, LedgerService],
     },
     {
+      provide: CollectionsNotifierService,
+      useFactory: (
+        plans: CustomerPlansService,
+        customers: CustomersService,
+        notifications: NotificationService,
+      ) => new CollectionsNotifierService(plans, customers, notifications),
+      inject: [CustomerPlansService, CustomersService, NotificationService],
+    },
+    {
       provide: CollectionsService,
-      useFactory: (db: Database, audit: AuditLogger, plans: CustomerPlansService) =>
-        new CollectionsService(db, audit, plans),
-      inject: [DRIZZLE, AuditLogger, CustomerPlansService],
+      useFactory: (
+        db: Database,
+        audit: AuditLogger,
+        plans: CustomerPlansService,
+        stageNotifier: CollectionsNotifierService,
+      ) => new CollectionsService(db, audit, plans, stageNotifier),
+      inject: [DRIZZLE, AuditLogger, CustomerPlansService, CollectionsNotifierService],
     },
     {
       provide: CustomerPlansService,

@@ -122,7 +122,9 @@ export {
   type CollectionsActor,
   type CollectionsSweepSummary,
   type PlanDefaulter,
+  type StageNotifier,
 } from './modules/collections/collections.service';
+export { CollectionsNotifierService } from './modules/notifications/collections-notifier.service';
 export {
   COLLECTIONS_STAGES,
   STAGE_AGE_DAYS,

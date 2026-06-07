@@ -50,4 +50,12 @@ describe('renderNotification', () => {
       /missing variable "name"/,
     );
   });
+
+  it('renders the four collections dunning templates', () => {
+    const vars = { name: 'Ama', amount: '750.00' };
+    expect(renderNotification('collections_soft_reminder', vars)).toContain('overdue');
+    expect(renderNotification('collections_firm_reminder', vars)).toContain('several days');
+    expect(renderNotification('collections_restriction_warning', vars)).toContain('restricted');
+    expect(renderNotification('collections_legal_threat', vars)).toContain('legal recovery');
+  });
 });

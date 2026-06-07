@@ -8,7 +8,11 @@ export type NotificationTemplateId =
   | 'pre_debit_reminder'
   | 'payment_link'
   | 'payment_succeeded'
-  | 'payment_failed';
+  | 'payment_failed'
+  | 'collections_soft_reminder'
+  | 'collections_firm_reminder'
+  | 'collections_restriction_warning'
+  | 'collections_legal_threat';
 
 interface TemplateDef {
   /** Variables the template requires; render throws if any is missing/empty. */
@@ -41,6 +45,30 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationTemplateId, TemplateDef>
     render: (v) =>
       `Hi ${v.name}, we couldn't debit GHS ${v.amount} for your installment. ` +
       `We'll try again shortly, or you can pay via the link we send. - ${SIGNOFF}`,
+  },
+  collections_soft_reminder: {
+    required: ['name', 'amount'],
+    render: (v) =>
+      `Hi ${v.name}, your installment of GHS ${v.amount} is overdue. ` +
+      `Please pay today to avoid further action. - ${SIGNOFF}`,
+  },
+  collections_firm_reminder: {
+    required: ['name', 'amount'],
+    render: (v) =>
+      `Hi ${v.name}, your GHS ${v.amount} installment is now several days overdue. ` +
+      `Pay promptly to keep your account in good standing. - ${SIGNOFF}`,
+  },
+  collections_restriction_warning: {
+    required: ['name', 'amount'],
+    render: (v) =>
+      `Hi ${v.name}, your account will be restricted from new purchases unless ` +
+      `GHS ${v.amount} is paid. Please act today. - ${SIGNOFF}`,
+  },
+  collections_legal_threat: {
+    required: ['name', 'amount'],
+    render: (v) =>
+      `Hi ${v.name}, GHS ${v.amount} remains unpaid. We will refer your account for ` +
+      `legal recovery unless paid within 7 days. - ${SIGNOFF}`,
   },
 };
 
