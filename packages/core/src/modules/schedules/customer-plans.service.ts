@@ -608,6 +608,19 @@ export class CustomerPlansService {
       .limit(limit);
   }
 
+  /**
+   * Pending/due installments whose due date is exactly `dueDate` (YYYY-MM-DD) —
+   * the set the pre-debit reminder sweep texts "your debit is tomorrow".
+   */
+  async listDueOn(dueDate: string, limit = 1_000): Promise<InstallmentScheduleRow[]> {
+    return this.db
+      .select()
+      .from(sched)
+      .where(and(inArray(sched.status, ['pending', 'due']), eq(sched.due_date, dueDate)))
+      .orderBy(sched.customer_plan_id)
+      .limit(limit);
+  }
+
   /** Assembles a customer-facing statement (plan summary + installment lines). */
   async getStatement(planId: string, now: Date = new Date()): Promise<Statement> {
     const plan = await this.get(planId);

@@ -115,6 +115,7 @@ export {
   type ChargeResult,
 } from './modules/payments/payment.service';
 export { ChargeReceiptService } from './modules/notifications/charge-receipt.service';
+export { ReminderRunner, type ReminderSweepSummary } from './modules/notifications/reminder-runner';
 export {
   CollectionsService,
   type CollectionsCase,

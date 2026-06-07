@@ -28,6 +28,7 @@ import {
   PaymentService,
   PaymentLinkDispatcher,
   PayoutRecorder,
+  ReminderRunner,
   ReconciliationService,
   ReserveReleaseService,
   SettlementService,
@@ -286,6 +287,15 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       ],
     },
     {
+      provide: ReminderRunner,
+      useFactory: (
+        plans: CustomerPlansService,
+        customers: CustomersService,
+        notifications: NotificationService,
+      ) => new ReminderRunner(plans, customers, notifications),
+      inject: [CustomerPlansService, CustomersService, NotificationService],
+    },
+    {
       provide: WebhookService,
       useFactory: (
         db: Database,
@@ -352,6 +362,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     VerifyRunner,
     NotificationService,
     PaymentLinkDispatcher,
+    ReminderRunner,
     WebhookService,
   ],
 })
