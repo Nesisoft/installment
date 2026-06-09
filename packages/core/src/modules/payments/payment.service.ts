@@ -66,6 +66,11 @@ export interface ChargeReceiptNotifier {
   notifyChargeFailed(scheduleId: string, amountPesewas: number): Promise<void>;
 }
 
+/** Records a MoMo charge outcome for telco health (satisfied by TelcoHealthMonitor). */
+export interface TelcoChargeRecorder {
+  recordOutcome(provider: 'mtn' | 'tgo' | 'vod', success: boolean): Promise<void> | void;
+}
+
 export interface ChargeCardInput {
   scheduleId: string;
   /** Paystack authorization code from a prior tokenised card (Inline). */
@@ -121,6 +126,8 @@ export class PaymentService {
     private readonly retryScheduler?: RetryScheduler,
     /** Optional receipt SMS — best-effort; a failure never affects the charge. */
     private readonly receipts?: ChargeReceiptNotifier,
+    /** Optional telco health recorder — best-effort; never affects the charge. */
+    private readonly telcoRecorder?: TelcoChargeRecorder,
   ) {}
 
   /** Fires a receipt SMS without ever letting it affect the charge outcome. */
@@ -128,6 +135,14 @@ export class PaymentService {
     if (!this.receipts) return;
     void fn(this.receipts).catch(() => {
       // Best-effort: receipts must never surface as a charge failure.
+    });
+  }
+
+  /** Records a MoMo charge outcome for telco health — best-effort, never throws. */
+  private recordTelco(provider: 'mtn' | 'tgo' | 'vod', success: boolean): void {
+    if (!this.telcoRecorder) return;
+    void Promise.resolve(this.telcoRecorder.recordOutcome(provider, success)).catch(() => {
+      // Best-effort: telco metrics must never surface as a charge failure.
     });
   }
 
@@ -182,15 +197,18 @@ export class PaymentService {
 
     const status = response.data.status;
     if (status === 'success') {
+      this.recordTelco(input.provider, true);
       return this.settleAttemptSuccess(attempt.id, installment.id, response, actor);
     }
     if (status === 'pay_offline' || status === 'pending') {
+      // In-flight — not a telco-decisive outcome; the webhook/verify resolves it.
       const updated = await this.attempts.update(attempt.id, {
         providerReference: response.data.reference,
         rawResponse: response,
       });
       return { status: 'pending', attempt: updated, providerReference: response.data.reference };
     }
+    this.recordTelco(input.provider, false);
     return this.handleSyncFailure(attempt.id, installment.id, response, actor);
   }
 

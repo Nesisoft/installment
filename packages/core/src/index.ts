@@ -110,10 +110,22 @@ export {
   PaymentService,
   type PaystackChargeClient,
   type ChargeReceiptNotifier,
+  type TelcoChargeRecorder,
   type ChargeCardInput,
   type ChargeMobileMoneyInput,
   type ChargeResult,
 } from './modules/payments/payment.service';
+export {
+  TelcoHealthMonitor,
+  InMemoryTelcoHealthStore,
+  TELCOS,
+  type Telco,
+  type TelcoStatus,
+  type TelcoCounts,
+  type TelcoHealth,
+  type TelcoHealthStore,
+  type TelcoHealthOptions,
+} from './modules/payments/telco-health';
 export { ChargeReceiptService } from './modules/notifications/charge-receipt.service';
 export { ReminderRunner, type ReminderSweepSummary } from './modules/notifications/reminder-runner';
 export {

@@ -39,6 +39,7 @@ import {
   ScheduleStateService,
   ScoringEngine,
   ScoringService,
+  TelcoHealthMonitor,
   UsersService,
   WebhookService,
   type SmsSender,
@@ -47,6 +48,7 @@ import { PaystackClient } from '@installment/paystack-client';
 import type { Database } from '@installment/db';
 import { DRIZZLE } from '../db/db.module';
 import { REDIS } from '../redis/redis.module';
+import { RedisTelcoHealthStore } from './redis-telco-store';
 import type { Env } from '../config/env.validation';
 import { RedisOtpStore } from './redis-otp-store';
 import { ConsoleSmsSender } from './console-sms-sender';
@@ -244,6 +246,11 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [CustomerPlansService, CustomersService, NotificationService],
     },
     {
+      provide: TelcoHealthMonitor,
+      useFactory: (redis: Redis) => new TelcoHealthMonitor(new RedisTelcoHealthStore(redis)),
+      inject: [REDIS],
+    },
+    {
       provide: PaymentService,
       useFactory: (
         plans: CustomerPlansService,
@@ -252,7 +259,17 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         paystack: PaystackClient,
         retryScheduler: BullMqRetryScheduler,
         receipts: ChargeReceiptService,
-      ) => new PaymentService(plans, scheduleState, attempts, paystack, retryScheduler, receipts),
+        telco: TelcoHealthMonitor,
+      ) =>
+        new PaymentService(
+          plans,
+          scheduleState,
+          attempts,
+          paystack,
+          retryScheduler,
+          receipts,
+          telco,
+        ),
       inject: [
         CustomerPlansService,
         ScheduleStateService,
@@ -260,6 +277,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         PaystackClient,
         BullMqRetryScheduler,
         ChargeReceiptService,
+        TelcoHealthMonitor,
       ],
     },
     {
@@ -377,6 +395,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     NotificationService,
     PaymentLinkDispatcher,
     ReminderRunner,
+    TelcoHealthMonitor,
     WebhookService,
   ],
 })
