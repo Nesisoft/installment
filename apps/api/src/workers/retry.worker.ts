@@ -11,6 +11,7 @@ import {
   type RetryJob,
 } from '@installment/core';
 import type { Env } from '../config/env.validation';
+import { captureWorkerError } from '../common/alerting';
 import { RETRY_QUEUE, createQueueConnection } from './retry-queue';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.DEBIT_WORKER, actorType: 'system' as const };
@@ -47,9 +48,10 @@ export class RetryWorker implements OnModuleInit, OnModuleDestroy {
       connection: createQueueConnection(this.config.get('REDIS_URL', { infer: true })),
       concurrency: 5,
     });
-    this.worker.on('failed', (job, err) =>
-      this.logger.error({ err, jobId: job?.id }, 'retry job threw'),
-    );
+    this.worker.on('failed', (job, err) => {
+      this.logger.error({ err, jobId: job?.id }, 'retry job threw');
+      captureWorkerError(err, 'retry-worker');
+    });
   }
 
   /** Processes one retry job. Extracted so it can be unit-tested without BullMQ. */

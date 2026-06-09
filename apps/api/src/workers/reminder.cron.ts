@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ReminderRunner } from '@installment/core';
 import type { Env } from '../config/env.validation';
+import { captureWorkerError } from '../common/alerting';
 
 const DAY_MS = 86_400_000;
 
@@ -42,6 +43,7 @@ export class ReminderCron {
       );
     } catch (err) {
       this.logger.error({ err }, 'pre-debit reminder sweep failed');
+      captureWorkerError(err, 'reminder');
     }
   }
 }

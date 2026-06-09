@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { SYSTEM_ACTORS, VerifyRunner } from '@installment/core';
 import type { Env } from '../config/env.validation';
+import { captureWorkerError } from '../common/alerting';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.VERIFY_WORKER, actorType: 'system' as const };
 
@@ -48,6 +49,7 @@ export class VerifyPollCron {
       );
     } catch (err) {
       this.logger.error({ err }, 'verify-poll sweep failed');
+      captureWorkerError(err, 'verify-poll');
     }
   }
 }

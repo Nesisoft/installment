@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { DebitRunner, SYSTEM_ACTORS } from '@installment/core';
 import type { Env } from '../config/env.validation';
+import { captureWorkerError } from '../common/alerting';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.SCHEDULER, actorType: 'system' as const };
 
@@ -45,6 +46,7 @@ export class DebitSchedulerCron {
       );
     } catch (err) {
       this.logger.error({ err }, 'auto-debit sweep failed');
+      captureWorkerError(err, 'debit-scheduler');
     }
   }
 }

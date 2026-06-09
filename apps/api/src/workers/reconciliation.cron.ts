@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ReconciliationService } from '@installment/core';
 import type { Env } from '../config/env.validation';
+import { captureWorkerError } from '../common/alerting';
 
 const RECONCILE_BATCH_LIMIT = 100;
 
@@ -46,6 +47,7 @@ export class ReconciliationCron {
       );
     } catch (err) {
       this.logger.error({ err }, 'payout reconciliation sweep failed');
+      captureWorkerError(err, 'reconciliation');
     }
   }
 }

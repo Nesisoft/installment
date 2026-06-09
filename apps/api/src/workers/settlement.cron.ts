@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { SettlementService } from '@installment/core';
 import type { Env } from '../config/env.validation';
+import { captureWorkerError } from '../common/alerting';
 
 /**
  * Daily merchant payout batch (06:00 UTC). Each merchant we owe gets settled
@@ -44,6 +45,7 @@ export class SettlementCron {
     } catch (err) {
       // Cron must never throw — the next tick will retry. Pager logs the error.
       this.logger.error({ err }, 'daily settlement run failed');
+      captureWorkerError(err, 'settlement');
     }
   }
 }

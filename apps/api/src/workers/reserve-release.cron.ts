@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ReserveReleaseService } from '@installment/core';
 import type { Env } from '../config/env.validation';
+import { captureWorkerError } from '../common/alerting';
 
 /**
  * Daily reserve maturation sweep (07:00 UTC, an hour after the settlement
@@ -40,6 +41,7 @@ export class ReserveReleaseCron {
       );
     } catch (err) {
       this.logger.error({ err }, 'reserve release sweep failed');
+      captureWorkerError(err, 'reserve-release');
     }
   }
 }

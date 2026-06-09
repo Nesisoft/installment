@@ -7,6 +7,7 @@ import { DebitSchedulerCron } from './debit-scheduler.cron';
 import { VerifyPollCron } from './verify-poll.cron';
 import { CollectionsCron } from './collections.cron';
 import { ReminderCron } from './reminder.cron';
+import { TelcoAlertCron } from './telco-alert.cron';
 import { RetryWorker } from './retry.worker';
 
 /**
@@ -28,6 +29,7 @@ import { RetryWorker } from './retry.worker';
     VerifyPollCron,
     CollectionsCron,
     ReminderCron,
+    TelcoAlertCron,
     RetryWorker,
   ],
 })

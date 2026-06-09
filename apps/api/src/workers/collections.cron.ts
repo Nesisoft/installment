@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { CollectionsService, SYSTEM_ACTORS } from '@installment/core';
 import type { Env } from '../config/env.validation';
+import { captureWorkerError } from '../common/alerting';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.COLLECTIONS_BOT, actorType: 'system' as const };
 
@@ -48,6 +49,7 @@ export class CollectionsCron {
       );
     } catch (err) {
       this.logger.error({ err }, 'collections sweep failed');
+      captureWorkerError(err, 'collections');
     }
   }
 }
