@@ -18,6 +18,7 @@ import { PlanTemplatesController } from './modules/plan-templates.controller';
 import { UsersController } from './modules/users.controller';
 import { ScoringController } from './modules/scoring.controller';
 import { PlansController } from './modules/plans.controller';
+import { ApplicationsController } from './modules/applications.controller';
 import { InstallmentsController } from './modules/installments.controller';
 import { SettlementsController } from './modules/settlements.controller';
 import { MeController } from './modules/me.controller';
@@ -59,6 +60,7 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     UsersController,
     ScoringController,
     PlansController,
+    ApplicationsController,
     InstallmentsController,
     SettlementsController,
     MeController,
