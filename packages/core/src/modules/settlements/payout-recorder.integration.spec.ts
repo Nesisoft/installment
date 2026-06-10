@@ -28,6 +28,10 @@ describe.skipIf(!RUN_DB)('PayoutRecorder (integration)', () => {
   });
 
   it('books a balanced four-entry transaction for BNPL on order_approved', async () => {
+    // Revenue account_ref is the global PLATFORM_ACCOUNT_REF, so other tests in
+    // the suite contribute to it. Snapshot and assert a delta of 4_000.
+    const revenueBefore = await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF);
+
     const breakdown = await recorder.recordPayoutAccrual({
       customerPlanId: planId,
       merchantId,
@@ -44,9 +48,9 @@ describe.skipIf(!RUN_DB)('PayoutRecorder (integration)', () => {
       platformRevenuePesewas: 4_000,
     });
 
-    // Balances per account (credits − debits).
+    // Per-merchant / per-plan balances are isolated; the global revenue moved by +4_000.
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(91_000);
-    expect(await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF)).toBe(4_000);
+    expect(await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF)).toBe(revenueBefore + 4_000);
     expect(await ledger.balanceOf('reserve_held', planId)).toBe(5_000);
     expect(await ledger.balanceOf('receivable', planId)).toBe(-100_000); // debit-side
 

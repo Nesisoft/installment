@@ -244,31 +244,35 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration)', () => {
   });
 
   it('listDueForAutoDebit picks pending/due rows on or before asOf, skipping paid ones', async () => {
-    // BNPL: 4 weekly installments, the first due today.
+    // BNPL: 4 weekly installments, the first due 7 days after activation.
+    // Backdate the activation so installment 1's due_date is in the past.
+    const DAY_MS = 86_400_000;
+    const eightDaysAgo = new Date(Date.now() - 8 * DAY_MS);
     const appId = await approved(bnplTemplateId);
-    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR, eightDaysAgo);
     const ours = new Set(schedule.map((r) => r.id));
 
     // Large limit so this plan's rows are returned even when a re-used DB has
     // accumulated many pending installments from prior runs.
     const LIMIT = 1_000_000;
 
-    // As of today: only installment 1 (due today) is picked up.
+    // As of today: installment 1 (due 1 day ago) is picked up; the rest are still future.
     const dueToday = (await plans.listDueForAutoDebit(new Date(), LIMIT)).filter((r) =>
       ours.has(r.id),
     );
     expect(dueToday.map((r) => r.sequence_number)).toEqual([1]);
 
-    // Three weeks out: all four are on/past their due date.
+    // Three weeks out: installments 1–4 all on/past their due date
+    // (activation -8d + 7/14/21/28d = -1/6/13/20d relative to now; all ≤ +21d).
     const dueLater = (
-      await plans.listDueForAutoDebit(new Date(Date.now() + 21 * 86_400_000), LIMIT)
+      await plans.listDueForAutoDebit(new Date(Date.now() + 21 * DAY_MS), LIMIT)
     ).filter((r) => ours.has(r.id));
     expect(dueLater).toHaveLength(4);
 
     // Pay installment 1 → it drops out of the due list.
     await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
     const afterPay = (
-      await plans.listDueForAutoDebit(new Date(Date.now() + 21 * 86_400_000), LIMIT)
+      await plans.listDueForAutoDebit(new Date(Date.now() + 21 * DAY_MS), LIMIT)
     ).filter((r) => ours.has(r.id));
     expect(afterPay.map((r) => r.sequence_number)).toEqual([2, 3, 4]);
     expect(afterPay.every((r) => r.customer_plan_id === plan.id)).toBe(true);

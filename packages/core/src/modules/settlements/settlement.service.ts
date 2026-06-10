@@ -112,6 +112,27 @@ export class SettlementService {
   async settleMerchant(merchantId: string, asOf: Date = new Date()): Promise<SettlementResult> {
     const asOfDate = isoDate(asOf);
 
+    // Idempotency check FIRST — a successful first run drives the balance to 0,
+    // so a re-run on the same day must report "already settled today" rather
+    // than "no balance owed" (which is a different operational signal).
+    const existing = (
+      await this.db
+        .select()
+        .from(payouts)
+        .where(and(eq(payouts.merchant_id, merchantId), eq(payouts.as_of_date, asOfDate)))
+        .limit(1)
+    )[0];
+    if (existing) {
+      return {
+        merchantId,
+        status: existing.status as PayoutStatus,
+        amountPesewas: existing.amount_pesewas,
+        payoutId: existing.id,
+        reference: existing.reference,
+        reason: 'already settled today',
+      };
+    }
+
     const balance = await this.ledger.balanceOf('merchant_payable', merchantId);
     if (balance <= 0) {
       return { merchantId, status: 'skipped', amountPesewas: 0, reason: 'no balance owed' };
@@ -138,26 +159,6 @@ export class SettlementService {
         status: 'skipped',
         amountPesewas: balance,
         reason: 'no Paystack recipient code',
-      };
-    }
-
-    // Already handled today? UNIQUE(merchant_id, as_of_date) makes this the
-    // idempotency anchor — return the existing row's outcome rather than re-pay.
-    const existing = (
-      await this.db
-        .select()
-        .from(payouts)
-        .where(and(eq(payouts.merchant_id, merchantId), eq(payouts.as_of_date, asOfDate)))
-        .limit(1)
-    )[0];
-    if (existing) {
-      return {
-        merchantId,
-        status: existing.status as PayoutStatus,
-        amountPesewas: existing.amount_pesewas,
-        payoutId: existing.id,
-        reference: existing.reference,
-        reason: 'already settled today',
       };
     }
 
