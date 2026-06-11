@@ -96,9 +96,21 @@ export class SettlementService {
     const results: SettlementResult[] = [];
     let totalSettled = 0;
     for (const { merchantId } of owed) {
-      const result = await this.settleMerchant(merchantId, asOf);
-      results.push(result);
-      if (result.status === 'settled') totalSettled += result.amountPesewas;
+      // Per-merchant try/catch so one bad row (e.g. a stale non-UUID
+      // account_ref left by an earlier test, or an unexpected DB error)
+      // can't kill the whole sweep — the rest still settle.
+      try {
+        const result = await this.settleMerchant(merchantId, asOf);
+        results.push(result);
+        if (result.status === 'settled') totalSettled += result.amountPesewas;
+      } catch (err) {
+        results.push({
+          merchantId,
+          status: 'skipped',
+          amountPesewas: 0,
+          reason: err instanceof Error ? err.message : 'settle_failed',
+        });
+      }
     }
 
     return { asOfDate: isoDate(asOf), results, totalSettledPesewas: totalSettled };
