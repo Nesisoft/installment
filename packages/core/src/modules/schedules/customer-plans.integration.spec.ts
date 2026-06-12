@@ -242,6 +242,41 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration)', () => {
     expect(receipt.installmentSequence).toBe(1);
     expect(receipt.customerName).toBe('Ama Mensah');
   });
+
+  it('listDueForAutoDebit picks pending/due rows on or before asOf, skipping paid ones', async () => {
+    // BNPL: 4 weekly installments, the first due 7 days after activation.
+    // Backdate the activation so installment 1's due_date is in the past.
+    const DAY_MS = 86_400_000;
+    const eightDaysAgo = new Date(Date.now() - 8 * DAY_MS);
+    const appId = await approved(bnplTemplateId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR, eightDaysAgo);
+    const ours = new Set(schedule.map((r) => r.id));
+
+    // Large limit so this plan's rows are returned even when a re-used DB has
+    // accumulated many pending installments from prior runs.
+    const LIMIT = 1_000_000;
+
+    // As of today: installment 1 (due 1 day ago) is picked up; the rest are still future.
+    const dueToday = (await plans.listDueForAutoDebit(new Date(), LIMIT)).filter((r) =>
+      ours.has(r.id),
+    );
+    expect(dueToday.map((r) => r.sequence_number)).toEqual([1]);
+
+    // Three weeks out: installments 1–4 all on/past their due date
+    // (activation -8d + 7/14/21/28d = -1/6/13/20d relative to now; all ≤ +21d).
+    const dueLater = (
+      await plans.listDueForAutoDebit(new Date(Date.now() + 21 * DAY_MS), LIMIT)
+    ).filter((r) => ours.has(r.id));
+    expect(dueLater).toHaveLength(4);
+
+    // Pay installment 1 → it drops out of the due list.
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    const afterPay = (
+      await plans.listDueForAutoDebit(new Date(Date.now() + 21 * DAY_MS), LIMIT)
+    ).filter((r) => ours.has(r.id));
+    expect(afterPay.map((r) => r.sequence_number)).toEqual([2, 3, 4]);
+    expect(afterPay.every((r) => r.customer_plan_id === plan.id)).toBe(true);
+  });
 });
 
 describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — payout accruals', () => {
@@ -661,20 +696,20 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
     // After completion: 40k + 60k = 100k accrued; net 35,600 + 53,400 = 89,000
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(89_000);
 
-    // Refund installment 2 (a 23,334 regular installment).
+    // Refund installment 2 (a 20,000 regular instalment — 60k financed / 3).
     const target = schedule[1]!;
-    expect(target.amount_due_pesewas).toBe(23_334);
+    expect(target.amount_due_pesewas).toBe(20_000);
     await plans.refundInstallment(target.id, {}, ACTOR);
 
-    // scaleBps = round(23_334 * 10_000 / 100_000) = 2_333.
-    // Down accrual (gross 40k):  40_000 × 2333/10000 = 9_332 gross
-    //   mdr  = 9_332 × 4%  = 373;  reserve = 9_332 × 7% = 653;  net = 8_306
-    // Completion accrual (gross 60k): 60_000 × 2333/10000 = 13_998 gross
-    //   mdr  = 13_998 × 4% = 560;  reserve = 13_998 × 7% = 980; net = 12_458
-    // Totals: gross 23_330, net 20_764, reserve 1_633.
-    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(89_000 - 20_764);
-    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(7_000 - 1_633);
-    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-100_000 + 23_330);
+    // scaleBps = round(20_000 * 10_000 / 100_000) = 2_000.
+    // Down accrual (gross 40k):  40_000 × 2000/10000 = 8_000 gross
+    //   mdr  = 8_000 × 4%  = 320;  reserve = 8_000 × 7% = 560;  net = 7_120
+    // Completion accrual (gross 60k): 60_000 × 2000/10000 = 12_000 gross
+    //   mdr  = 12_000 × 4% = 480;  reserve = 12_000 × 7% = 840; net = 10_680
+    // Totals: gross 20_000, net 17_800, reserve 1_400.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(89_000 - 17_800);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(7_000 - 1_400);
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-100_000 + 20_000);
   });
 
   it('refunds a layaway installment with no ledger reversal before completion', async () => {

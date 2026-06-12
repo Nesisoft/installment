@@ -168,6 +168,25 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
     return new PaymentService(plans, scheduleState, attempts, paystack, retry);
   }
 
+  /** Records receipt-notifier calls so we can assert which SMS fired. */
+  function fakeReceipts() {
+    const succeeded: Array<{ scheduleId: string; amount: number }> = [];
+    const failed: Array<{ scheduleId: string; amount: number }> = [];
+    return {
+      succeeded,
+      failed,
+      async notifyChargeSucceeded(scheduleId: string, amount: number) {
+        succeeded.push({ scheduleId, amount });
+      },
+      async notifyChargeFailed(scheduleId: string, amount: number) {
+        failed.push({ scheduleId, amount });
+      },
+    };
+  }
+
+  /** Lets async fire-and-forget receipt callbacks settle before assertions. */
+  const flush = () => new Promise((r) => setImmediate(r));
+
   // ----------------------------------------------------------- card path
 
   it('charges a card successfully → schedule paid, outstanding reduced, attempt succeeded', async () => {
@@ -401,5 +420,70 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
     // 3 retries enqueued (for attempts 2, 3, 4); attempt 4's failure has none.
     expect(retry.jobs.map((j) => j.attempt)).toEqual([2, 3, 4]);
     expect(retry.jobs.at(-1)?.channel).toBe('payment_link'); // attempt 4 → link fallback
+  });
+
+  // ----------------------------------------------------------- receipts
+
+  it('fires a success receipt SMS when a card charge settles', async () => {
+    const { scheduleId } = await freshPlan();
+    const receipts = fakeReceipts();
+    const svc = new PaymentService(
+      plans,
+      scheduleState,
+      attempts,
+      fakePaystack({ card: { reference: 'ps_ok', status: 'success' } }),
+      undefined,
+      receipts,
+    );
+
+    await svc.chargeCard({ scheduleId, authorizationCode: 'AUTH_x', email: 'kofi@x.gh' }, ACTOR);
+    await flush();
+
+    expect(receipts.succeeded).toEqual([{ scheduleId, amount: 125_000 }]);
+    expect(receipts.failed).toHaveLength(0);
+  });
+
+  it('fires a failure receipt on a non-retryable decline (terminal)', async () => {
+    const { scheduleId } = await freshPlan();
+    const receipts = fakeReceipts();
+    const svc = new PaymentService(
+      plans,
+      scheduleState,
+      attempts,
+      fakePaystack({
+        card: { reference: 'ps_blk', status: 'failed', gateway_response: 'blocked_card' },
+      }),
+      undefined,
+      receipts,
+    );
+
+    await svc.chargeCard({ scheduleId, authorizationCode: 'AUTH_x', email: 'kofi@x.gh' }, ACTOR);
+    await flush();
+
+    expect(receipts.failed).toEqual([{ scheduleId, amount: 125_000 }]);
+    expect(receipts.succeeded).toHaveLength(0);
+  });
+
+  it('does NOT fire a failure receipt on a retryable decline (a retry is queued)', async () => {
+    const { scheduleId } = await freshPlan();
+    const receipts = fakeReceipts();
+    const retry = fakeRetryScheduler();
+    const svc = new PaymentService(
+      plans,
+      scheduleState,
+      attempts,
+      fakePaystack({
+        card: { reference: 'ps_no', status: 'failed', gateway_response: 'insufficient_funds' },
+      }),
+      retry,
+      receipts,
+    );
+
+    await svc.chargeCard({ scheduleId, authorizationCode: 'AUTH_x', email: 'kofi@x.gh' }, ACTOR);
+    await flush();
+
+    expect(retry.jobs).toHaveLength(1); // retry queued
+    expect(receipts.failed).toHaveLength(0); // …so no "we failed" SMS yet
+    expect(receipts.succeeded).toHaveLength(0);
   });
 });

@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lte, or } from 'drizzle-orm';
+import { and, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import type { Rule, Ruleset } from './types';
 import { DEFAULT_RULESET, RULESET_VERSION } from './ruleset';
@@ -38,7 +38,9 @@ export class RulesetLoader {
 
   /** Fresh read + assembly (bypasses the cache). */
   async load(version: string = RULESET_VERSION): Promise<Ruleset> {
-    const nowIso = new Date().toISOString();
+    // Compare against the DB clock (microsecond `now()`), not Node's millisecond
+    // `toISOString()` — otherwise an INSERT defaulting `effective_from` to DB-side
+    // now() and a SELECT in the same millisecond can race, wrongly excluding the row.
     const rows = await this.db
       .select({
         rule_id: rd.rule_id,
@@ -50,8 +52,8 @@ export class RulesetLoader {
         and(
           eq(rd.ruleset_version, version),
           eq(rd.is_active, true),
-          lte(rd.effective_from, nowIso),
-          or(isNull(rd.effective_to), gt(rd.effective_to, nowIso)),
+          lte(rd.effective_from, sql`now()`),
+          or(isNull(rd.effective_to), gt(rd.effective_to, sql`now()`)),
         ),
       );
 

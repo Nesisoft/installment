@@ -7,3 +7,4 @@ pnpm-lock.yaml
 packages/db/drizzle
 docs/design
 docs/DEVELOPMENT-PLAN.md
+.claude/settings.local.json

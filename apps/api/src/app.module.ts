@@ -7,6 +7,7 @@ import { DbModule } from './db/db.module';
 import { RedisModule } from './redis/redis.module';
 import { CoreModule } from './core/core.module';
 import { HealthModule } from './health/health.module';
+import { WorkersModule } from './workers/workers.module';
 import { AuthController } from './auth/auth.controller';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { PermissionsGuard } from './auth/permissions.guard';
@@ -17,6 +18,8 @@ import { PlanTemplatesController } from './modules/plan-templates.controller';
 import { UsersController } from './modules/users.controller';
 import { ScoringController } from './modules/scoring.controller';
 import { PlansController } from './modules/plans.controller';
+import { ApplicationsController } from './modules/applications.controller';
+import { TelcoHealthController } from './modules/telco-health.controller';
 import { InstallmentsController } from './modules/installments.controller';
 import { SettlementsController } from './modules/settlements.controller';
 import { MeController } from './modules/me.controller';
@@ -47,6 +50,7 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     RedisModule,
     CoreModule,
     HealthModule,
+    WorkersModule,
   ],
   controllers: [
     AuthController,
@@ -57,6 +61,8 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     UsersController,
     ScoringController,
     PlansController,
+    ApplicationsController,
+    TelcoHealthController,
     InstallmentsController,
     SettlementsController,
     MeController,

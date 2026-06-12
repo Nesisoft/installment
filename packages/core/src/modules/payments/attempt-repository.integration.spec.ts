@@ -113,4 +113,36 @@ describe.skipIf(!RUN_DB)('AttemptRepository (integration)', () => {
       PaymentAttemptNotFoundError,
     );
   });
+
+  it('findStaleInFlight returns only in-flight attempts older than the cutoff', async () => {
+    const inFlight = await attempts.create({
+      scheduleId,
+      customerPlanId: planId,
+      channel: 'auto_debit',
+      paymentMethod: 'momo',
+      amountPesewas: 125_000,
+      idempotencyKey: `${scheduleId}:stale-1`,
+    });
+    const resolved = await attempts.create({
+      scheduleId,
+      customerPlanId: planId,
+      channel: 'auto_debit',
+      paymentMethod: 'momo',
+      amountPesewas: 125_000,
+      idempotencyKey: `${scheduleId}:stale-2`,
+    });
+    await attempts.update(resolved.id, { status: 'succeeded', settledAt: new Date() });
+
+    // A cutoff just after creation catches the in-flight one (initiated_at < cutoff)…
+    const future = new Date(Date.now() + 60_000);
+    const stale = await attempts.findStaleInFlight(future);
+    const ids = stale.map((a) => a.id);
+    expect(ids).toContain(inFlight.id);
+    expect(ids).not.toContain(resolved.id); // succeeded, excluded
+
+    // …and a cutoff in the past excludes a freshly-created attempt.
+    const past = new Date(Date.now() - 60_000);
+    const noneYet = await attempts.findStaleInFlight(past);
+    expect(noneYet.map((a) => a.id)).not.toContain(inFlight.id);
+  });
 });

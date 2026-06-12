@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, lte } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
@@ -10,6 +10,7 @@ import {
   InstallmentNotPayableError,
   PlanActivationError,
   PlanAlreadyActiveError,
+  PlanDefaultError,
   ReceiptNotAvailableError,
   ScheduleConcurrencyError,
   ScheduleNotFoundError,
@@ -18,6 +19,7 @@ import { buildStatement, type Statement } from '../statements/statement';
 import { buildReceipt, type Receipt } from '../receipts/receipt';
 import type { PayoutRecorder, RecordPayoutAccrualInput } from '../settlements/payout-recorder';
 import type { ReserveReleaseService } from '../settlements/reserve-release.service';
+import type { DefaultService } from '../settlements/default.service';
 import type { BusinessModel } from '../settlements/model-config';
 
 const cp = schema.customer_plans;
@@ -65,6 +67,11 @@ export class CustomerPlansService {
      * alongside {@link payoutRecorder}; optional for the same reason.
      */
     private readonly reserveRelease?: ReserveReleaseService,
+    /**
+     * Allocates the loss when a plan defaults. Wired alongside the other
+     * settlement services; optional for the same reason.
+     */
+    private readonly defaultService?: DefaultService,
   ) {}
 
   /**
@@ -406,6 +413,61 @@ export class CustomerPlansService {
   }
 
   /**
+   * Writes a plan off as defaulted: transitions the plan active → defaulted,
+   * stamps `defaulted_at`, and allocates the unrecovered loss across the
+   * model's risk split (reserve / merchant claw-back / platform pool) — all in
+   * one transaction. The unrecovered amount defaults to the plan's outstanding.
+   */
+  async markPlanDefaulted(
+    planId: string,
+    opts: { reason?: string; unrecoveredAmountPesewas?: number },
+    actor: PlanActor,
+    now: Date = new Date(),
+  ): Promise<CustomerPlan> {
+    const nowIso = now.toISOString();
+    return runInTransaction(this.db, async (tx) => {
+      const plan = (await tx.select().from(cp).where(eq(cp.id, planId)).for('update').limit(1))[0];
+      if (!plan) throw new CustomerPlanNotFoundError(planId);
+      if (plan.status !== 'active') throw new PlanDefaultError(planId, plan.status);
+
+      const unrecovered = opts.unrecoveredAmountPesewas ?? plan.outstanding_pesewas;
+
+      const [updated] = await tx
+        .update(cp)
+        .set({ status: 'defaulted', defaulted_at: nowIso })
+        .where(eq(cp.id, planId))
+        .returning();
+      if (!updated) throw new Error('customer_plans update returned no row');
+
+      await this.audit.append(tx, {
+        entityType: 'customer_plan',
+        entityId: planId,
+        eventType: 'customer_plan.defaulted',
+        fromState: 'active',
+        toState: 'defaulted',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reason: opts.reason,
+        metadata: { unrecovered_amount_pesewas: unrecovered },
+      });
+
+      if (this.defaultService) {
+        await this.defaultService.handleDefault(
+          {
+            customerPlanId: planId,
+            merchantId: plan.merchant_id,
+            model: plan.business_model as BusinessModel,
+            unrecoveredAmountPesewas: unrecovered,
+          },
+          tx,
+        );
+      }
+
+      return updated;
+    });
+  }
+
+  /**
    * Marks an installment paid and applies the plan-level effect (reduce
    * outstanding, complete when cleared) within the caller's transaction.
    * Shared by the manual-override and the charge-success paths.
@@ -525,6 +587,38 @@ export class CustomerPlansService {
       .from(sched)
       .where(eq(sched.customer_plan_id, planId))
       .orderBy(sched.sequence_number);
+  }
+
+  /**
+   * Installments ripe for a first auto-debit attempt: `pending`/`due` and on or
+   * past their due date as of `asOf`. Excludes `retry_scheduled` (owned by the
+   * retry queue) and `processing`/terminal rows, so the debit sweep and the
+   * retry worker never contend for the same installment. Oldest first.
+   */
+  async listDueForAutoDebit(
+    asOf: Date = new Date(),
+    limit = 500,
+  ): Promise<InstallmentScheduleRow[]> {
+    const dueDate = asOf.toISOString().slice(0, 10);
+    return this.db
+      .select()
+      .from(sched)
+      .where(and(inArray(sched.status, ['pending', 'due']), lte(sched.due_date, dueDate)))
+      .orderBy(sched.due_date)
+      .limit(limit);
+  }
+
+  /**
+   * Pending/due installments whose due date is exactly `dueDate` (YYYY-MM-DD) —
+   * the set the pre-debit reminder sweep texts "your debit is tomorrow".
+   */
+  async listDueOn(dueDate: string, limit = 1_000): Promise<InstallmentScheduleRow[]> {
+    return this.db
+      .select()
+      .from(sched)
+      .where(and(inArray(sched.status, ['pending', 'due']), eq(sched.due_date, dueDate)))
+      .orderBy(sched.customer_plan_id)
+      .limit(limit);
   }
 
   /** Assembles a customer-facing statement (plan summary + installment lines). */

@@ -51,3 +51,11 @@ export class ReceiptNotAvailableError extends Error {
     this.name = 'ReceiptNotAvailableError';
   }
 }
+
+/** A plan can only default from `active`. */
+export class PlanDefaultError extends Error {
+  constructor(id: string, status: string) {
+    super(`Plan ${id} cannot default from status "${status}"`);
+    this.name = 'PlanDefaultError';
+  }
+}

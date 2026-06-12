@@ -7,9 +7,15 @@ import {
   AuditLogger,
   AuthService,
   CustomerEmploymentService,
+  ChargeReceiptService,
+  CollectionsNotifierService,
+  CollectionsService,
   CustomerPlansService,
   CustomersService,
+  DebitRunner,
+  DefaultService,
   EmployersService,
+  VerifyRunner,
   EventBus,
   FeatureCollector,
   JwtService,
@@ -18,8 +24,12 @@ import {
   MockGhanaCardVerifier,
   OtpService,
   PasswordService,
+  MerchantDashboardService,
+  NotificationService,
   PaymentService,
+  PaymentLinkDispatcher,
   PayoutRecorder,
+  ReminderRunner,
   ReconciliationService,
   ReserveReleaseService,
   SettlementService,
@@ -29,6 +39,7 @@ import {
   ScheduleStateService,
   ScoringEngine,
   ScoringService,
+  TelcoHealthMonitor,
   UsersService,
   WebhookService,
   type SmsSender,
@@ -37,9 +48,11 @@ import { PaystackClient } from '@installment/paystack-client';
 import type { Database } from '@installment/db';
 import { DRIZZLE } from '../db/db.module';
 import { REDIS } from '../redis/redis.module';
+import { RedisTelcoHealthStore } from './redis-telco-store';
 import type { Env } from '../config/env.validation';
 import { RedisOtpStore } from './redis-otp-store';
 import { ConsoleSmsSender } from './console-sms-sender';
+import { BullMqRetryScheduler } from '../workers/bullmq-retry-scheduler';
 
 export const SMS_SENDER = Symbol('SMS_SENDER');
 
@@ -135,6 +148,12 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, LedgerService],
     },
     {
+      provide: DefaultService,
+      useFactory: (db: Database, ledger: LedgerService, reserves: ReserveReleaseService) =>
+        new DefaultService(db, ledger, reserves),
+      inject: [DRIZZLE, LedgerService, ReserveReleaseService],
+    },
+    {
       provide: SettlementService,
       useFactory: (
         db: Database,
@@ -151,14 +170,39 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, SettlementService, PaystackClient],
     },
     {
+      provide: MerchantDashboardService,
+      useFactory: (db: Database, ledger: LedgerService) => new MerchantDashboardService(db, ledger),
+      inject: [DRIZZLE, LedgerService],
+    },
+    {
+      provide: CollectionsNotifierService,
+      useFactory: (
+        plans: CustomerPlansService,
+        customers: CustomersService,
+        notifications: NotificationService,
+      ) => new CollectionsNotifierService(plans, customers, notifications),
+      inject: [CustomerPlansService, CustomersService, NotificationService],
+    },
+    {
+      provide: CollectionsService,
+      useFactory: (
+        db: Database,
+        audit: AuditLogger,
+        plans: CustomerPlansService,
+        stageNotifier: CollectionsNotifierService,
+      ) => new CollectionsService(db, audit, plans, stageNotifier),
+      inject: [DRIZZLE, AuditLogger, CustomerPlansService, CollectionsNotifierService],
+    },
+    {
       provide: CustomerPlansService,
       useFactory: (
         db: Database,
         audit: AuditLogger,
         payouts: PayoutRecorder,
         reserves: ReserveReleaseService,
-      ) => new CustomerPlansService(db, audit, undefined, payouts, reserves),
-      inject: [DRIZZLE, AuditLogger, PayoutRecorder, ReserveReleaseService],
+        defaults: DefaultService,
+      ) => new CustomerPlansService(db, audit, undefined, payouts, reserves, defaults),
+      inject: [DRIZZLE, AuditLogger, PayoutRecorder, ReserveReleaseService, DefaultService],
     },
     { provide: EventBus, useFactory: () => new EventBus() },
     {
@@ -188,14 +232,100 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [ConfigService],
     },
     {
+      provide: BullMqRetryScheduler,
+      useFactory: (config: ConfigService<Env, true>) => new BullMqRetryScheduler(config),
+      inject: [ConfigService],
+    },
+    {
+      provide: ChargeReceiptService,
+      useFactory: (
+        plans: CustomerPlansService,
+        customers: CustomersService,
+        notifications: NotificationService,
+      ) => new ChargeReceiptService(plans, customers, notifications),
+      inject: [CustomerPlansService, CustomersService, NotificationService],
+    },
+    {
+      provide: TelcoHealthMonitor,
+      useFactory: (redis: Redis) => new TelcoHealthMonitor(new RedisTelcoHealthStore(redis)),
+      inject: [REDIS],
+    },
+    {
       provide: PaymentService,
       useFactory: (
         plans: CustomerPlansService,
         scheduleState: ScheduleStateService,
         attempts: AttemptRepository,
         paystack: PaystackClient,
-      ) => new PaymentService(plans, scheduleState, attempts, paystack),
-      inject: [CustomerPlansService, ScheduleStateService, AttemptRepository, PaystackClient],
+        retryScheduler: BullMqRetryScheduler,
+        receipts: ChargeReceiptService,
+        telco: TelcoHealthMonitor,
+      ) =>
+        new PaymentService(
+          plans,
+          scheduleState,
+          attempts,
+          paystack,
+          retryScheduler,
+          receipts,
+          telco,
+        ),
+      inject: [
+        CustomerPlansService,
+        ScheduleStateService,
+        AttemptRepository,
+        PaystackClient,
+        BullMqRetryScheduler,
+        ChargeReceiptService,
+        TelcoHealthMonitor,
+      ],
+    },
+    {
+      provide: DebitRunner,
+      useFactory: (
+        plans: CustomerPlansService,
+        customers: CustomersService,
+        payments: PaymentService,
+      ) => new DebitRunner(plans, customers, payments),
+      inject: [CustomerPlansService, CustomersService, PaymentService],
+    },
+    {
+      provide: VerifyRunner,
+      useFactory: (attempts: AttemptRepository, payments: PaymentService) =>
+        new VerifyRunner(attempts, payments),
+      inject: [AttemptRepository, PaymentService],
+    },
+    {
+      provide: NotificationService,
+      useFactory: (db: Database, sms: SmsSender, config: ConfigService<Env, true>) =>
+        new NotificationService(db, sms, config.get('SMS_SENDER_ID', { infer: true })),
+      inject: [DRIZZLE, SMS_SENDER, ConfigService],
+    },
+    {
+      provide: PaymentLinkDispatcher,
+      useFactory: (
+        plans: CustomerPlansService,
+        customers: CustomersService,
+        attempts: AttemptRepository,
+        notifications: NotificationService,
+        paystack: PaystackClient,
+      ) => new PaymentLinkDispatcher(plans, customers, attempts, notifications, paystack),
+      inject: [
+        CustomerPlansService,
+        CustomersService,
+        AttemptRepository,
+        NotificationService,
+        PaystackClient,
+      ],
+    },
+    {
+      provide: ReminderRunner,
+      useFactory: (
+        plans: CustomerPlansService,
+        customers: CustomersService,
+        notifications: NotificationService,
+      ) => new ReminderRunner(plans, customers, notifications),
+      inject: [CustomerPlansService, CustomersService, NotificationService],
     },
     {
       provide: WebhookService,
@@ -254,9 +384,18 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     LedgerService,
     PayoutRecorder,
     ReserveReleaseService,
+    DefaultService,
     SettlementService,
     ReconciliationService,
+    MerchantDashboardService,
+    CollectionsService,
     PaymentService,
+    DebitRunner,
+    VerifyRunner,
+    NotificationService,
+    PaymentLinkDispatcher,
+    ReminderRunner,
+    TelcoHealthMonitor,
     WebhookService,
   ],
 })

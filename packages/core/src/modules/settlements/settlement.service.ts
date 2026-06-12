@@ -96,9 +96,21 @@ export class SettlementService {
     const results: SettlementResult[] = [];
     let totalSettled = 0;
     for (const { merchantId } of owed) {
-      const result = await this.settleMerchant(merchantId, asOf);
-      results.push(result);
-      if (result.status === 'settled') totalSettled += result.amountPesewas;
+      // Per-merchant try/catch so one bad row (e.g. a stale non-UUID
+      // account_ref left by an earlier test, or an unexpected DB error)
+      // can't kill the whole sweep — the rest still settle.
+      try {
+        const result = await this.settleMerchant(merchantId, asOf);
+        results.push(result);
+        if (result.status === 'settled') totalSettled += result.amountPesewas;
+      } catch (err) {
+        results.push({
+          merchantId,
+          status: 'skipped',
+          amountPesewas: 0,
+          reason: err instanceof Error ? err.message : 'settle_failed',
+        });
+      }
     }
 
     return { asOfDate: isoDate(asOf), results, totalSettledPesewas: totalSettled };
@@ -111,6 +123,27 @@ export class SettlementService {
    */
   async settleMerchant(merchantId: string, asOf: Date = new Date()): Promise<SettlementResult> {
     const asOfDate = isoDate(asOf);
+
+    // Idempotency check FIRST — a successful first run drives the balance to 0,
+    // so a re-run on the same day must report "already settled today" rather
+    // than "no balance owed" (which is a different operational signal).
+    const existing = (
+      await this.db
+        .select()
+        .from(payouts)
+        .where(and(eq(payouts.merchant_id, merchantId), eq(payouts.as_of_date, asOfDate)))
+        .limit(1)
+    )[0];
+    if (existing) {
+      return {
+        merchantId,
+        status: existing.status as PayoutStatus,
+        amountPesewas: existing.amount_pesewas,
+        payoutId: existing.id,
+        reference: existing.reference,
+        reason: 'already settled today',
+      };
+    }
 
     const balance = await this.ledger.balanceOf('merchant_payable', merchantId);
     if (balance <= 0) {
@@ -138,26 +171,6 @@ export class SettlementService {
         status: 'skipped',
         amountPesewas: balance,
         reason: 'no Paystack recipient code',
-      };
-    }
-
-    // Already handled today? UNIQUE(merchant_id, as_of_date) makes this the
-    // idempotency anchor — return the existing row's outcome rather than re-pay.
-    const existing = (
-      await this.db
-        .select()
-        .from(payouts)
-        .where(and(eq(payouts.merchant_id, merchantId), eq(payouts.as_of_date, asOfDate)))
-        .limit(1)
-    )[0];
-    if (existing) {
-      return {
-        merchantId,
-        status: existing.status as PayoutStatus,
-        amountPesewas: existing.amount_pesewas,
-        payoutId: existing.id,
-        reference: existing.reference,
-        reason: 'already settled today',
       };
     }
 

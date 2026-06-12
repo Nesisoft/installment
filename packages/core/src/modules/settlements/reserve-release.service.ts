@@ -39,6 +39,13 @@ export interface ReserveReleaseSummary {
   releases: ReserveReleaseResult[];
 }
 
+export interface ReserveSweepSummary {
+  asOf: string;
+  merchantsChecked: number;
+  totalReleasedPesewas: number;
+  perMerchant: ReserveReleaseSummary[];
+}
+
 /**
  * Owns the `held_reserves` lifecycle: records a tracking row when an accrual
  * withholds reserve, stamps the policy triggers (plan completion / delivery),
@@ -119,6 +126,49 @@ export class ReserveReleaseService {
   }
 
   /**
+   * Marks reserve consumed to cover a plan default — held_reserves bookkeeping
+   * only; the matching `reserve_held` ledger debit is the caller's job (see
+   * DefaultService). Consumes across the plan's open rows up to what each still
+   * holds (amount − released − consumed), closing rows that become exhausted so
+   * the release sweep skips them. Returns the amount actually consumed.
+   */
+  async consumeForDefault(
+    customerPlanId: string,
+    amountPesewas: number,
+    tx?: ReserveExecutor,
+  ): Promise<number> {
+    if (amountPesewas <= 0) return 0;
+    const exec: ReserveExecutor = tx ?? this.db;
+    const rows = await exec
+      .select()
+      .from(held)
+      .where(and(eq(held.customer_plan_id, customerPlanId), isNull(held.fully_released_at)));
+
+    const nowIso = new Date().toISOString();
+    let remaining = amountPesewas;
+    let consumed = 0;
+    for (const row of rows) {
+      if (remaining <= 0) break;
+      const available =
+        row.amount_pesewas - row.released_amount_pesewas - row.consumed_for_default_pesewas;
+      if (available <= 0) continue;
+      const take = Math.min(available, remaining);
+      const newConsumed = row.consumed_for_default_pesewas + take;
+      const exhausted = row.released_amount_pesewas + newConsumed >= row.amount_pesewas;
+      await exec
+        .update(held)
+        .set({
+          consumed_for_default_pesewas: newConsumed,
+          ...(exhausted ? { fully_released_at: nowIso } : {}),
+        })
+        .where(eq(held.id, row.id));
+      remaining -= take;
+      consumed += take;
+    }
+    return consumed;
+  }
+
+  /**
    * Releases every matured reserve for a merchant as of `asOf`. Each release is
    * its own transaction (ledger entries + the held_reserves bookkeeping commit
    * together) so a failure on one row doesn't roll back the others — a re-run
@@ -147,6 +197,34 @@ export class ReserveReleaseService {
     }
 
     return { merchantId, totalReleasedPesewas: totalReleased, releases };
+  }
+
+  /**
+   * Walks every merchant with an open held-reserve row and runs the maturity
+   * release for them. Drives the daily reserve-release cron — at worst it does
+   * one no-op pass per merchant (each row is filtered by its own maturity
+   * date), which is what we want for an idempotent sweep.
+   */
+  async runSweep(asOf: Date = new Date()): Promise<ReserveSweepSummary> {
+    const merchants = await this.db
+      .selectDistinct({ merchantId: held.merchant_id })
+      .from(held)
+      .where(isNull(held.fully_released_at));
+
+    const perMerchant: ReserveReleaseSummary[] = [];
+    let totalReleased = 0;
+    for (const { merchantId } of merchants) {
+      const summary = await this.releaseMaturedReserves(merchantId, asOf);
+      perMerchant.push(summary);
+      totalReleased += summary.totalReleasedPesewas;
+    }
+
+    return {
+      asOf: asOf.toISOString(),
+      merchantsChecked: merchants.length,
+      totalReleasedPesewas: totalReleased,
+      perMerchant,
+    };
   }
 
   /** Books one row's matured release + bookkeeping atomically. */

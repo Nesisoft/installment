@@ -109,11 +109,73 @@ export {
 export {
   PaymentService,
   type PaystackChargeClient,
+  type ChargeReceiptNotifier,
+  type TelcoChargeRecorder,
   type ChargeCardInput,
   type ChargeMobileMoneyInput,
   type ChargeResult,
 } from './modules/payments/payment.service';
+export {
+  TelcoHealthMonitor,
+  InMemoryTelcoHealthStore,
+  TELCOS,
+  type Telco,
+  type TelcoStatus,
+  type TelcoCounts,
+  type TelcoHealth,
+  type TelcoHealthStore,
+  type TelcoHealthOptions,
+} from './modules/payments/telco-health';
+export { ChargeReceiptService } from './modules/notifications/charge-receipt.service';
+export { ReminderRunner, type ReminderSweepSummary } from './modules/notifications/reminder-runner';
+export {
+  CollectionsService,
+  type CollectionsCase,
+  type CollectionsActor,
+  type CollectionsSweepSummary,
+  type PlanDefaulter,
+  type StageNotifier,
+} from './modules/collections/collections.service';
+export { CollectionsNotifierService } from './modules/notifications/collections-notifier.service';
+export {
+  COLLECTIONS_STAGES,
+  STAGE_AGE_DAYS,
+  stageForAge,
+  isLaterStage,
+  stageOrder,
+  isTerminalStage,
+  type CollectionsStage,
+} from './modules/collections/stage-policy';
 export type { RetryScheduler, RetryJob } from './modules/payments/retry-scheduler';
+export {
+  DebitRunner,
+  type DebitAttemptOutcome,
+  type DebitSweepSummary,
+} from './modules/payments/debit-runner';
+export {
+  VerifyRunner,
+  type VerifyOutcome,
+  type VerifySweepSummary,
+} from './modules/payments/verify-runner';
+export {
+  NotificationService,
+  type Notification,
+  type NotificationSmsSender,
+  type SendNotificationInput,
+  type NotificationResult,
+  type NotificationRecipientType,
+} from './modules/notifications/notification.service';
+export {
+  renderNotification,
+  NOTIFICATION_TEMPLATES,
+  NotificationTemplateError,
+  type NotificationTemplateId,
+} from './modules/notifications/notification-templates';
+export {
+  PaymentLinkDispatcher,
+  type PaymentLinkClient,
+  type PaymentLinkOutcome,
+} from './modules/payments/payment-link-dispatcher';
 export {
   MODEL_CONFIG,
   type BusinessModel,
@@ -136,8 +198,34 @@ export {
   type RecordHeldReserveInput,
   type ReserveReleaseResult,
   type ReserveReleaseSummary,
+  type ReserveSweepSummary,
   type ReserveExecutor,
 } from './modules/settlements/reserve-release.service';
+export {
+  DefaultService,
+  type HandleDefaultInput,
+  type DefaultAllocation,
+} from './modules/settlements/default.service';
+export {
+  MerchantDashboardService,
+  type MerchantBalances,
+  type MerchantPayoutRow,
+  type MerchantPayoutsPage,
+  type MerchantHeldReserveRow,
+  type PlanSettlementView,
+} from './modules/settlements/merchant-dashboard.service';
+export {
+  buildMerchantStatement,
+  renderMerchantStatementCsv,
+  renderMerchantStatementHtml,
+  classifyStatementKind,
+  type MerchantStatement,
+  type MerchantStatementLine,
+  type MerchantStatementSummary,
+  type MerchantStatementInput,
+  type MerchantStatementEntry,
+  type MerchantStatementKind,
+} from './modules/settlements/merchant-statement';
 export {
   SettlementService,
   SETTLEMENT_CASH_REF,
