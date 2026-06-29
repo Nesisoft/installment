@@ -131,11 +131,24 @@ export { ReminderRunner, type ReminderSweepSummary } from './modules/notificatio
 export {
   CollectionsService,
   type CollectionsCase,
+  type CollectionsAction,
+  type CollectionsCaseDetail,
   type CollectionsActor,
   type CollectionsSweepSummary,
   type PlanDefaulter,
   type StageNotifier,
 } from './modules/collections/collections.service';
+export {
+  listCasesSchema,
+  recordActionSchema,
+  assignCaseSchema,
+  closeCaseSchema,
+  type ListCasesInput,
+  type RecordActionInput,
+  type AssignCaseInput,
+  type CloseCaseInput,
+} from './modules/collections/dto';
+export { CollectionsCaseNotFoundError, CaseAlreadyClosedError } from './modules/collections/errors';
 export { CollectionsNotifierService } from './modules/notifications/collections-notifier.service';
 export {
   COLLECTIONS_STAGES,

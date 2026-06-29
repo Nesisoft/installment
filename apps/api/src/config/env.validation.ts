@@ -6,6 +6,11 @@ export const envSchema = z.object({
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
+  // CORS allowlist for the Phase 10 browser apps. Comma-separated origins, or
+  // "*" to reflect any origin (dev only). Empty = no cross-origin browser access.
+  CORS_ORIGINS: z
+    .string()
+    .default('http://localhost:5173,http://localhost:5174,http://localhost:5175'),
   // Auth — dev defaults keep `pnpm dev` friction-free; production MUST override
   // these with secrets from a real secret store (see DEVELOPMENT-PLAN.md §5).
   JWT_ACCESS_SECRET: z.string().min(16).default('dev-access-secret-change-me!!'),

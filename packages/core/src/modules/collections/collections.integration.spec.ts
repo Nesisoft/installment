@@ -11,6 +11,7 @@ import { PlanTemplatesService } from '../plans/plan-templates.service';
 import { ApplicationsService } from '../applications/applications.service';
 import { CustomerPlansService } from '../schedules/customer-plans.service';
 import { CollectionsService } from './collections.service';
+import { CaseAlreadyClosedError } from './errors';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 const DAY_MS = 86_400_000;
@@ -223,5 +224,72 @@ describe.skipIf(!RUN_DB)('CollectionsService (integration)', () => {
 
     // Idempotent: re-running resolves nothing (the case is already closed).
     expect(await withDefaulter.defaultWrittenOffCases(ACTOR)).toBe(0);
+  });
+
+  async function openCaseForOverdue() {
+    const { plan, schedule } = await activatedSchedule();
+    await setStatus(schedule[0]!.id, 'overdue');
+    await collections.openCasesForOverdue(ACTOR);
+    const [opened] = await db
+      .select()
+      .from(schema.collections_cases)
+      .where(eq(schema.collections_cases.schedule_id, schedule[0]!.id));
+    return { plan, schedule, opened: opened! };
+  }
+
+  it('lists open cases and fetches a case with actions, plan, schedule and customer', async () => {
+    const { plan, schedule, opened } = await openCaseForOverdue();
+
+    const open = await collections.listCases({ open: true, limit: 200 });
+    expect(open.some((c) => c.id === opened.id)).toBe(true);
+
+    const detail = await collections.getCase(opened.id);
+    expect(detail.case.id).toBe(opened.id);
+    expect(detail.plan?.id).toBe(plan.id);
+    expect(detail.schedule?.id).toBe(schedule[0]!.id);
+    expect(detail.customer).not.toBeNull();
+    // Opening a case logs no manual action yet (sweep only logs stage_changed).
+    expect(Array.isArray(detail.actions)).toBe(true);
+  });
+
+  it('records a manual action on an open case', async () => {
+    const { opened } = await openCaseForOverdue();
+    const action = await collections.recordAction(
+      opened.id,
+      { action_type: 'call_made', outcome: 'no_answer', notes: 'Rang twice' },
+      ACTOR,
+    );
+    expect(action.action_type).toBe('call_made');
+
+    const detail = await collections.getCase(opened.id);
+    expect(detail.actions.some((a) => a.id === action.id)).toBe(true);
+  });
+
+  it('assigns an agent to a case', async () => {
+    const { opened } = await openCaseForOverdue();
+    const updated = await collections.assignAgent(
+      opened.id,
+      { agent_id: SYSTEM_ACTORS.COLLECTIONS_BOT },
+      ACTOR,
+    );
+    expect(updated.assigned_agent_id).toBe(SYSTEM_ACTORS.COLLECTIONS_BOT);
+  });
+
+  it('closes a case manually, then rejects further actions and lists it as closed', async () => {
+    const { opened } = await openCaseForOverdue();
+    const closed = await collections.closeCase(
+      opened.id,
+      { resolution: 'paid', notes: 'Paid at branch' },
+      ACTOR,
+    );
+    expect(closed.resolution).toBe('paid');
+    expect(closed.closed_at).not.toBeNull();
+
+    await expect(
+      collections.recordAction(opened.id, { action_type: 'note_added' }, ACTOR),
+    ).rejects.toBeInstanceOf(CaseAlreadyClosedError);
+
+    const closedList = await collections.listCases({ open: false, limit: 200 });
+    expect(closedList.some((c) => c.id === opened.id)).toBe(true);
   });
 });

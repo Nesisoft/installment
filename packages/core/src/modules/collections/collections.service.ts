@@ -1,9 +1,11 @@
-import { and, eq, inArray, isNull, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction } from '../../shared/event-bus/transaction';
 import { nextScheduleStatus, type ScheduleStatus } from '../schedules/state-machine';
 import { PlanDefaultError } from '../schedules/errors';
+import { assignCaseSchema, closeCaseSchema, listCasesSchema, recordActionSchema } from './dto';
+import { CaseAlreadyClosedError, CollectionsCaseNotFoundError } from './errors';
 import {
   COLLECTIONS_STAGES,
   isLaterStage,
@@ -14,10 +16,22 @@ import {
 const sched = schema.installment_schedule;
 const cases = schema.collections_cases;
 const actions = schema.collections_actions;
+const plansTable = schema.customer_plans;
+const customersTable = schema.customers;
 
 const DAY_MS = 86_400_000;
 
 export type CollectionsCase = typeof schema.collections_cases.$inferSelect;
+export type CollectionsAction = typeof schema.collections_actions.$inferSelect;
+
+/** A case plus the context an agent needs to work it. */
+export interface CollectionsCaseDetail {
+  case: CollectionsCase;
+  actions: CollectionsAction[];
+  plan: typeof schema.customer_plans.$inferSelect | null;
+  schedule: typeof schema.installment_schedule.$inferSelect | null;
+  customer: { id: string; first_name: string; last_name: string; phone: string } | null;
+}
 
 export interface CollectionsActor {
   actorId: string;
@@ -406,6 +420,195 @@ export class CollectionsService {
       writtenOff,
       advances,
     };
+  }
+
+  // --------------------------------------------------------- agent worklist
+
+  /** Lists collections cases for the ops queue (open by default), newest first. */
+  async listCases(rawInput: unknown = {}): Promise<CollectionsCase[]> {
+    const input = listCasesSchema.parse(rawInput);
+    const where = [];
+    if (input.stage) where.push(eq(cases.current_stage, input.stage));
+    if (input.assigned_agent_id) where.push(eq(cases.assigned_agent_id, input.assigned_agent_id));
+    if (input.open === true) where.push(isNull(cases.closed_at));
+    else if (input.open === false) where.push(isNotNull(cases.closed_at));
+
+    const query = this.db.select().from(cases);
+    const filtered = where.length ? query.where(and(...where)) : query;
+    return filtered.orderBy(desc(cases.stage_entered_at)).limit(input.limit).offset(input.offset);
+  }
+
+  /** A single case with its action timeline, plan, schedule and customer. */
+  async getCase(id: string): Promise<CollectionsCaseDetail> {
+    const c = (await this.db.select().from(cases).where(eq(cases.id, id)).limit(1))[0];
+    if (!c) throw new CollectionsCaseNotFoundError(id);
+
+    const actionRows = await this.db
+      .select()
+      .from(actions)
+      .where(eq(actions.case_id, id))
+      .orderBy(desc(actions.performed_at));
+
+    const plan =
+      (
+        await this.db
+          .select()
+          .from(plansTable)
+          .where(eq(plansTable.id, c.customer_plan_id))
+          .limit(1)
+      )[0] ?? null;
+
+    const schedule = c.schedule_id
+      ? ((await this.db.select().from(sched).where(eq(sched.id, c.schedule_id)).limit(1))[0] ??
+        null)
+      : null;
+
+    let customer: CollectionsCaseDetail['customer'] = null;
+    if (plan) {
+      customer =
+        (
+          await this.db
+            .select({
+              id: customersTable.id,
+              first_name: customersTable.first_name,
+              last_name: customersTable.last_name,
+              phone: customersTable.phone,
+            })
+            .from(customersTable)
+            .where(eq(customersTable.id, plan.customer_id))
+            .limit(1)
+        )[0] ?? null;
+    }
+
+    return { case: c, actions: actionRows, plan, schedule, customer };
+  }
+
+  /** Records a manual agent action (call/visit/note/...) on an open case. */
+  async recordAction(
+    caseId: string,
+    rawInput: unknown,
+    actor: CollectionsActor,
+  ): Promise<CollectionsAction> {
+    const input = recordActionSchema.parse(rawInput);
+    return runInTransaction(this.db, async (tx) => {
+      const c = (
+        await tx.select().from(cases).where(eq(cases.id, caseId)).for('update').limit(1)
+      )[0];
+      if (!c) throw new CollectionsCaseNotFoundError(caseId);
+      if (c.closed_at) throw new CaseAlreadyClosedError(caseId);
+
+      const [action] = await tx
+        .insert(actions)
+        .values({
+          case_id: caseId,
+          action_type: input.action_type,
+          channel: input.channel ?? null,
+          outcome: input.outcome ?? null,
+          notes: input.notes ?? null,
+          performed_by: actor.actorId,
+        })
+        .returning();
+      if (!action) throw new Error('collections_actions insert returned no row');
+
+      await this.audit.append(tx, {
+        entityType: 'collections_case',
+        entityId: caseId,
+        eventType: 'collections_case.action_recorded',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        metadata: { action_type: input.action_type },
+      });
+      return action;
+    });
+  }
+
+  /** Assigns (or reassigns) an open case to an agent. */
+  async assignAgent(
+    caseId: string,
+    rawInput: unknown,
+    actor: CollectionsActor,
+  ): Promise<CollectionsCase> {
+    const input = assignCaseSchema.parse(rawInput);
+    return runInTransaction(this.db, async (tx) => {
+      const c = (
+        await tx.select().from(cases).where(eq(cases.id, caseId)).for('update').limit(1)
+      )[0];
+      if (!c) throw new CollectionsCaseNotFoundError(caseId);
+      if (c.closed_at) throw new CaseAlreadyClosedError(caseId);
+
+      const [updated] = await tx
+        .update(cases)
+        .set({ assigned_agent_id: input.agent_id })
+        .where(eq(cases.id, caseId))
+        .returning();
+      if (!updated) throw new CollectionsCaseNotFoundError(caseId);
+
+      await tx.insert(actions).values({
+        case_id: caseId,
+        action_type: 'note_added',
+        outcome: 'assigned',
+        notes: `Assigned to agent ${input.agent_id}`,
+        performed_by: actor.actorId,
+        metadata: { assigned_agent_id: input.agent_id },
+      });
+      await this.audit.append(tx, {
+        entityType: 'collections_case',
+        entityId: caseId,
+        eventType: 'collections_case.assigned',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        metadata: { assigned_agent_id: input.agent_id },
+      });
+      return updated;
+    });
+  }
+
+  /**
+   * Manually closes an open case with a non-default resolution
+   * (paid / waived / restructured). The installment's own status is driven by
+   * the payment / refund / restructure flows, not here.
+   */
+  async closeCase(
+    caseId: string,
+    rawInput: unknown,
+    actor: CollectionsActor,
+  ): Promise<CollectionsCase> {
+    const input = closeCaseSchema.parse(rawInput);
+    return runInTransaction(this.db, async (tx) => {
+      const c = (
+        await tx.select().from(cases).where(eq(cases.id, caseId)).for('update').limit(1)
+      )[0];
+      if (!c) throw new CollectionsCaseNotFoundError(caseId);
+      if (c.closed_at) throw new CaseAlreadyClosedError(caseId);
+
+      const nowIso = new Date().toISOString();
+      const [updated] = await tx
+        .update(cases)
+        .set({ resolution: input.resolution, closed_at: nowIso })
+        .where(eq(cases.id, caseId))
+        .returning();
+      if (!updated) throw new CollectionsCaseNotFoundError(caseId);
+
+      await tx.insert(actions).values({
+        case_id: caseId,
+        action_type: 'note_added',
+        outcome: input.resolution,
+        notes: input.notes ?? null,
+        performed_by: actor.actorId,
+        metadata: { resolution: input.resolution, manual: true },
+      });
+      await this.audit.append(tx, {
+        entityType: 'collections_case',
+        entityId: caseId,
+        eventType: 'collections_case.closed',
+        fromState: c.current_stage,
+        toState: input.resolution,
+        reason: input.notes ?? null,
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+      });
+      return updated;
+    });
   }
 
   /** All stage names in order — exposed for callers/UX. */
