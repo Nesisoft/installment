@@ -7,6 +7,8 @@
 
 ---
 
+> ⚠️ **Scope update (post-Phase 10).** This document stays the canonical record for the **installment engine** — Phases 1–10, now merged to `main`. The project has since expanded into a **marketplace built on the engine**: Expo mobile apps for buyers and sellers, plus a commerce layer (catalog · cart · internal orders · fulfilment) that the engine powers unchanged. For the current direction and Phases 11+, see **[`PLATFORM-ROADMAP.md`](./PLATFORM-ROADMAP.md)** and the design docs **[`design/commerce-domain.md`](./design/commerce-domain.md)** and **[`design/mobile-apps.md`](./design/mobile-apps.md)**. Where this document and the roadmap differ — e.g. React-web vs **Expo-mobile** customer/merchant apps — **the roadmap wins.**
+
 ## 1. Reference Documents
 
 This plan assumes the following design artifacts are in the repository under `/docs/design/`. Each was produced during the architecture phase and should be treated as the canonical source for its respective concern.
@@ -113,9 +115,9 @@ installment-engine/
 ├── apps/
 │   ├── api/                         # NestJS HTTP entry point
 │   ├── workers/                     # BullMQ worker entry points
-│   ├── customer-web/                # React customer dashboard
-│   ├── merchant-web/                # React merchant dashboard
-│   └── admin-web/                   # React admin / ops console
+│   ├── customer-web/                # ⌫ superseded → apps/customer-mobile (Expo)  [roadmap P14]
+│   ├── merchant-web/                # ⌫ superseded → apps/merchant-mobile (Expo)  [roadmap P15]
+│   └── admin-web/                   # React admin / ops console                    [roadmap P16]
 ├── packages/
 │   ├── core/                        # Shared domain modules (the modular monolith)
 │   │   ├── src/
@@ -515,6 +517,8 @@ Time estimates assume a focused single developer (Mr. Anlimah) working with Clau
 ---
 
 ### Phase 10 — Frontends, Polish & Launch Prep
+
+> **Superseded — see [`PLATFORM-ROADMAP.md`](./PLATFORM-ROADMAP.md) Phases 14–16.** The frontends are now **Expo mobile** apps for customer & merchant (admin stays React web), and they consume a new commerce layer, not just the engine. The observability / rate-limiting / pilot items below still apply and are folded into roadmap Phase 16.
 
 **Goal:** Three React apps are usable. System is observable. Real merchants can onboard.
 
