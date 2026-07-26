@@ -1,0 +1,91 @@
+import { NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from '@installment/web-kit';
+import { Button, cn } from '@installment/ui';
+import {
+  Activity,
+  Banknote,
+  ClipboardList,
+  LayoutDashboard,
+  LogOut,
+  PhoneCall,
+  Receipt,
+  ShieldAlert,
+  Store,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
+
+interface NavItem {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+const NAV: NavItem[] = [
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/applications', label: 'Applications', icon: ClipboardList },
+  { to: '/plans', label: 'Plan operations', icon: Banknote },
+  { to: '/collections', label: 'Collections', icon: PhoneCall },
+  { to: '/merchants', label: 'Merchants', icon: Store },
+  { to: '/customers', label: 'Customers', icon: Users },
+  { to: '/templates', label: 'Plan templates', icon: Receipt },
+  { to: '/scoring', label: 'Scoring', icon: ShieldAlert },
+  { to: '/telco-health', label: 'Telco health', icon: Activity },
+];
+
+export function AppShell() {
+  const { logout } = useAuth();
+
+  return (
+    <div className="flex min-h-screen bg-background">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card lg:flex">
+        <div className="flex h-14 items-center gap-2 border-b border-border px-5 font-semibold text-primary">
+          <span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <ShieldAlert className="size-4" />
+          </span>
+          Admin Console
+        </div>
+        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+          {NAV.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/'}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                )
+              }
+            >
+              <Icon className="size-4" />
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="border-t border-border p-3">
+          <Button variant="ghost" className="w-full justify-start" onClick={logout}>
+            <LogOut className="size-4" />
+            Sign out
+          </Button>
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4 lg:hidden">
+          <span className="font-semibold text-primary">Admin Console</span>
+          <Button variant="ghost" size="sm" onClick={logout} aria-label="Sign out">
+            <LogOut className="size-4" />
+          </Button>
+        </header>
+        <main className="flex-1 p-4 md:p-8">
+          <div className="mx-auto max-w-6xl">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}

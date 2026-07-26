@@ -1,0 +1,161 @@
+import { useState, type FormEvent, type ReactNode } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Button, Card, CardContent, Input, Label } from '@installment/ui';
+import { createMerchantSchema, formatBps, type BusinessModel } from '@installment/api-types';
+import { apiErrorMessage } from '@installment/web-kit';
+import { ArrowLeft } from 'lucide-react';
+import { useCreateMerchant } from '../../lib/merchants-api';
+import { PageHeader } from '../../components/page-header';
+
+const MODELS: BusinessModel[] = ['bnpl', 'layaway', 'hybrid', 'rent_to_own'];
+
+export function MerchantNewPage() {
+  const navigate = useNavigate();
+  const create = useCreateMerchant();
+  const [form, setForm] = useState({
+    business_name: '',
+    legal_name: '',
+    email: '',
+    phone: '',
+    tin: '',
+    registration_number: '',
+    default_business_model: 'bnpl' as BusinessModel,
+    default_mdr_bps: '400',
+    default_reserve_bps: '500',
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const payload = {
+      business_name: form.business_name,
+      legal_name: form.legal_name,
+      email: form.email,
+      phone: form.phone,
+      ...(form.tin ? { tin: form.tin } : {}),
+      ...(form.registration_number ? { registration_number: form.registration_number } : {}),
+      default_business_model: form.default_business_model,
+      default_mdr_bps: Number(form.default_mdr_bps),
+      default_reserve_bps: Number(form.default_reserve_bps),
+    };
+    const parsed = createMerchantSchema.safeParse(payload);
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? 'Check the form');
+      return;
+    }
+    create.mutate(parsed.data, {
+      onSuccess: (m) => navigate(`/merchants/${m.id}`),
+    });
+  }
+
+  return (
+    <div className="space-y-6">
+      <Link
+        to="/merchants"
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" />
+        Back to merchants
+      </Link>
+      <PageHeader title="New merchant" description="Onboard a retail partner." />
+
+      <Card className="max-w-2xl">
+        <CardContent className="pt-6">
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Business name">
+                <Input
+                  value={form.business_name}
+                  onChange={(e) => set('business_name', e.target.value)}
+                  autoFocus
+                />
+              </Field>
+              <Field label="Legal name">
+                <Input
+                  value={form.legal_name}
+                  onChange={(e) => set('legal_name', e.target.value)}
+                />
+              </Field>
+              <Field label="Email">
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => set('email', e.target.value)}
+                />
+              </Field>
+              <Field label="Phone">
+                <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} />
+              </Field>
+              <Field label="TIN (optional)">
+                <Input value={form.tin} onChange={(e) => set('tin', e.target.value)} />
+              </Field>
+              <Field label="Registration no. (optional)">
+                <Input
+                  value={form.registration_number}
+                  onChange={(e) => set('registration_number', e.target.value)}
+                />
+              </Field>
+              <Field label="Default business model">
+                <select
+                  className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
+                  value={form.default_business_model}
+                  onChange={(e) => set('default_business_model', e.target.value as BusinessModel)}
+                >
+                  {MODELS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label={`MDR bps (${formatBps(Number(form.default_mdr_bps) || 0)})`}>
+                  <Input
+                    type="number"
+                    value={form.default_mdr_bps}
+                    onChange={(e) => set('default_mdr_bps', e.target.value)}
+                  />
+                </Field>
+                <Field label={`Reserve bps (${formatBps(Number(form.default_reserve_bps) || 0)})`}>
+                  <Input
+                    type="number"
+                    value={form.default_reserve_bps}
+                    onChange={(e) => set('default_reserve_bps', e.target.value)}
+                  />
+                </Field>
+              </div>
+            </div>
+
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {create.isError ? (
+              <p className="text-sm text-destructive">{apiErrorMessage(create.error)}</p>
+            ) : null}
+
+            <div className="flex gap-2">
+              <Button type="submit" disabled={create.isPending}>
+                {create.isPending ? 'Creating…' : 'Create merchant'}
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => navigate('/merchants')}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      {children}
+    </div>
+  );
+}

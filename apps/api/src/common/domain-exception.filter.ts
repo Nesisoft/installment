@@ -34,6 +34,7 @@ const NAME_STATUS: Record<string, number> = {
   CustomerPlanNotFoundError: HttpStatus.NOT_FOUND,
   ScheduleNotFoundError: HttpStatus.NOT_FOUND,
   PaymentAttemptNotFoundError: HttpStatus.NOT_FOUND,
+  CollectionsCaseNotFoundError: HttpStatus.NOT_FOUND,
   // 409
   UserConflictError: HttpStatus.CONFLICT,
   MerchantConflictError: HttpStatus.CONFLICT,
@@ -48,6 +49,7 @@ const NAME_STATUS: Record<string, number> = {
   InstallmentNotChargeableError: HttpStatus.CONFLICT,
   ReceiptNotAvailableError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
+  CaseAlreadyClosedError: HttpStatus.CONFLICT,
   // 422
   GhanaCardNotAttachedError: HttpStatus.UNPROCESSABLE_ENTITY,
   GhanaCardVerificationFailedError: HttpStatus.UNPROCESSABLE_ENTITY,

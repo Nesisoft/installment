@@ -22,6 +22,7 @@ import { ApplicationsController } from './modules/applications.controller';
 import { TelcoHealthController } from './modules/telco-health.controller';
 import { InstallmentsController } from './modules/installments.controller';
 import { SettlementsController } from './modules/settlements.controller';
+import { CollectionsController } from './modules/collections.controller';
 import { MeController } from './modules/me.controller';
 import { WebhookController } from './modules/webhook.controller';
 import { DomainExceptionFilter } from './common/domain-exception.filter';
@@ -65,6 +66,7 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     TelcoHealthController,
     InstallmentsController,
     SettlementsController,
+    CollectionsController,
     MeController,
     WebhookController,
   ],

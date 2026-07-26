@@ -10,6 +10,11 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "turbo run dev --filter=@installment/api",
+    "dev:api": "turbo run dev --filter=@installment/api",
+    "dev:customer": "pnpm --filter @installment/customer-web dev",
+    "dev:merchant": "pnpm --filter @installment/merchant-web dev",
+    "dev:admin": "pnpm --filter @installment/admin-web dev",
+    "dev:web": "turbo run dev --filter=@installment/customer-web --filter=@installment/merchant-web --filter=@installment/admin-web",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
