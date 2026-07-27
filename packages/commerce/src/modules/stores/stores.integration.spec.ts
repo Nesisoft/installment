@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { createDb } from '@installment/db';
-import { AuditLogger } from '../audit/audit-logger.service';
-import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
-import { MerchantsService } from '../merchants/merchants.service';
+import { AuditLogger, SYSTEM_ACTORS, MerchantsService } from '@installment/core';
 import { StoresService } from './stores.service';
 import { StoreConflictError, StoreNotFoundError, StoreTransitionError } from './errors';
 

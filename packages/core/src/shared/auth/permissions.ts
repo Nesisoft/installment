@@ -16,9 +16,6 @@ export const PERMISSIONS = {
   PLANS_WRITE: 'plans:write',
   USERS_WRITE: 'users:write',
   AUDIT_READ: 'audit:read',
-  CATALOG_READ: 'catalog:read',
-  CATALOG_WRITE: 'catalog:write',
-  CATEGORIES_WRITE: 'categories:write',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

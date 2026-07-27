@@ -1,5 +1,5 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
-import { CategoriesService, StoresService } from '@installment/core';
+import { Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
+import { CategoriesService, ProductsService, StoresService } from '@installment/commerce';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../auth/decorators';
 
@@ -17,12 +17,33 @@ export class StorefrontController {
   constructor(
     private readonly stores: StoresService,
     private readonly categories: CategoriesService,
+    private readonly products: ProductsService,
   ) {}
 
   @Public()
   @Get('stores/:slug')
   store(@Param('slug') slug: string) {
     return this.stores.getActiveBySlug(slug);
+  }
+
+  @Public()
+  @Get('search')
+  search(@Query() query: Record<string, string>) {
+    return this.products.search({
+      q: query.q,
+      limit: numOrUndefined(query.limit),
+      offset: numOrUndefined(query.offset),
+    });
+  }
+
+  @Public()
+  @Get('products/:id')
+  async product(@Param('id') id: string) {
+    const product = await this.products.getWithDetails(id);
+    if (product.status !== 'active') {
+      throw new NotFoundException(`Product "${id}" not found`);
+    }
+    return product;
   }
 
   @Public()

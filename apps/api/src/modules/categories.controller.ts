@@ -1,10 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
-import {
-  CategoriesService,
-  PERMISSIONS,
-  type AuditActorType,
-  type CategoryActor,
-} from '@installment/core';
+import { CATALOG_PERMISSIONS, CategoriesService, type CategoryActor } from '@installment/commerce';
+import { type AuditActorType } from '@installment/core';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 
@@ -35,14 +31,14 @@ export class CategoriesController {
   }
 
   @Post()
-  @RequirePermissions(PERMISSIONS.CATEGORIES_WRITE)
+  @RequirePermissions(CATALOG_PERMISSIONS.CATEGORIES_WRITE)
   @HttpCode(201)
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.categories.create(body, this.actor(user));
   }
 
   @Get()
-  @RequirePermissions(PERMISSIONS.CATALOG_READ)
+  @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_READ)
   list(@Query() query: Record<string, string>) {
     return this.categories.list({
       parent_id: query.parent_id,
@@ -54,13 +50,13 @@ export class CategoriesController {
   }
 
   @Get(':id')
-  @RequirePermissions(PERMISSIONS.CATALOG_READ)
+  @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_READ)
   get(@Param('id') id: string) {
     return this.categories.get(id);
   }
 
   @Patch(':id')
-  @RequirePermissions(PERMISSIONS.CATEGORIES_WRITE)
+  @RequirePermissions(CATALOG_PERMISSIONS.CATEGORIES_WRITE)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.categories.update(id, body, this.actor(user));
   }

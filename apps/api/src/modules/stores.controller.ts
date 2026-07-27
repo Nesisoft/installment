@@ -1,10 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
-import {
-  PERMISSIONS,
-  StoresService,
-  type AuditActorType,
-  type StoreActor,
-} from '@installment/core';
+import { CATALOG_PERMISSIONS, StoresService, type StoreActor } from '@installment/commerce';
+import { type AuditActorType } from '@installment/core';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 
@@ -35,14 +31,14 @@ export class StoresController {
   }
 
   @Post()
-  @RequirePermissions(PERMISSIONS.CATALOG_WRITE)
+  @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @HttpCode(201)
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.stores.create(body, this.actor(user));
   }
 
   @Get()
-  @RequirePermissions(PERMISSIONS.CATALOG_READ)
+  @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_READ)
   list(@Query() query: Record<string, string>) {
     return this.stores.list({
       status: query.status,
@@ -52,19 +48,19 @@ export class StoresController {
   }
 
   @Get(':id')
-  @RequirePermissions(PERMISSIONS.CATALOG_READ)
+  @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_READ)
   get(@Param('id') id: string) {
     return this.stores.get(id);
   }
 
   @Patch(':id')
-  @RequirePermissions(PERMISSIONS.CATALOG_WRITE)
+  @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.stores.update(id, body, this.actor(user));
   }
 
   @Post(':id/transition')
-  @RequirePermissions(PERMISSIONS.CATALOG_WRITE)
+  @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @HttpCode(200)
   transition(
     @Param('id') id: string,

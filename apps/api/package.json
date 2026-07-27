@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@installment/commerce": "workspace:*",
     "@installment/core": "workspace:*",
     "@installment/db": "workspace:*",
     "@installment/paystack-client": "workspace:*",

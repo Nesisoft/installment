@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { slugSchema } from '../../shared/validators/slug';
+import { slugSchema } from '@installment/core';
 
 export const STORE_STATUSES = ['draft', 'active', 'suspended'] as const;
 

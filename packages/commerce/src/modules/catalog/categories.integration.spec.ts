@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { createDb } from '@installment/db';
-import { AuditLogger } from '../audit/audit-logger.service';
-import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
+import { AuditLogger, SYSTEM_ACTORS } from '@installment/core';
 import { CategoriesService } from './categories.service';
 import { CategoryConflictError, CategoryNotFoundError, CategoryValidationError } from './errors';
 

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { slugSchema } from '../../shared/validators/slug';
+import { slugSchema } from '@installment/core';
 
 export const createCategorySchema = z.object({
   name: z.string().trim().min(1).max(120),

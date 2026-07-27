@@ -14,6 +14,7 @@ import { PermissionsGuard } from './auth/permissions.guard';
 import { MerchantsController } from './modules/merchants.controller';
 import { StoresController } from './modules/stores.controller';
 import { CategoriesController } from './modules/categories.controller';
+import { ProductsController } from './modules/products.controller';
 import { StorefrontController } from './modules/storefront.controller';
 import { CustomersController } from './modules/customers.controller';
 import { EmployersController } from './modules/employers.controller';
@@ -61,6 +62,7 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     MerchantsController,
     StoresController,
     CategoriesController,
+    ProductsController,
     StorefrontController,
     CustomersController,
     EmployersController,
