@@ -1,5 +1,29 @@
 import { relations } from "drizzle-orm/relations";
-import { customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, users, collections_cases, collections_actions, rule_definitions, permissions, role_permissions, roles, user_roles } from "./schema";
+import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, stores, products, product_variants, product_images, inventory, product_plan_offers, permissions, role_permissions, roles, user_roles } from "./schema";
+
+export const customersRelations = relations(customers, ({one, many}) => ({
+	user: one(users, {
+		fields: [customers.user_id],
+		references: [users.id]
+	}),
+	customer_employments: many(customer_employment),
+	applications: many(applications),
+	credit_profiles: many(credit_profiles),
+	customer_plans: many(customer_plans),
+}));
+
+export const usersRelations = relations(users, ({many}) => ({
+	customers: many(customers),
+	collections_cases: many(collections_cases),
+	collections_actions: many(collections_actions),
+	rule_definitions: many(rule_definitions),
+	user_roles_granted_by: many(user_roles, {
+		relationName: "user_roles_granted_by_users_id"
+	}),
+	user_roles_user_id: many(user_roles, {
+		relationName: "user_roles_user_id_users_id"
+	}),
+}));
 
 export const customer_employmentRelations = relations(customer_employment, ({one}) => ({
 	customer: one(customers, {
@@ -10,13 +34,6 @@ export const customer_employmentRelations = relations(customer_employment, ({one
 		fields: [customer_employment.employer_id],
 		references: [employers.id]
 	}),
-}));
-
-export const customersRelations = relations(customers, ({many}) => ({
-	customer_employments: many(customer_employment),
-	applications: many(applications),
-	credit_profiles: many(credit_profiles),
-	customer_plans: many(customer_plans),
 }));
 
 export const employersRelations = relations(employers, ({many}) => ({
@@ -45,11 +62,14 @@ export const merchantsRelations = relations(merchants, ({many}) => ({
 	customer_plans: many(customer_plans),
 	payouts: many(payouts),
 	held_reserves: many(held_reserves),
+	stores: many(stores),
+	products: many(products),
 }));
 
 export const plan_templatesRelations = relations(plan_templates, ({many}) => ({
 	applications: many(applications),
 	customer_plans: many(customer_plans),
+	product_plan_offers: many(product_plan_offers),
 }));
 
 export const credit_profilesRelations = relations(credit_profiles, ({one}) => ({
@@ -148,18 +168,6 @@ export const collections_casesRelations = relations(collections_cases, ({one, ma
 	collections_actions: many(collections_actions),
 }));
 
-export const usersRelations = relations(users, ({many}) => ({
-	collections_cases: many(collections_cases),
-	collections_actions: many(collections_actions),
-	rule_definitions: many(rule_definitions),
-	user_roles_granted_by: many(user_roles, {
-		relationName: "user_roles_granted_by_users_id"
-	}),
-	user_roles_user_id: many(user_roles, {
-		relationName: "user_roles_user_id_users_id"
-	}),
-}));
-
 export const collections_actionsRelations = relations(collections_actions, ({one}) => ({
 	collections_case: one(collections_cases, {
 		fields: [collections_actions.case_id],
@@ -175,6 +183,77 @@ export const rule_definitionsRelations = relations(rule_definitions, ({one}) => 
 	user: one(users, {
 		fields: [rule_definitions.created_by],
 		references: [users.id]
+	}),
+}));
+
+export const categoriesRelations = relations(categories, ({one, many}) => ({
+	category: one(categories, {
+		fields: [categories.parent_id],
+		references: [categories.id],
+		relationName: "categories_parent_id_categories_id"
+	}),
+	categories: many(categories, {
+		relationName: "categories_parent_id_categories_id"
+	}),
+	products: many(products),
+}));
+
+export const storesRelations = relations(stores, ({one, many}) => ({
+	merchant: one(merchants, {
+		fields: [stores.merchant_id],
+		references: [merchants.id]
+	}),
+	products: many(products),
+}));
+
+export const productsRelations = relations(products, ({one, many}) => ({
+	category: one(categories, {
+		fields: [products.category_id],
+		references: [categories.id]
+	}),
+	merchant: one(merchants, {
+		fields: [products.merchant_id],
+		references: [merchants.id]
+	}),
+	store: one(stores, {
+		fields: [products.store_id],
+		references: [stores.id]
+	}),
+	product_variants: many(product_variants),
+	product_images: many(product_images),
+	product_plan_offers: many(product_plan_offers),
+}));
+
+export const product_variantsRelations = relations(product_variants, ({one, many}) => ({
+	product: one(products, {
+		fields: [product_variants.product_id],
+		references: [products.id]
+	}),
+	inventories: many(inventory),
+}));
+
+export const product_imagesRelations = relations(product_images, ({one}) => ({
+	product: one(products, {
+		fields: [product_images.product_id],
+		references: [products.id]
+	}),
+}));
+
+export const inventoryRelations = relations(inventory, ({one}) => ({
+	product_variant: one(product_variants, {
+		fields: [inventory.variant_id],
+		references: [product_variants.id]
+	}),
+}));
+
+export const product_plan_offersRelations = relations(product_plan_offers, ({one}) => ({
+	plan_template: one(plan_templates, {
+		fields: [product_plan_offers.plan_template_id],
+		references: [plan_templates.id]
+	}),
+	product: one(products, {
+		fields: [product_plan_offers.product_id],
+		references: [products.id]
 	}),
 }));
 

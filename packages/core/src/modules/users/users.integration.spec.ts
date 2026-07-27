@@ -39,8 +39,9 @@ describe.skipIf(!RUN_DB)('UsersService (integration)', () => {
     expect(perms.has('merchants:write')).toBe(true);
     expect(perms.has('audit:read')).toBe(true);
     expect(perms.has('users:write')).toBe(true);
-    // admin holds every seeded permission (8 from 0002 + 4 from 0003).
-    expect(perms.size).toBe(12);
+    expect(perms.has('catalog:write')).toBe(true);
+    // admin holds every seeded permission (8 from 0002 + 4 from 0003 + 3 from 0005).
+    expect(perms.size).toBe(15);
     expect(await users.getRoleNames(created.id)).toContain('admin');
   });
 
