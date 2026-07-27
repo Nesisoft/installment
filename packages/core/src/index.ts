@@ -386,3 +386,13 @@ export {
 } from './modules/auth/auth.service';
 export * from './shared/constants/system-actors';
 export * from './shared/test-fixtures/users';
+
+// --- Commerce (Phase 11) ---------------------------------------------------
+export * from './shared/validators/slug';
+export * from './shared/db/pg-errors';
+export * from './modules/stores/dto';
+export * from './modules/stores/errors';
+export * from './modules/stores/stores.service';
+export * from './modules/catalog/dto';
+export * from './modules/catalog/errors';
+export * from './modules/catalog/categories.service';

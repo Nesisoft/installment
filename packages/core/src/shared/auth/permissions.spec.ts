@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { PERMISSIONS, PermissionDeniedError, isPermission } from './permissions';
 
 describe('permissions', () => {
-  it('mirrors the names seeded in migrations 0002 + 0003', () => {
+  it('mirrors the names seeded in migrations 0002 + 0003 + 0005', () => {
     expect(Object.values(PERMISSIONS).sort()).toEqual(
       [
         'applications:review',
         'audit:read',
+        'catalog:read',
+        'catalog:write',
+        'categories:write',
         'collections:act',
         'customers:read',
         'customers:write',

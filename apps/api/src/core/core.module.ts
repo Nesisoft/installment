@@ -6,6 +6,7 @@ import {
   AttemptRepository,
   AuditLogger,
   AuthService,
+  CategoriesService,
   CustomerEmploymentService,
   ChargeReceiptService,
   CollectionsNotifierService,
@@ -33,6 +34,7 @@ import {
   ReconciliationService,
   ReserveReleaseService,
   SettlementService,
+  StoresService,
   PlanTemplatesService,
   RedisLock,
   RulesetLoader,
@@ -92,6 +94,16 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     {
       provide: MerchantsService,
       useFactory: (db: Database, audit: AuditLogger) => new MerchantsService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: StoresService,
+      useFactory: (db: Database, audit: AuditLogger) => new StoresService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: CategoriesService,
+      useFactory: (db: Database, audit: AuditLogger) => new CategoriesService(db, audit),
       inject: [DRIZZLE, AuditLogger],
     },
     {
@@ -373,6 +385,8 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     UsersService,
     AuthService,
     MerchantsService,
+    StoresService,
+    CategoriesService,
     CustomersService,
     EmployersService,
     CustomerEmploymentService,
