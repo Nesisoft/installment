@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { createDb } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { PasswordService } from '../../shared/auth/password.service';
+import { PERMISSIONS } from '../../shared/auth/permissions';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 import { UsersService } from './users.service';
 import { RoleNotFoundError, UserConflictError, UserNotFoundError } from './errors';
@@ -36,11 +37,13 @@ describe.skipIf(!RUN_DB)('UsersService (integration)', () => {
     expect(created.password_hash).not.toBeNull();
 
     const perms = await users.getPermissions(created.id);
-    expect(perms.has('merchants:write')).toBe(true);
-    expect(perms.has('audit:read')).toBe(true);
-    expect(perms.has('users:write')).toBe(true);
-    // admin holds every seeded permission (8 from 0002 + 4 from 0003).
-    expect(perms.size).toBe(12);
+    // admin holds every engine permission (0002 + 0003). Commerce permissions
+    // (catalog:*, seeded by 0005) are granted to admin too and covered in the
+    // @installment/commerce tests, so the total may exceed the engine set.
+    for (const perm of Object.values(PERMISSIONS)) {
+      expect(perms.has(perm)).toBe(true);
+    }
+    expect(perms.size).toBeGreaterThanOrEqual(Object.values(PERMISSIONS).length);
     expect(await users.getRoleNames(created.id)).toContain('admin');
   });
 

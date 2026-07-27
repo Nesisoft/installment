@@ -44,6 +44,12 @@ import {
   WebhookService,
   type SmsSender,
 } from '@installment/core';
+import {
+  CategoriesService,
+  InventoryService,
+  ProductsService,
+  StoresService,
+} from '@installment/commerce';
 import { PaystackClient } from '@installment/paystack-client';
 import type { Database } from '@installment/db';
 import { DRIZZLE } from '../db/db.module';
@@ -93,6 +99,26 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       provide: MerchantsService,
       useFactory: (db: Database, audit: AuditLogger) => new MerchantsService(db, audit),
       inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: StoresService,
+      useFactory: (db: Database, audit: AuditLogger) => new StoresService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: CategoriesService,
+      useFactory: (db: Database, audit: AuditLogger) => new CategoriesService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: ProductsService,
+      useFactory: (db: Database, audit: AuditLogger) => new ProductsService(db, audit),
+      inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: InventoryService,
+      useFactory: (db: Database) => new InventoryService(db),
+      inject: [DRIZZLE],
     },
     {
       provide: CustomersService,
@@ -373,6 +399,10 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     UsersService,
     AuthService,
     MerchantsService,
+    StoresService,
+    CategoriesService,
+    ProductsService,
+    InventoryService,
     CustomersService,
     EmployersService,
     CustomerEmploymentService,

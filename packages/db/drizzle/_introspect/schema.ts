@@ -1,47 +1,9 @@
-import { pgTable, index, unique, check, uuid, text, boolean, timestamp, jsonb, date, smallint, foreignKey, bigint, integer, char, primaryKey } from "drizzle-orm/pg-core"
+import { pgTable, text, timestamp, index, foreignKey, unique, check, uuid, date, boolean, smallint, jsonb, bigint, integer, char, primaryKey } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { citext } from "../../src/citext";
+import { tsvector } from "../../src/tsvector";
 
 
-
-export const users = pgTable("users", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	email: citext("email").notNull(),
-	name: text().notNull(),
-	password_hash: text(),
-	phone: text(),
-	user_type: text().notNull(),
-	is_active: boolean().default(true).notNull(),
-	last_login_at: timestamp({ withTimezone: true, mode: 'string' }),
-	metadata: jsonb().default({}).notNull(),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
-}, (table) => [
-	index("users_active_idx").using("btree", table.is_active.asc().nullsLast().op("bool_ops")).where(sql`(is_active AND (deleted_at IS NULL))`),
-	index("users_user_type_idx").using("btree", table.user_type.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
-	unique("users_email_key").on(table.email),
-	unique("users_phone_key").on(table.phone),
-	check("users_user_type_check", sql`user_type = ANY (ARRAY['system'::text, 'admin'::text, 'agent'::text, 'customer'::text, 'merchant'::text])`),
-]);
-
-export const roles = pgTable("roles", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	name: text().notNull(),
-	description: text(),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	unique("roles_name_key").on(table.name),
-]);
-
-export const permissions = pgTable("permissions", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	name: text().notNull(),
-	description: text(),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	unique("permissions_name_key").on(table.name),
-]);
 
 export const schema_migrations = pgTable("schema_migrations", {
 	filename: text().primaryKey().notNull(),
@@ -439,7 +401,7 @@ export const payment_attempts = pgTable("payment_attempts", {
 }, (table) => [
 	index("payment_attempts_in_flight_idx").using("btree", table.status.asc().nullsLast().op("text_ops"), table.initiated_at.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = ANY (ARRAY['in_flight'::text, 'unknown'::text]))`),
 	index("payment_attempts_provider_ref_idx").using("btree", table.provider_reference.asc().nullsLast().op("text_ops")).where(sql`(provider_reference IS NOT NULL)`),
-	index("payment_attempts_schedule_idx").using("btree", table.schedule_id.asc().nullsLast().op("uuid_ops"), table.initiated_at.desc().nullsFirst().op("timestamptz_ops")),
+	index("payment_attempts_schedule_idx").using("btree", table.schedule_id.asc().nullsLast().op("uuid_ops"), table.initiated_at.desc().nullsFirst().op("uuid_ops")),
 	foreignKey({
 			columns: [table.customer_plan_id],
 			foreignColumns: [customer_plans.id],
@@ -637,29 +599,6 @@ export const idempotency_keys = pgTable("idempotency_keys", {
 	index("idempotency_keys_expiry_idx").using("btree", table.expires_at.asc().nullsLast().op("timestamptz_ops")),
 ]);
 
-export const rule_definitions = pgTable("rule_definitions", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	ruleset_version: text().notNull(),
-	rule_id: text().notNull(),
-	category: text().notNull(),
-	description: text().notNull(),
-	configuration: jsonb().notNull(),
-	is_active: boolean().default(true).notNull(),
-	effective_from: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	effective_to: timestamp({ withTimezone: true, mode: 'string' }),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	created_by: uuid(),
-}, (table) => [
-	index("rule_definitions_active_idx").using("btree", table.ruleset_version.asc().nullsLast().op("text_ops"), table.is_active.asc().nullsLast().op("text_ops")).where(sql`(is_active = true)`),
-	foreignKey({
-			columns: [table.created_by],
-			foreignColumns: [users.id],
-			name: "rule_definitions_created_by_fk"
-		}).onDelete("set null"),
-	unique("rule_definitions_ruleset_version_rule_id_key").on(table.ruleset_version, table.rule_id),
-	check("rule_definitions_category_check", sql`category = ANY (ARRAY['hard_gate'::text, 'score'::text, 'exposure'::text])`),
-]);
-
 export const ledger_entries = pgTable("ledger_entries", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	transaction_id: text().notNull(),
@@ -698,6 +637,241 @@ export const audit_events = pgTable("audit_events", {
 	index("audit_events_entity_idx").using("btree", table.entity_type.asc().nullsLast().op("uuid_ops"), table.entity_id.asc().nullsLast().op("uuid_ops"), table.occurred_at.desc().nullsFirst().op("text_ops")),
 	index("audit_events_time_idx").using("btree", table.occurred_at.desc().nullsFirst().op("timestamptz_ops")),
 	check("audit_events_actor_type_check", sql`actor_type = ANY (ARRAY['system'::text, 'worker'::text, 'admin'::text, 'customer'::text, 'webhook'::text, 'merchant'::text])`),
+]);
+
+export const users = pgTable("users", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	email: citext("email").notNull(),
+	name: text().notNull(),
+	password_hash: text(),
+	phone: text(),
+	user_type: text().notNull(),
+	is_active: boolean().default(true).notNull(),
+	last_login_at: timestamp({ withTimezone: true, mode: 'string' }),
+	metadata: jsonb().default({}).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
+}, (table) => [
+	index("users_active_idx").using("btree", table.is_active.asc().nullsLast().op("bool_ops")).where(sql`(is_active AND (deleted_at IS NULL))`),
+	index("users_user_type_idx").using("btree", table.user_type.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
+	unique("users_email_key").on(table.email),
+	unique("users_phone_key").on(table.phone),
+	check("users_user_type_check", sql`user_type = ANY (ARRAY['system'::text, 'admin'::text, 'agent'::text, 'customer'::text, 'merchant'::text])`),
+]);
+
+export const roles = pgTable("roles", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	name: text().notNull(),
+	description: text(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("roles_name_key").on(table.name),
+]);
+
+export const permissions = pgTable("permissions", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	name: text().notNull(),
+	description: text(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("permissions_name_key").on(table.name),
+]);
+
+export const rule_definitions = pgTable("rule_definitions", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	ruleset_version: text().notNull(),
+	rule_id: text().notNull(),
+	category: text().notNull(),
+	description: text().notNull(),
+	configuration: jsonb().notNull(),
+	is_active: boolean().default(true).notNull(),
+	effective_from: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	effective_to: timestamp({ withTimezone: true, mode: 'string' }),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	created_by: uuid(),
+}, (table) => [
+	index("rule_definitions_active_idx").using("btree", table.ruleset_version.asc().nullsLast().op("text_ops"), table.is_active.asc().nullsLast().op("text_ops")).where(sql`(is_active = true)`),
+	foreignKey({
+			columns: [table.created_by],
+			foreignColumns: [users.id],
+			name: "rule_definitions_created_by_fk"
+		}).onDelete("set null"),
+	unique("rule_definitions_ruleset_version_rule_id_key").on(table.ruleset_version, table.rule_id),
+	check("rule_definitions_category_check", sql`category = ANY (ARRAY['hard_gate'::text, 'score'::text, 'exposure'::text])`),
+]);
+
+export const categories = pgTable("categories", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	parent_id: uuid(),
+	name: text().notNull(),
+	slug: text().notNull(),
+	position: integer().default(0).notNull(),
+	is_active: boolean().default(true).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("categories_active_idx").using("btree", table.is_active.asc().nullsLast().op("bool_ops")).where(sql`(is_active = true)`),
+	index("categories_parent_idx").using("btree", table.parent_id.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.parent_id],
+			foreignColumns: [table.id],
+			name: "categories_parent_id_fkey"
+		}).onDelete("set null"),
+	unique("categories_slug_key").on(table.slug),
+	check("categories_check", sql`(parent_id IS NULL) OR (parent_id <> id)`),
+	check("categories_slug_check", sql`slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'::text`),
+]);
+
+export const stores = pgTable("stores", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	merchant_id: uuid().notNull(),
+	slug: text().notNull(),
+	display_name: text().notNull(),
+	about: text(),
+	logo_key: text(),
+	banner_key: text(),
+	support_email: citext("support_email"),
+	support_phone: text(),
+	status: text().default('draft').notNull(),
+	policies: jsonb().default({}).notNull(),
+	metadata: jsonb().default({}).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
+}, (table) => [
+	index("stores_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status = 'active'::text)`),
+	foreignKey({
+			columns: [table.merchant_id],
+			foreignColumns: [merchants.id],
+			name: "stores_merchant_id_fkey"
+		}).onDelete("cascade"),
+	unique("stores_merchant_id_key").on(table.merchant_id),
+	unique("stores_slug_key").on(table.slug),
+	check("stores_slug_check", sql`slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'::text`),
+	check("stores_status_check", sql`status = ANY (ARRAY['draft'::text, 'active'::text, 'suspended'::text])`),
+]);
+
+export const products = pgTable("products", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	store_id: uuid().notNull(),
+	merchant_id: uuid().notNull(),
+	category_id: uuid(),
+	title: text().notNull(),
+	description: text(),
+	status: text().default('draft').notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	base_price_pesewas: bigint({ mode: "number" }).notNull(),
+	currency: text().default('GHS').notNull(),
+	attributes: jsonb().default({}).notNull(),
+	search_tsv: tsvector("search_tsv").generatedAlwaysAs(sql`(setweight(to_tsvector('english'::regconfig, COALESCE(title, ''::text)), 'A'::"char") || setweight(to_tsvector('english'::regconfig, COALESCE(description, ''::text)), 'B'::"char"))`),
+	metadata: jsonb().default({}).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
+}, (table) => [
+	index("products_active_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status = 'active'::text)`),
+	index("products_category_idx").using("btree", table.category_id.asc().nullsLast().op("uuid_ops")),
+	index("products_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("uuid_ops")),
+	index("products_search_idx").using("gin", table.search_tsv.asc().nullsLast().op("tsvector_ops")),
+	index("products_store_idx").using("btree", table.store_id.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.category_id],
+			foreignColumns: [categories.id],
+			name: "products_category_id_fkey"
+		}).onDelete("set null"),
+	foreignKey({
+			columns: [table.merchant_id],
+			foreignColumns: [merchants.id],
+			name: "products_merchant_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.store_id],
+			foreignColumns: [stores.id],
+			name: "products_store_id_fkey"
+		}).onDelete("cascade"),
+	check("products_base_price_pesewas_check", sql`base_price_pesewas >= 0`),
+	check("products_currency_check", sql`currency = 'GHS'::text`),
+	check("products_status_check", sql`status = ANY (ARRAY['draft'::text, 'active'::text, 'archived'::text])`),
+]);
+
+export const product_variants = pgTable("product_variants", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	product_id: uuid().notNull(),
+	sku: text().notNull(),
+	option_values: jsonb().default({}).notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	price_pesewas: bigint({ mode: "number" }),
+	barcode: text(),
+	is_active: boolean().default(true).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("product_variants_product_idx").using("btree", table.product_id.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.product_id],
+			foreignColumns: [products.id],
+			name: "product_variants_product_id_fkey"
+		}).onDelete("cascade"),
+	unique("product_variants_product_id_sku_key").on(table.product_id, table.sku),
+	check("product_variants_price_pesewas_check", sql`(price_pesewas IS NULL) OR (price_pesewas >= 0)`),
+]);
+
+export const product_images = pgTable("product_images", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	product_id: uuid().notNull(),
+	storage_key: text().notNull(),
+	alt_text: text(),
+	position: integer().default(0).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("product_images_product_idx").using("btree", table.product_id.asc().nullsLast().op("int4_ops"), table.position.asc().nullsLast().op("int4_ops")),
+	foreignKey({
+			columns: [table.product_id],
+			foreignColumns: [products.id],
+			name: "product_images_product_id_fkey"
+		}).onDelete("cascade"),
+]);
+
+export const inventory = pgTable("inventory", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	variant_id: uuid().notNull(),
+	quantity_available: integer().default(0).notNull(),
+	quantity_reserved: integer().default(0).notNull(),
+	restock_threshold: integer().default(0).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.variant_id],
+			foreignColumns: [product_variants.id],
+			name: "inventory_variant_id_fkey"
+		}).onDelete("cascade"),
+	unique("inventory_variant_id_key").on(table.variant_id),
+	check("inventory_quantity_available_check", sql`quantity_available >= 0`),
+	check("inventory_quantity_reserved_check", sql`quantity_reserved >= 0`),
+	check("inventory_restock_threshold_check", sql`restock_threshold >= 0`),
+]);
+
+export const product_plan_offers = pgTable("product_plan_offers", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	product_id: uuid().notNull(),
+	plan_template_id: uuid().notNull(),
+	is_active: boolean().default(true).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("product_plan_offers_template_idx").using("btree", table.plan_template_id.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.plan_template_id],
+			foreignColumns: [plan_templates.id],
+			name: "product_plan_offers_plan_template_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.product_id],
+			foreignColumns: [products.id],
+			name: "product_plan_offers_product_id_fkey"
+		}).onDelete("cascade"),
+	unique("product_plan_offers_product_id_plan_template_id_key").on(table.product_id, table.plan_template_id),
 ]);
 
 export const role_permissions = pgTable("role_permissions", {

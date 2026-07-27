@@ -386,3 +386,7 @@ export {
 } from './modules/auth/auth.service';
 export * from './shared/constants/system-actors';
 export * from './shared/test-fixtures/users';
+
+// Generic shared helpers used by @installment/commerce (which owns the domain).
+export * from './shared/validators/slug';
+export * from './shared/db/pg-errors';

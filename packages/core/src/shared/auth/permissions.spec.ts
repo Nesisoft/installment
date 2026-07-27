@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { PERMISSIONS, PermissionDeniedError, isPermission } from './permissions';
 
 describe('permissions', () => {
-  it('mirrors the names seeded in migrations 0002 + 0003', () => {
+  it('mirrors the engine permission names seeded in migrations 0002 + 0003', () => {
+    // Commerce permissions (catalog:*, categories:*) live in @installment/commerce.
     expect(Object.values(PERMISSIONS).sort()).toEqual(
       [
         'applications:review',

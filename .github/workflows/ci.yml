@@ -77,4 +77,4 @@ jobs:
       - name: Test (integration)
         # Postgres + Redis service containers are up; DATABASE_URL is set, so
         # the describe.skipIf(!DATABASE_URL) guards activate the full suite.
-        run: pnpm --filter @installment/core test:integration
+        run: pnpm --filter @installment/core --filter @installment/commerce test:integration

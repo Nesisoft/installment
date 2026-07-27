@@ -93,6 +93,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@installment/commerce':
+        specifier: workspace:*
+        version: link:../../packages/commerce
       '@installment/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -294,6 +297,31 @@ importers:
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
+
+  packages/commerce:
+    dependencies:
+      '@installment/core':
+        specifier: workspace:*
+        version: link:../core
+      '@installment/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(gel@2.2.0)(pg@8.21.0)
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.19)(terser@5.47.1)
 
   packages/core:
     dependencies:
