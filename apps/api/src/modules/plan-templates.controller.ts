@@ -5,6 +5,7 @@ import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth
 import { actorOf, numOrUndefined } from '../auth/current-actor';
 import { createPlanTemplateSchema, updatePlanTemplateSchema } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
+import { ApiModel } from '../common/api-model';
 
 @ApiTags('plan-templates')
 @ApiBearerAuth()
@@ -13,6 +14,7 @@ export class PlanTemplatesController {
   constructor(private readonly plans: PlanTemplatesService) {}
 
   @Post()
+  @ApiModel('PlanTemplate', { created: true })
   @ApiZodBody(createPlanTemplateSchema)
   @RequirePermissions(PERMISSIONS.PLANS_WRITE)
   @HttpCode(201)
@@ -21,6 +23,7 @@ export class PlanTemplatesController {
   }
 
   @Get()
+  @ApiModel('PlanTemplate', { array: true })
   @RequirePermissions(PERMISSIONS.PLANS_READ)
   list(@Query() query: Record<string, string>) {
     return this.plans.list({
@@ -33,12 +36,14 @@ export class PlanTemplatesController {
   }
 
   @Get(':id')
+  @ApiModel('PlanTemplate')
   @RequirePermissions(PERMISSIONS.PLANS_READ)
   get(@Param('id') id: string) {
     return this.plans.get(id);
   }
 
   @Patch(':id')
+  @ApiModel('PlanTemplate')
   @ApiZodBody(updatePlanTemplateSchema)
   @RequirePermissions(PERMISSIONS.PLANS_WRITE)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -46,6 +51,7 @@ export class PlanTemplatesController {
   }
 
   @Post(':id/activate')
+  @ApiModel('PlanTemplate')
   @RequirePermissions(PERMISSIONS.PLANS_WRITE)
   @HttpCode(200)
   activate(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
@@ -53,6 +59,7 @@ export class PlanTemplatesController {
   }
 
   @Post(':id/deactivate')
+  @ApiModel('PlanTemplate')
   @RequirePermissions(PERMISSIONS.PLANS_WRITE)
   @HttpCode(200)
   deactivate(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {

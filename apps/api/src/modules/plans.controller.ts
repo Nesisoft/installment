@@ -18,6 +18,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
+import { ApiModel } from '../common/api-model';
 
 @ApiTags('plans')
 @ApiBearerAuth()
@@ -37,6 +38,7 @@ export class PlansController {
   }
 
   @Get(':id')
+  @ApiModel('CustomerPlan')
   @RequirePermissions(PERMISSIONS.PLANS_READ)
   get(@Param('id') id: string) {
     return this.plans.get(id);
@@ -62,6 +64,7 @@ export class PlansController {
   }
 
   @Get(':id/schedule')
+  @ApiModel('InstallmentSchedule', { array: true })
   @RequirePermissions(PERMISSIONS.PLANS_READ)
   @ApiOperation({ summary: 'The installment schedule for a plan, ordered by sequence' })
   schedule(@Param('id') id: string) {

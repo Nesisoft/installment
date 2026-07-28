@@ -28,6 +28,7 @@ import {
   attachPaystackRecipientSchema,
 } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
+import { ApiModel } from '../common/api-model';
 
 function toActorType(userType: string): AuditActorType {
   switch (userType) {
@@ -59,6 +60,7 @@ export class MerchantsController {
   }
 
   @Post()
+  @ApiModel('Merchant', { created: true })
   @ApiZodBody(createMerchantSchema)
   @RequirePermissions(PERMISSIONS.MERCHANTS_WRITE)
   @HttpCode(201)
@@ -67,6 +69,7 @@ export class MerchantsController {
   }
 
   @Get()
+  @ApiModel('Merchant', { array: true })
   @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
   list(@Query() query: Record<string, string>) {
     return this.merchants.list({
@@ -77,12 +80,14 @@ export class MerchantsController {
   }
 
   @Get(':id')
+  @ApiModel('Merchant')
   @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
   get(@Param('id') id: string) {
     return this.merchants.get(id);
   }
 
   @Patch(':id')
+  @ApiModel('Merchant')
   @ApiZodBody(updateMerchantSchema)
   @RequirePermissions(PERMISSIONS.MERCHANTS_WRITE)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -90,6 +95,7 @@ export class MerchantsController {
   }
 
   @Post(':id/transition')
+  @ApiModel('Merchant')
   @ApiZodBody(transitionMerchantSchema)
   @RequirePermissions(PERMISSIONS.MERCHANTS_WRITE)
   @HttpCode(200)
@@ -102,6 +108,7 @@ export class MerchantsController {
   }
 
   @Post(':id/paystack-recipient')
+  @ApiModel('Merchant')
   @ApiZodBody(attachPaystackRecipientSchema)
   @RequirePermissions(PERMISSIONS.MERCHANTS_WRITE)
   @HttpCode(200)
@@ -120,6 +127,7 @@ export class MerchantsController {
   }
 
   @Get(':id/payouts')
+  @ApiModel('Payout', { array: true })
   @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
   payouts(@Param('id') id: string, @Query() query: Record<string, string>) {
     return this.dashboard.listPayouts(id, {
@@ -130,6 +138,7 @@ export class MerchantsController {
   }
 
   @Get(':id/reserves')
+  @ApiModel('HeldReserve', { array: true })
   @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
   reserves(@Param('id') id: string, @Query() query: Record<string, string>) {
     const open = query.open === undefined ? true : query.open !== 'false';

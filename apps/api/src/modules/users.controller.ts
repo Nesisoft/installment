@@ -9,6 +9,7 @@ import {
   createCustomerUserSchema,
 } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
+import { ApiModel } from '../common/api-model';
 
 /** Never expose password_hash over the wire. */
 function sanitize(user: User): Omit<User, 'password_hash'> {
@@ -27,6 +28,7 @@ export class UsersController {
   constructor(private readonly users: UsersService) {}
 
   @Post('staff')
+  @ApiModel('User', { created: true })
   @ApiZodBody(createStaffSchema)
   @RequirePermissions(PERMISSIONS.USERS_WRITE)
   @HttpCode(201)
@@ -35,6 +37,7 @@ export class UsersController {
   }
 
   @Post('merchant')
+  @ApiModel('User', { created: true })
   @ApiZodBody(createMerchantUserSchema)
   @RequirePermissions(PERMISSIONS.USERS_WRITE)
   @HttpCode(201)
@@ -43,6 +46,7 @@ export class UsersController {
   }
 
   @Post('customer')
+  @ApiModel('User', { created: true })
   @ApiZodBody(createCustomerUserSchema)
   @RequirePermissions(PERMISSIONS.USERS_WRITE)
   @HttpCode(201)

@@ -12,6 +12,7 @@ import {
   recordPayrollConsentSchema,
 } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
+import { ApiModel } from '../common/api-model';
 
 @ApiTags('employers')
 @ApiBearerAuth()
@@ -23,6 +24,7 @@ export class EmployersController {
   ) {}
 
   @Post()
+  @ApiModel('Employer', { created: true })
   @ApiZodBody(createEmployerSchema)
   @RequirePermissions(PERMISSIONS.EMPLOYERS_WRITE)
   @HttpCode(201)
@@ -31,6 +33,7 @@ export class EmployersController {
   }
 
   @Get()
+  @ApiModel('Employer', { array: true })
   @RequirePermissions(PERMISSIONS.EMPLOYERS_READ)
   list(@Query() query: Record<string, string>) {
     return this.employers.list({
@@ -41,12 +44,14 @@ export class EmployersController {
   }
 
   @Get(':id')
+  @ApiModel('Employer')
   @RequirePermissions(PERMISSIONS.EMPLOYERS_READ)
   get(@Param('id') id: string) {
     return this.employers.get(id);
   }
 
   @Patch(':id')
+  @ApiModel('Employer')
   @ApiZodBody(updateEmployerSchema)
   @RequirePermissions(PERMISSIONS.EMPLOYERS_WRITE)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -54,6 +59,7 @@ export class EmployersController {
   }
 
   @Post(':id/transition')
+  @ApiModel('Employer')
   @ApiZodBody(transitionEmployerSchema)
   @RequirePermissions(PERMISSIONS.EMPLOYERS_WRITE)
   @HttpCode(200)
@@ -68,6 +74,7 @@ export class EmployersController {
   // ---- employment links ----
 
   @Post('employment')
+  @ApiModel('Employment', { created: true })
   @ApiZodBody(linkEmploymentSchema)
   @RequirePermissions(PERMISSIONS.EMPLOYERS_WRITE)
   @HttpCode(201)
@@ -76,6 +83,7 @@ export class EmployersController {
   }
 
   @Get('employment/list')
+  @ApiModel('Employment', { array: true })
   @RequirePermissions(PERMISSIONS.EMPLOYERS_READ)
   listEmployment(@Query() query: Record<string, string>) {
     return this.employment.list({
@@ -88,12 +96,14 @@ export class EmployersController {
   }
 
   @Get('employment/:id')
+  @ApiModel('Employment')
   @RequirePermissions(PERMISSIONS.EMPLOYERS_READ)
   getEmployment(@Param('id') id: string) {
     return this.employment.get(id);
   }
 
   @Post('employment/:id/transition')
+  @ApiModel('Employment')
   @ApiZodBody(transitionEmploymentSchema)
   @RequirePermissions(PERMISSIONS.EMPLOYERS_WRITE)
   @HttpCode(200)
@@ -106,6 +116,7 @@ export class EmployersController {
   }
 
   @Post('employment/:id/consent')
+  @ApiModel('Employment')
   @ApiZodBody(recordPayrollConsentSchema)
   @RequirePermissions(PERMISSIONS.EMPLOYERS_WRITE)
   @HttpCode(200)
@@ -114,6 +125,7 @@ export class EmployersController {
   }
 
   @Post('employment/:id/verify')
+  @ApiModel('Employment')
   @RequirePermissions(PERMISSIONS.EMPLOYERS_WRITE)
   @HttpCode(200)
   verifyEmployment(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
