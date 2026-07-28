@@ -12,6 +12,7 @@ import {
   setBlocklistSchema,
 } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
+import { ApiModel } from '../common/api-model';
 
 @ApiTags('customers')
 @ApiBearerAuth()
@@ -20,6 +21,7 @@ export class CustomersController {
   constructor(private readonly customers: CustomersService) {}
 
   @Post()
+  @ApiModel('Customer', { created: true })
   @ApiZodBody(registerCustomerSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(201)
@@ -28,6 +30,7 @@ export class CustomersController {
   }
 
   @Get()
+  @ApiModel('Customer', { array: true })
   @RequirePermissions(PERMISSIONS.CUSTOMERS_READ)
   list(@Query() query: Record<string, string>) {
     return this.customers.list({
@@ -40,12 +43,14 @@ export class CustomersController {
   }
 
   @Get(':id')
+  @ApiModel('Customer')
   @RequirePermissions(PERMISSIONS.CUSTOMERS_READ)
   get(@Param('id') id: string) {
     return this.customers.get(id);
   }
 
   @Patch(':id')
+  @ApiModel('Customer')
   @ApiZodBody(updateCustomerSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -53,6 +58,7 @@ export class CustomersController {
   }
 
   @Post(':id/ghana-card')
+  @ApiModel('Customer')
   @ApiZodBody(attachGhanaCardSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(200)
@@ -65,6 +71,7 @@ export class CustomersController {
   }
 
   @Post(':id/ghana-card/verify')
+  @ApiModel('Customer')
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(200)
   verifyGhanaCard(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
@@ -72,6 +79,7 @@ export class CustomersController {
   }
 
   @Post(':id/momo')
+  @ApiModel('Customer')
   @ApiZodBody(setMomoSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(200)
@@ -80,6 +88,7 @@ export class CustomersController {
   }
 
   @Post(':id/consent')
+  @ApiModel('Customer')
   @ApiZodBody(recordConsentSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(200)
@@ -92,6 +101,7 @@ export class CustomersController {
   }
 
   @Post(':id/blocklist')
+  @ApiModel('Customer')
   @ApiZodBody(setBlocklistSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(200)
@@ -104,6 +114,7 @@ export class CustomersController {
   }
 
   @Delete(':id/blocklist')
+  @ApiModel('Customer')
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(200)
   unblock(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {

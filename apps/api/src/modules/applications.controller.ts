@@ -5,6 +5,7 @@ import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth
 import { actorOf } from '../auth/current-actor';
 import { submitApplicationSchema, recordDecisionSchema } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
+import { ApiModel } from '../common/api-model';
 
 @ApiTags('applications')
 @ApiBearerAuth()
@@ -13,6 +14,7 @@ export class ApplicationsController {
   constructor(private readonly applications: ApplicationsService) {}
 
   @Post()
+  @ApiModel('Application', { created: true })
   @ApiZodBody(submitApplicationSchema)
   @RequirePermissions(PERMISSIONS.APPLICATIONS_REVIEW)
   @HttpCode(201)
@@ -22,18 +24,21 @@ export class ApplicationsController {
   }
 
   @Get()
+  @ApiModel('Application', { array: true })
   @RequirePermissions(PERMISSIONS.APPLICATIONS_REVIEW)
   list(@Query() query: Record<string, string>) {
     return this.applications.list(query);
   }
 
   @Get(':id')
+  @ApiModel('Application')
   @RequirePermissions(PERMISSIONS.APPLICATIONS_REVIEW)
   get(@Param('id') id: string) {
     return this.applications.get(id);
   }
 
   @Post(':id/decision')
+  @ApiModel('Application')
   @ApiZodBody(recordDecisionSchema)
   @RequirePermissions(PERMISSIONS.APPLICATIONS_REVIEW)
   @HttpCode(200)

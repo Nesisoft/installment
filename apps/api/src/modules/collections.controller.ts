@@ -5,6 +5,7 @@ import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth
 import { actorOf, numOrUndefined } from '../auth/current-actor';
 import { assignCaseSchema, recordActionSchema, closeCaseSchema } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
+import { ApiModel } from '../common/api-model';
 
 @ApiTags('collections')
 @ApiBearerAuth()
@@ -13,6 +14,7 @@ export class CollectionsController {
   constructor(private readonly collections: CollectionsService) {}
 
   @Get('cases')
+  @ApiModel('CollectionsCase', { array: true })
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @ApiOperation({ summary: 'List collections cases (open by default)' })
   list(@Query() query: Record<string, string>) {
@@ -26,6 +28,7 @@ export class CollectionsController {
   }
 
   @Get('cases/:id')
+  @ApiModel('CollectionsCase')
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @ApiOperation({ summary: 'Case detail with actions, plan, schedule and customer' })
   get(@Param('id') id: string) {
@@ -33,6 +36,7 @@ export class CollectionsController {
   }
 
   @Post('cases/:id/assign')
+  @ApiModel('CollectionsCase')
   @ApiZodBody(assignCaseSchema)
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(200)
@@ -42,6 +46,7 @@ export class CollectionsController {
   }
 
   @Post('cases/:id/actions')
+  @ApiModel('CollectionsAction', { created: true })
   @ApiZodBody(recordActionSchema)
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(201)
@@ -55,6 +60,7 @@ export class CollectionsController {
   }
 
   @Post('cases/:id/close')
+  @ApiModel('CollectionsCase')
   @ApiZodBody(closeCaseSchema)
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(200)
