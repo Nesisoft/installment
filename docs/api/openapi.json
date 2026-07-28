@@ -4499,6 +4499,1449 @@
         "type": "http"
       }
     },
-    "schemas": {}
+    "schemas": {
+      "Merchant": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "business_name": {
+            "type": "string"
+          },
+          "legal_name": {
+            "type": "string"
+          },
+          "tin": {
+            "type": "string",
+            "nullable": true
+          },
+          "registration_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "paystack_recipient_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "bank_account_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "bank_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "bank_account_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "default_business_model": {
+            "type": "string"
+          },
+          "default_mdr_bps": {
+            "type": "integer"
+          },
+          "default_reserve_bps": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "onboarded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "suspended_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "suspension_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "business_name",
+          "legal_name",
+          "email",
+          "phone",
+          "default_business_model",
+          "default_mdr_bps",
+          "default_reserve_bps",
+          "status",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "Customer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "date_of_birth": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "ghana_card_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "ghana_card_verified": {
+            "type": "boolean"
+          },
+          "ghana_card_verified_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "ghana_card_image_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "momo_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "momo_provider": {
+            "type": "string",
+            "nullable": true
+          },
+          "kyc_tier": {
+            "type": "integer"
+          },
+          "is_on_blocklist": {
+            "type": "boolean"
+          },
+          "blocklist_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "data_processing_consent_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "credit_scoring_consent_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "marketing_consent_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "phone_first_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_login_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "first_name",
+          "last_name",
+          "email",
+          "phone",
+          "ghana_card_verified",
+          "kyc_tier",
+          "is_on_blocklist",
+          "phone_first_seen_at",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "Employer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sector": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "payroll_cycle": {
+            "type": "string"
+          },
+          "partnership_start_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "contact_email": {
+            "type": "string",
+            "nullable": true
+          },
+          "contact_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "payroll_cycle",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "Employment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customer_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "employer_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "employee_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "salary_band": {
+            "type": "string"
+          },
+          "employment_start_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "payroll_deduction_consent": {
+            "type": "boolean"
+          },
+          "consent_signed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "verified_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "customer_id",
+          "employer_id",
+          "salary_band",
+          "payroll_deduction_consent",
+          "status",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "PlanTemplate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "business_model": {
+            "type": "string"
+          },
+          "number_of_installments": {
+            "type": "integer"
+          },
+          "installment_frequency_days": {
+            "type": "integer"
+          },
+          "down_payment_bps": {
+            "type": "integer"
+          },
+          "interest_rate_bps": {
+            "type": "integer"
+          },
+          "service_fee_flat_pesewas": {
+            "type": "integer"
+          },
+          "late_fee_pesewas": {
+            "type": "integer"
+          },
+          "grace_period_days": {
+            "type": "integer"
+          },
+          "min_amount_pesewas": {
+            "type": "integer"
+          },
+          "max_amount_pesewas": {
+            "type": "integer"
+          },
+          "eligible_categories": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          "excluded_categories": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "effective_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effective_to": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "business_model",
+          "number_of_installments",
+          "installment_frequency_days",
+          "down_payment_bps",
+          "interest_rate_bps",
+          "service_fee_flat_pesewas",
+          "late_fee_pesewas",
+          "grace_period_days",
+          "min_amount_pesewas",
+          "max_amount_pesewas",
+          "eligible_categories",
+          "excluded_categories",
+          "is_active",
+          "effective_from",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "Application": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customer_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_template_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "order_reference": {
+            "type": "string"
+          },
+          "order_amount_pesewas": {
+            "type": "integer"
+          },
+          "merchant_category": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "decision_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "declined_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "counter_down_payment_pesewas": {
+            "type": "integer",
+            "nullable": true
+          },
+          "counter_financed_pesewas": {
+            "type": "integer",
+            "nullable": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "customer_id",
+          "merchant_id",
+          "plan_template_id",
+          "order_reference",
+          "order_amount_pesewas",
+          "merchant_category",
+          "status",
+          "expires_at",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "CustomerPlan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customer_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_template_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "application_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "business_model": {
+            "type": "string"
+          },
+          "number_of_installments": {
+            "type": "integer"
+          },
+          "installment_frequency_days": {
+            "type": "integer"
+          },
+          "grace_period_days": {
+            "type": "integer"
+          },
+          "mdr_bps": {
+            "type": "integer"
+          },
+          "reserve_bps": {
+            "type": "integer"
+          },
+          "order_amount_pesewas": {
+            "type": "integer"
+          },
+          "down_payment_pesewas": {
+            "type": "integer"
+          },
+          "financed_amount_pesewas": {
+            "type": "integer"
+          },
+          "total_interest_pesewas": {
+            "type": "integer"
+          },
+          "total_fees_pesewas": {
+            "type": "integer"
+          },
+          "total_payable_pesewas": {
+            "type": "integer"
+          },
+          "outstanding_pesewas": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "activated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "defaulted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "restructured_from_plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "product_delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "version": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "customer_id",
+          "merchant_id",
+          "plan_template_id",
+          "application_id",
+          "business_model",
+          "number_of_installments",
+          "installment_frequency_days",
+          "grace_period_days",
+          "mdr_bps",
+          "reserve_bps",
+          "order_amount_pesewas",
+          "down_payment_pesewas",
+          "financed_amount_pesewas",
+          "total_interest_pesewas",
+          "total_fees_pesewas",
+          "total_payable_pesewas",
+          "outstanding_pesewas",
+          "status",
+          "approved_at",
+          "metadata",
+          "version",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "InstallmentSchedule": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customer_plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sequence_number": {
+            "type": "integer"
+          },
+          "amount_due_pesewas": {
+            "type": "integer"
+          },
+          "amount_paid_pesewas": {
+            "type": "integer"
+          },
+          "late_fee_pesewas": {
+            "type": "integer"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "grace_until_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_changed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attempt_count": {
+            "type": "integer"
+          },
+          "last_attempt_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_failure_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "next_retry_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "paid_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "provider_reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "customer_plan_id",
+          "sequence_number",
+          "amount_due_pesewas",
+          "amount_paid_pesewas",
+          "late_fee_pesewas",
+          "due_date",
+          "grace_until_date",
+          "status",
+          "status_changed_at",
+          "attempt_count",
+          "version",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "Payout": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount_pesewas": {
+            "type": "integer"
+          },
+          "as_of_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "paystack_transfer_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "paystack_transfer_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "initiated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "failed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "merchant_id",
+          "amount_pesewas",
+          "as_of_date",
+          "reference",
+          "status",
+          "initiated_at"
+        ]
+      },
+      "HeldReserve": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customer_plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "business_model": {
+            "type": "string"
+          },
+          "amount_pesewas": {
+            "type": "integer"
+          },
+          "released_amount_pesewas": {
+            "type": "integer"
+          },
+          "held_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plan_completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_release_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "fully_released_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "consumed_for_default_pesewas": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "merchant_id",
+          "customer_plan_id",
+          "business_model",
+          "amount_pesewas",
+          "released_amount_pesewas",
+          "held_at",
+          "consumed_for_default_pesewas",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "CollectionsCase": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customer_plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schedule_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "current_stage": {
+            "type": "string"
+          },
+          "stage_entered_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "assigned_agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolution": {
+            "type": "string",
+            "nullable": true
+          },
+          "amount_recovered_pesewas": {
+            "type": "integer"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "customer_plan_id",
+          "current_stage",
+          "stage_entered_at",
+          "opened_at",
+          "amount_recovered_pesewas",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "CollectionsAction": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "case_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action_type": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string",
+            "nullable": true
+          },
+          "outcome": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "performed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "performed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "action_type",
+          "performed_at",
+          "metadata"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "user_type": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "last_login_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "user_type",
+          "is_active",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "Store": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "about": {
+            "type": "string",
+            "nullable": true
+          },
+          "logo_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "banner_key": {
+            "type": "string",
+            "nullable": true
+          },
+          "support_email": {
+            "type": "string",
+            "nullable": true
+          },
+          "support_phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "policies": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "merchant_id",
+          "slug",
+          "display_name",
+          "status",
+          "policies",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "Category": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parent_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "position",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "Product": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "store_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "merchant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "category_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "base_price_pesewas": {
+            "type": "integer"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "store_id",
+          "merchant_id",
+          "title",
+          "status",
+          "base_price_pesewas",
+          "currency",
+          "attributes",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "ProductVariant": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "product_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "option_values": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "price_pesewas": {
+            "type": "integer",
+            "nullable": true
+          },
+          "barcode": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "product_id",
+          "sku",
+          "option_values",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "ProductImage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "product_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "storage_key": {
+            "type": "string"
+          },
+          "alt_text": {
+            "type": "string",
+            "nullable": true
+          },
+          "position": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "product_id",
+          "storage_key",
+          "position",
+          "created_at"
+        ]
+      },
+      "Inventory": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "variant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity_available": {
+            "type": "integer"
+          },
+          "quantity_reserved": {
+            "type": "integer"
+          },
+          "restock_threshold": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "variant_id",
+          "quantity_available",
+          "quantity_reserved",
+          "restock_threshold",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "ProductPlanOffer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "product_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_template_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "product_id",
+          "plan_template_id",
+          "is_active",
+          "created_at"
+        ]
+      },
+      "ProductDetails": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Product"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "variants": {
+                "type": "array",
+                "items": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProductVariant"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "inventory": {
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/Inventory"
+                            }
+                          ],
+                          "nullable": true
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "images": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ProductImage"
+                }
+              },
+              "plan_template_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
   }
 }
