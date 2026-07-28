@@ -1,5 +1,8 @@
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule, type OpenAPIObject } from '@nestjs/swagger';
+import type { SchemaObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface';
+import { schema } from '@installment/db';
+import { drizzleSchema } from './common/drizzle-openapi';
 
 /**
  * The OpenAPI document definition, shared by the running server (mounted at
@@ -35,7 +38,80 @@ export function openApiConfig() {
     .build();
 }
 
+/**
+ * Reusable component schemas for the domain read models, derived from the
+ * Drizzle tables so they never drift from the database. Injected into the
+ * document post-build (see below) so they publish even before every endpoint
+ * references them; response wiring (`@ApiOkResponse`) then points here.
+ */
+function domainComponentSchemas(): Record<string, SchemaObject> {
+  const s = schema;
+  const models: Record<string, SchemaObject> = {
+    // Engine
+    Merchant: drizzleSchema(s.merchants),
+    Customer: drizzleSchema(s.customers),
+    Employer: drizzleSchema(s.employers),
+    Employment: drizzleSchema(s.customer_employment),
+    PlanTemplate: drizzleSchema(s.plan_templates),
+    Application: drizzleSchema(s.applications),
+    CustomerPlan: drizzleSchema(s.customer_plans),
+    InstallmentSchedule: drizzleSchema(s.installment_schedule),
+    Payout: drizzleSchema(s.payouts),
+    HeldReserve: drizzleSchema(s.held_reserves),
+    CollectionsCase: drizzleSchema(s.collections_cases),
+    CollectionsAction: drizzleSchema(s.collections_actions),
+    User: drizzleSchema(s.users, { omit: ['password_hash'] }),
+    // Commerce
+    Store: drizzleSchema(s.stores),
+    Category: drizzleSchema(s.categories),
+    Product: drizzleSchema(s.products, { omit: ['search_tsv'] }),
+    ProductVariant: drizzleSchema(s.product_variants),
+    ProductImage: drizzleSchema(s.product_images),
+    Inventory: drizzleSchema(s.inventory),
+    ProductPlanOffer: drizzleSchema(s.product_plan_offers),
+  };
+
+  // Composed view returned by ProductsService.getWithDetails.
+  models.ProductDetails = {
+    allOf: [
+      { $ref: '#/components/schemas/Product' },
+      {
+        type: 'object',
+        properties: {
+          variants: {
+            type: 'array',
+            items: {
+              allOf: [
+                { $ref: '#/components/schemas/ProductVariant' },
+                {
+                  type: 'object',
+                  properties: {
+                    inventory: {
+                      allOf: [{ $ref: '#/components/schemas/Inventory' }],
+                      nullable: true,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          images: { type: 'array', items: { $ref: '#/components/schemas/ProductImage' } },
+          plan_template_ids: { type: 'array', items: { type: 'string', format: 'uuid' } },
+        },
+      },
+    ],
+  } as SchemaObject;
+
+  return models;
+}
+
 /** Builds the OpenAPI document from the live Nest application's metadata. */
 export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
-  return SwaggerModule.createDocument(app, openApiConfig());
+  const document = SwaggerModule.createDocument(app, openApiConfig());
+  document.components ??= {};
+  document.components.schemas = {
+    ...(document.components.schemas ?? {}),
+    ...domainComponentSchemas(),
+  };
+  return document;
 }
