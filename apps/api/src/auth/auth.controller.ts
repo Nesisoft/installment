@@ -2,6 +2,8 @@ import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthService } from '@installment/core';
 import { CurrentUser, Public, type AuthenticatedUser } from './decorators';
+import { loginSchema, otpStartSchema, otpVerifySchema, refreshSchema } from '@installment/core';
+import { ApiZodBody } from '../common/api-zod';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -10,6 +12,7 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @ApiZodBody(loginSchema)
   @HttpCode(200)
   @ApiOperation({ summary: 'Email + password login (staff / merchant)' })
   @ApiBody({ schema: { example: { email: 'admin@installment.local', password: 'secret123' } } })
@@ -19,6 +22,7 @@ export class AuthController {
 
   @Public()
   @Post('customer/otp/start')
+  @ApiZodBody(otpStartSchema)
   @HttpCode(202)
   @ApiOperation({ summary: 'Begin customer phone-OTP login (sends a code)' })
   @ApiBody({ schema: { example: { phone: '0244123456' } } })
@@ -28,6 +32,7 @@ export class AuthController {
 
   @Public()
   @Post('customer/otp/verify')
+  @ApiZodBody(otpVerifySchema)
   @HttpCode(200)
   @ApiOperation({ summary: 'Complete customer OTP login, returns tokens' })
   @ApiBody({ schema: { example: { phone: '0244123456', code: '123456' } } })
@@ -37,6 +42,7 @@ export class AuthController {
 
   @Public()
   @Post('refresh')
+  @ApiZodBody(refreshSchema)
   @HttpCode(200)
   @ApiOperation({ summary: 'Rotate access + refresh tokens' })
   @ApiBody({ schema: { example: { refreshToken: 'eyJhbGciOi...' } } })

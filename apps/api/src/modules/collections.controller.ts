@@ -3,6 +3,8 @@ import { CollectionsService, PERMISSIONS } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf, numOrUndefined } from '../auth/current-actor';
+import { assignCaseSchema, recordActionSchema, closeCaseSchema } from '@installment/core';
+import { ApiZodBody } from '../common/api-zod';
 
 @ApiTags('collections')
 @ApiBearerAuth()
@@ -31,6 +33,7 @@ export class CollectionsController {
   }
 
   @Post('cases/:id/assign')
+  @ApiZodBody(assignCaseSchema)
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(200)
   @ApiOperation({ summary: 'Assign (or reassign) a case to an agent' })
@@ -39,6 +42,7 @@ export class CollectionsController {
   }
 
   @Post('cases/:id/actions')
+  @ApiZodBody(recordActionSchema)
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(201)
   @ApiOperation({ summary: 'Record a manual agent action on a case' })
@@ -51,6 +55,7 @@ export class CollectionsController {
   }
 
   @Post('cases/:id/close')
+  @ApiZodBody(closeCaseSchema)
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(200)
   @ApiOperation({ summary: 'Close a case with a manual resolution' })

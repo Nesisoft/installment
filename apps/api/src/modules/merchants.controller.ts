@@ -21,6 +21,13 @@ import {
 } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
+import {
+  createMerchantSchema,
+  updateMerchantSchema,
+  transitionMerchantSchema,
+  attachPaystackRecipientSchema,
+} from '@installment/core';
+import { ApiZodBody } from '../common/api-zod';
 
 function toActorType(userType: string): AuditActorType {
   switch (userType) {
@@ -52,6 +59,7 @@ export class MerchantsController {
   }
 
   @Post()
+  @ApiZodBody(createMerchantSchema)
   @RequirePermissions(PERMISSIONS.MERCHANTS_WRITE)
   @HttpCode(201)
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -75,12 +83,14 @@ export class MerchantsController {
   }
 
   @Patch(':id')
+  @ApiZodBody(updateMerchantSchema)
   @RequirePermissions(PERMISSIONS.MERCHANTS_WRITE)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.merchants.update(id, body, this.actor(user));
   }
 
   @Post(':id/transition')
+  @ApiZodBody(transitionMerchantSchema)
   @RequirePermissions(PERMISSIONS.MERCHANTS_WRITE)
   @HttpCode(200)
   transition(
@@ -92,6 +102,7 @@ export class MerchantsController {
   }
 
   @Post(':id/paystack-recipient')
+  @ApiZodBody(attachPaystackRecipientSchema)
   @RequirePermissions(PERMISSIONS.MERCHANTS_WRITE)
   @HttpCode(200)
   attachPaystackRecipient(
