@@ -2,6 +2,7 @@ import { Controller, Get, NotFoundException, Param, Query } from '@nestjs/common
 import { CategoriesService, ProductsService, StoresService } from '@installment/commerce';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../auth/decorators';
+import { ApiModel } from '../common/api-model';
 
 const numOrUndefined = (v: unknown): number | undefined =>
   v === undefined || v === '' ? undefined : Number(v);
@@ -22,12 +23,14 @@ export class StorefrontController {
 
   @Public()
   @Get('stores/:slug')
+  @ApiModel('Store')
   store(@Param('slug') slug: string) {
     return this.stores.getActiveBySlug(slug);
   }
 
   @Public()
   @Get('search')
+  @ApiModel('Product', { array: true })
   search(@Query() query: Record<string, string>) {
     return this.products.search({
       q: query.q,
@@ -38,6 +41,7 @@ export class StorefrontController {
 
   @Public()
   @Get('products/:id')
+  @ApiModel('ProductDetails')
   async product(@Param('id') id: string) {
     const product = await this.products.getWithDetails(id);
     if (product.status !== 'active') {
@@ -48,6 +52,7 @@ export class StorefrontController {
 
   @Public()
   @Get('categories')
+  @ApiModel('Category', { array: true })
   categoryList(@Query() query: Record<string, string>) {
     return this.categories.list({
       parent_id: query.parent_id,

@@ -11,6 +11,7 @@ import { type AuditActorType } from '@installment/core';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { ApiZodBody } from '../common/api-zod';
+import { ApiModel } from '../common/api-model';
 
 function toActorType(userType: string): AuditActorType {
   switch (userType) {
@@ -39,6 +40,7 @@ export class StoresController {
   }
 
   @Post()
+  @ApiModel('Store', { created: true })
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @ApiZodBody(createStoreSchema)
   @HttpCode(201)
@@ -47,6 +49,7 @@ export class StoresController {
   }
 
   @Get()
+  @ApiModel('Store', { array: true })
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_READ)
   list(@Query() query: Record<string, string>) {
     return this.stores.list({
@@ -57,12 +60,14 @@ export class StoresController {
   }
 
   @Get(':id')
+  @ApiModel('Store')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_READ)
   get(@Param('id') id: string) {
     return this.stores.get(id);
   }
 
   @Patch(':id')
+  @ApiModel('Store')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @ApiZodBody(updateStoreSchema)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -70,6 +75,7 @@ export class StoresController {
   }
 
   @Post(':id/transition')
+  @ApiModel('Store')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @ApiZodBody(transitionStoreSchema)
   @HttpCode(200)
