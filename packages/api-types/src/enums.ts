@@ -112,7 +112,13 @@ export type LedgerAccountType =
 
 export type TelcoHealthStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
 
-// RBAC permissions (packages/core/src/shared/auth/permissions.ts).
+// --- Commerce (catalog) -----------------------------------------------------
+export type StoreStatus = 'draft' | 'active' | 'suspended';
+export type StoreTransitionEvent = 'activate' | 'suspend' | 'unsuspend';
+export type ProductStatus = 'draft' | 'active' | 'archived';
+
+// RBAC permissions (packages/core/src/shared/auth/permissions.ts +
+// packages/commerce/src/permissions.ts).
 export const PERMISSIONS = [
   'merchants:read',
   'merchants:write',
@@ -126,6 +132,9 @@ export const PERMISSIONS = [
   'plans:write',
   'users:write',
   'audit:read',
+  'catalog:read',
+  'catalog:write',
+  'categories:write',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
