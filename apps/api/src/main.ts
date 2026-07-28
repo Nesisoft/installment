@@ -2,34 +2,13 @@ import 'reflect-metadata';
 import type { INestApplication } from '@nestjs/common';
 import * as Sentry from '@sentry/node';
 import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { buildOpenApiDocument } from './openapi';
 
 function setupOpenApi(app: INestApplication): void {
-  const config = new DocumentBuilder()
-    .setTitle('Installment Payment Engine API')
-    .setDescription(
-      'Reusable installment payment engine for the Ghanaian / West African market. ' +
-        'Request bodies are validated with Zod inside the domain services. ' +
-        'Most endpoints require a Bearer access token from POST /auth/login or the ' +
-        'customer OTP flow; admin endpoints additionally require RBAC permissions.',
-    )
-    .setVersion('0.1.0')
-    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
-    .addTag('auth', 'Login, customer OTP, token refresh')
-    .addTag('health', 'Liveness / readiness')
-    .addTag('merchants', 'Merchant lifecycle + settlement setup')
-    .addTag('customers', 'Customer registration, KYC, consent')
-    .addTag('employers', 'Employer partnerships + customer employment')
-    .addTag('plan-templates', 'Installment plan template catalogue')
-    .addTag('users', 'Staff / merchant / customer user administration')
-    .addTag('scoring', 'Credit scoring: decisions, dry-runs, rule breakdown')
-    .addTag('plans', 'Customer plan activation + installment schedules')
-    .addTag('me', 'Customer self-service: own plans + schedules + card payments')
-    .addTag('webhooks', 'Provider webhooks (Paystack)')
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
+  const document = buildOpenApiDocument(app);
   SwaggerModule.setup('docs', app, document, {
     jsonDocumentUrl: 'docs-json',
     swaggerOptions: { persistAuthorization: true },

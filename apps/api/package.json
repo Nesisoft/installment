@@ -9,7 +9,8 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "openapi:emit": "node dist/tools/emit-openapi.js"
   },
   "dependencies": {
     "@installment/commerce": "workspace:*",

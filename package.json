@@ -27,6 +27,7 @@
     "db:introspect": "pnpm --filter @installment/db introspect",
     "db:up": "docker compose --env-file .env -f infra/docker/docker-compose.yml up -d",
     "db:down": "docker compose --env-file .env -f infra/docker/docker-compose.yml down",
+    "openapi:emit": "pnpm build && pnpm --filter @installment/api openapi:emit",
     "prepare": "husky"
   },
   "devDependencies": {
