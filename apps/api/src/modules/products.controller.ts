@@ -3,11 +3,19 @@ import {
   CATALOG_PERMISSIONS,
   InventoryService,
   ProductsService,
+  addImageSchema,
+  addVariantSchema,
+  adjustStockSchema,
+  createProductSchema,
+  setPlanOffersSchema,
+  setStockSchema,
+  updateProductSchema,
   type ProductActor,
 } from '@installment/commerce';
 import { type AuditActorType } from '@installment/core';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
+import { ApiZodBody } from '../common/api-zod';
 
 function toActorType(userType: string): AuditActorType {
   switch (userType) {
@@ -40,6 +48,7 @@ export class ProductsController {
 
   @Post()
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
+  @ApiZodBody(createProductSchema)
   @HttpCode(201)
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.products.create(body, this.actor(user));
@@ -66,6 +75,7 @@ export class ProductsController {
 
   @Put('variants/:variantId/inventory')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
+  @ApiZodBody(setStockSchema)
   @HttpCode(200)
   setStock(@Param('variantId') variantId: string, @Body() body: unknown) {
     return this.inventory.setStock(variantId, body);
@@ -73,6 +83,7 @@ export class ProductsController {
 
   @Post('variants/:variantId/inventory/adjust')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
+  @ApiZodBody(adjustStockSchema)
   @HttpCode(200)
   adjustStock(@Param('variantId') variantId: string, @Body() body: unknown) {
     return this.inventory.adjust(variantId, body);
@@ -86,12 +97,14 @@ export class ProductsController {
 
   @Patch(':id')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
+  @ApiZodBody(updateProductSchema)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.products.update(id, body, this.actor(user));
   }
 
   @Post(':id/variants')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
+  @ApiZodBody(addVariantSchema)
   @HttpCode(201)
   addVariant(
     @Param('id') id: string,
@@ -103,6 +116,7 @@ export class ProductsController {
 
   @Post(':id/images')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
+  @ApiZodBody(addImageSchema)
   @HttpCode(201)
   addImage(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.products.addImage(id, body, this.actor(user));
@@ -110,6 +124,7 @@ export class ProductsController {
 
   @Put(':id/plan-offers')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
+  @ApiZodBody(setPlanOffersSchema)
   @HttpCode(200)
   setPlanOffers(
     @Param('id') id: string,
