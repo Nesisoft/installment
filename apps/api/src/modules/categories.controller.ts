@@ -1,8 +1,15 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
-import { CATALOG_PERMISSIONS, CategoriesService, type CategoryActor } from '@installment/commerce';
+import {
+  CATALOG_PERMISSIONS,
+  CategoriesService,
+  createCategorySchema,
+  updateCategorySchema,
+  type CategoryActor,
+} from '@installment/commerce';
 import { type AuditActorType } from '@installment/core';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
+import { ApiZodBody } from '../common/api-zod';
 
 function toActorType(userType: string): AuditActorType {
   switch (userType) {
@@ -32,6 +39,7 @@ export class CategoriesController {
 
   @Post()
   @RequirePermissions(CATALOG_PERMISSIONS.CATEGORIES_WRITE)
+  @ApiZodBody(createCategorySchema)
   @HttpCode(201)
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.categories.create(body, this.actor(user));
@@ -57,6 +65,7 @@ export class CategoriesController {
 
   @Patch(':id')
   @RequirePermissions(CATALOG_PERMISSIONS.CATEGORIES_WRITE)
+  @ApiZodBody(updateCategorySchema)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.categories.update(id, body, this.actor(user));
   }
