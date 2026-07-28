@@ -16,6 +16,7 @@ import { type AuditActorType } from '@installment/core';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { ApiZodBody } from '../common/api-zod';
+import { ApiModel } from '../common/api-model';
 
 function toActorType(userType: string): AuditActorType {
   switch (userType) {
@@ -47,6 +48,7 @@ export class ProductsController {
   }
 
   @Post()
+  @ApiModel('ProductDetails', { created: true })
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @ApiZodBody(createProductSchema)
   @HttpCode(201)
@@ -55,6 +57,7 @@ export class ProductsController {
   }
 
   @Get()
+  @ApiModel('Product', { array: true })
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_READ)
   list(@Query() query: Record<string, string>) {
     return this.products.list({
@@ -68,12 +71,14 @@ export class ProductsController {
   }
 
   @Get('variants/:variantId/inventory')
+  @ApiModel('Inventory')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_READ)
   getInventory(@Param('variantId') variantId: string) {
     return this.inventory.getByVariant(variantId);
   }
 
   @Put('variants/:variantId/inventory')
+  @ApiModel('Inventory')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @ApiZodBody(setStockSchema)
   @HttpCode(200)
@@ -82,6 +87,7 @@ export class ProductsController {
   }
 
   @Post('variants/:variantId/inventory/adjust')
+  @ApiModel('Inventory')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @ApiZodBody(adjustStockSchema)
   @HttpCode(200)
@@ -90,12 +96,14 @@ export class ProductsController {
   }
 
   @Get(':id')
+  @ApiModel('ProductDetails')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_READ)
   get(@Param('id') id: string) {
     return this.products.getWithDetails(id);
   }
 
   @Patch(':id')
+  @ApiModel('Product')
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @ApiZodBody(updateProductSchema)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -103,6 +111,7 @@ export class ProductsController {
   }
 
   @Post(':id/variants')
+  @ApiModel('ProductVariant', { created: true })
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @ApiZodBody(addVariantSchema)
   @HttpCode(201)
@@ -115,6 +124,7 @@ export class ProductsController {
   }
 
   @Post(':id/images')
+  @ApiModel('ProductImage', { created: true })
   @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
   @ApiZodBody(addImageSchema)
   @HttpCode(201)
