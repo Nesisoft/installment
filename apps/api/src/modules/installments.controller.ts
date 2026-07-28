@@ -3,6 +3,8 @@ import { CustomerPlansService, PERMISSIONS, renderReceiptHtml } from '@installme
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
+import { recordManualPaymentSchema } from '@installment/core';
+import { ApiZodBody } from '../common/api-zod';
 
 @ApiTags('plans')
 @ApiBearerAuth()
@@ -11,6 +13,7 @@ export class InstallmentsController {
   constructor(private readonly plans: CustomerPlansService) {}
 
   @Post(':scheduleId/record-payment')
+  @ApiZodBody(recordManualPaymentSchema)
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(200)
   @ApiOperation({

@@ -3,6 +3,12 @@ import { PERMISSIONS, UsersService, type User } from '@installment/core';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
+import {
+  createStaffSchema,
+  createMerchantUserSchema,
+  createCustomerUserSchema,
+} from '@installment/core';
+import { ApiZodBody } from '../common/api-zod';
 
 /** Never expose password_hash over the wire. */
 function sanitize(user: User): Omit<User, 'password_hash'> {
@@ -21,6 +27,7 @@ export class UsersController {
   constructor(private readonly users: UsersService) {}
 
   @Post('staff')
+  @ApiZodBody(createStaffSchema)
   @RequirePermissions(PERMISSIONS.USERS_WRITE)
   @HttpCode(201)
   async createStaff(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -28,6 +35,7 @@ export class UsersController {
   }
 
   @Post('merchant')
+  @ApiZodBody(createMerchantUserSchema)
   @RequirePermissions(PERMISSIONS.USERS_WRITE)
   @HttpCode(201)
   async createMerchant(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -35,6 +43,7 @@ export class UsersController {
   }
 
   @Post('customer')
+  @ApiZodBody(createCustomerUserSchema)
   @RequirePermissions(PERMISSIONS.USERS_WRITE)
   @HttpCode(201)
   async createCustomer(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {

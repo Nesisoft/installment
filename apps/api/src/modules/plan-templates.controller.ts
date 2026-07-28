@@ -3,6 +3,8 @@ import { PERMISSIONS, PlanTemplatesService } from '@installment/core';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf, numOrUndefined } from '../auth/current-actor';
+import { createPlanTemplateSchema, updatePlanTemplateSchema } from '@installment/core';
+import { ApiZodBody } from '../common/api-zod';
 
 @ApiTags('plan-templates')
 @ApiBearerAuth()
@@ -11,6 +13,7 @@ export class PlanTemplatesController {
   constructor(private readonly plans: PlanTemplatesService) {}
 
   @Post()
+  @ApiZodBody(createPlanTemplateSchema)
   @RequirePermissions(PERMISSIONS.PLANS_WRITE)
   @HttpCode(201)
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -36,6 +39,7 @@ export class PlanTemplatesController {
   }
 
   @Patch(':id')
+  @ApiZodBody(updatePlanTemplateSchema)
   @RequirePermissions(PERMISSIONS.PLANS_WRITE)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.plans.update(id, body, actorOf(user));

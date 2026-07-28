@@ -135,6 +135,78 @@
       "post": {
         "operationId": "MerchantsController_create",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "business_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "legal_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "phone": {
+                    "type": "string",
+                    "minLength": 7,
+                    "maxLength": 20
+                  },
+                  "tin": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "registration_number": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "default_business_model": {
+                    "type": "string",
+                    "enum": [
+                      "bnpl",
+                      "layaway",
+                      "hybrid",
+                      "rent_to_own"
+                    ],
+                    "default": "bnpl"
+                  },
+                  "default_mdr_bps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2000,
+                    "default": 400
+                  },
+                  "default_reserve_bps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5000,
+                    "default": 500
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "business_name",
+                  "legal_name",
+                  "email",
+                  "phone"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -206,6 +278,72 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "business_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "legal_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "phone": {
+                    "type": "string",
+                    "minLength": 7,
+                    "maxLength": 20
+                  },
+                  "tin": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "registration_number": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "default_business_model": {
+                    "type": "string",
+                    "enum": [
+                      "bnpl",
+                      "layaway",
+                      "hybrid",
+                      "rent_to_own"
+                    ],
+                    "default": "bnpl"
+                  },
+                  "default_mdr_bps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2000,
+                    "default": 400
+                  },
+                  "default_reserve_bps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5000,
+                    "default": 500
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -234,6 +372,36 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "event": {
+                    "type": "string",
+                    "enum": [
+                      "activate",
+                      "suspend",
+                      "reactivate",
+                      "offboard"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "event"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -262,6 +430,38 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "paystack_recipient_code": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "bank_account_number": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "bank_code": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "bank_account_name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "paystack_recipient_code"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -1515,6 +1715,65 @@
       "post": {
         "operationId": "CustomersController_register",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "first_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "last_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "phone": {
+                    "type": "string"
+                  },
+                  "date_of_birth": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "consents": {
+                    "type": "object",
+                    "properties": {
+                      "data_processing": {
+                        "type": "boolean"
+                      },
+                      "credit_scoring": {
+                        "type": "boolean"
+                      },
+                      "marketing": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "first_name",
+                  "last_name",
+                  "email",
+                  "phone"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -1586,6 +1845,44 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "first_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "last_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "phone": {
+                    "type": "string"
+                  },
+                  "date_of_birth": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -1614,6 +1911,30 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ghana_card_number": {
+                    "type": "string"
+                  },
+                  "ghana_card_image_key": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "ghana_card_number",
+                  "ghana_card_image_key"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -1670,6 +1991,34 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "momo_phone": {
+                    "type": "string"
+                  },
+                  "momo_provider": {
+                    "type": "string",
+                    "enum": [
+                      "mtn",
+                      "tgo",
+                      "vod"
+                    ]
+                  }
+                },
+                "required": [
+                  "momo_phone",
+                  "momo_provider"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -1698,6 +2047,30 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "data_processing",
+                      "credit_scoring",
+                      "marketing"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -1726,6 +2099,27 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -1771,6 +2165,62 @@
       "post": {
         "operationId": "EmployersController_create",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "sector": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "private",
+                      "ngo",
+                      "university"
+                    ]
+                  },
+                  "payroll_cycle": {
+                    "type": "string",
+                    "enum": [
+                      "weekly",
+                      "biweekly",
+                      "monthly"
+                    ],
+                    "default": "monthly"
+                  },
+                  "partnership_start_date": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "contact_email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "contact_phone": {
+                    "type": "string",
+                    "minLength": 7,
+                    "maxLength": 20
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -1842,6 +2292,59 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "sector": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "private",
+                      "ngo",
+                      "university"
+                    ]
+                  },
+                  "payroll_cycle": {
+                    "type": "string",
+                    "enum": [
+                      "weekly",
+                      "biweekly",
+                      "monthly"
+                    ],
+                    "default": "monthly"
+                  },
+                  "partnership_start_date": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "contact_email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "contact_phone": {
+                    "type": "string",
+                    "minLength": 7,
+                    "maxLength": 20
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -1870,6 +2373,36 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "event": {
+                    "type": "string",
+                    "enum": [
+                      "activate",
+                      "pause",
+                      "resume",
+                      "terminate"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "event"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -1889,6 +2422,54 @@
       "post": {
         "operationId": "EmployersController_link",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "customer_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "employer_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "employee_number": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  },
+                  "salary_band": {
+                    "type": "string",
+                    "enum": [
+                      "unknown",
+                      "low",
+                      "mid",
+                      "high"
+                    ],
+                    "default": "unknown"
+                  },
+                  "employment_start_date": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "payroll_deduction_consent": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "customer_id",
+                  "employer_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -1964,6 +2545,38 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "event": {
+                    "type": "string",
+                    "enum": [
+                      "leave_employer",
+                      "take_leave",
+                      "return_from_leave",
+                      "suspend",
+                      "reinstate",
+                      "rejoin"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "event"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -1992,6 +2605,23 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "granted": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -2039,6 +2669,132 @@
       "post": {
         "operationId": "PlanTemplatesController_create",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "business_model": {
+                    "type": "string",
+                    "enum": [
+                      "bnpl",
+                      "layaway",
+                      "hybrid",
+                      "rent_to_own"
+                    ]
+                  },
+                  "number_of_installments": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 24
+                  },
+                  "installment_frequency_days": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "enum": [
+                          7
+                        ]
+                      },
+                      {
+                        "type": "number",
+                        "enum": [
+                          14
+                        ]
+                      },
+                      {
+                        "type": "number",
+                        "enum": [
+                          30
+                        ]
+                      }
+                    ]
+                  },
+                  "down_payment_bps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000,
+                    "default": 0
+                  },
+                  "interest_rate_bps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000,
+                    "default": 0
+                  },
+                  "service_fee_flat_pesewas": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0
+                  },
+                  "late_fee_pesewas": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0
+                  },
+                  "grace_period_days": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 14,
+                    "default": 3
+                  },
+                  "min_amount_pesewas": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "max_amount_pesewas": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "eligible_categories": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "default": []
+                  },
+                  "excluded_categories": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "default": []
+                  },
+                  "effective_from": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "effective_to": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "name",
+                  "business_model",
+                  "number_of_installments",
+                  "installment_frequency_days",
+                  "min_amount_pesewas",
+                  "max_amount_pesewas"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -2110,6 +2866,78 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "nullable": true
+                  },
+                  "interest_rate_bps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "service_fee_flat_pesewas": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "late_fee_pesewas": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "grace_period_days": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 14
+                  },
+                  "min_amount_pesewas": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "max_amount_pesewas": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "eligible_categories": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "excluded_categories": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "effective_from": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "effective_to": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -2185,6 +3013,53 @@
       "post": {
         "operationId": "UsersController_createStaff",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 200
+                  },
+                  "user_type": {
+                    "type": "string",
+                    "enum": [
+                      "admin",
+                      "agent"
+                    ]
+                  },
+                  "roleNames": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "required": [
+                  "email",
+                  "name",
+                  "password",
+                  "user_type"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -2204,6 +3079,49 @@
       "post": {
         "operationId": "UsersController_createMerchant",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 200
+                  },
+                  "roleNames": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "email",
+                  "name",
+                  "password"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -2223,6 +3141,46 @@
       "post": {
         "operationId": "UsersController_createCustomer",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "roleNames": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "phone",
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -2372,6 +3330,45 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "outcome": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "approved_tier_2",
+                      "counter_offer",
+                      "manual_review",
+                      "declined"
+                    ]
+                  },
+                  "declined_reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "counter_down_payment_pesewas": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "counter_financed_pesewas": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "outcome"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -2623,6 +3620,58 @@
       "post": {
         "operationId": "ApplicationsController_submit",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "customer_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "merchant_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "plan_template_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "order_reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "order_amount_pesewas": {
+                    "type": "integer",
+                    "exclusiveMinimum": true,
+                    "minimum": 0
+                  },
+                  "merchant_category": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "expires_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "customer_id",
+                  "merchant_id",
+                  "plan_template_id",
+                  "order_reference",
+                  "order_amount_pesewas",
+                  "merchant_category"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -2717,6 +3766,29 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "provider_reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -2951,6 +4023,26 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "agent_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -2980,6 +4072,45 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action_type": {
+                    "type": "string",
+                    "enum": [
+                      "sms_sent",
+                      "email_sent",
+                      "call_made",
+                      "visit_scheduled",
+                      "visit_completed",
+                      "note_added"
+                    ]
+                  },
+                  "channel": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "action_type"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -3009,6 +4140,34 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "resolution": {
+                    "type": "string",
+                    "enum": [
+                      "paid",
+                      "waived",
+                      "restructured"
+                    ]
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "resolution"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""

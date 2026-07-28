@@ -3,6 +3,15 @@ import { CustomersService, PERMISSIONS } from '@installment/core';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf, numOrUndefined } from '../auth/current-actor';
+import {
+  registerCustomerSchema,
+  updateCustomerSchema,
+  attachGhanaCardSchema,
+  setMomoSchema,
+  recordConsentSchema,
+  setBlocklistSchema,
+} from '@installment/core';
+import { ApiZodBody } from '../common/api-zod';
 
 @ApiTags('customers')
 @ApiBearerAuth()
@@ -11,6 +20,7 @@ export class CustomersController {
   constructor(private readonly customers: CustomersService) {}
 
   @Post()
+  @ApiZodBody(registerCustomerSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(201)
   register(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -36,12 +46,14 @@ export class CustomersController {
   }
 
   @Patch(':id')
+  @ApiZodBody(updateCustomerSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.customers.update(id, body, actorOf(user));
   }
 
   @Post(':id/ghana-card')
+  @ApiZodBody(attachGhanaCardSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(200)
   attachGhanaCard(
@@ -60,6 +72,7 @@ export class CustomersController {
   }
 
   @Post(':id/momo')
+  @ApiZodBody(setMomoSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(200)
   setMomo(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
@@ -67,6 +80,7 @@ export class CustomersController {
   }
 
   @Post(':id/consent')
+  @ApiZodBody(recordConsentSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(200)
   recordConsent(
@@ -78,6 +92,7 @@ export class CustomersController {
   }
 
   @Post(':id/blocklist')
+  @ApiZodBody(setBlocklistSchema)
   @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
   @HttpCode(200)
   blocklist(
