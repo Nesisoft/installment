@@ -27,8 +27,10 @@ import type {
   PaymentMethod,
   PaymentProvider,
   RiskBand,
+  ProductStatus,
   RuleCategory,
   SalaryBand,
+  StoreStatus,
   TelcoHealthStatus,
 } from './enums';
 
@@ -491,4 +493,95 @@ export interface MerchantStatement {
     lineCount: number;
   };
   lines: MerchantStatementLine[];
+}
+
+// --- Commerce (catalog) -----------------------------------------------------
+// Rows returned by the @installment/commerce services (stores, categories,
+// products, variants, images, inventory, plan offers). Money is integer
+// pesewas; the internal products.search_tsv column is never surfaced.
+
+export interface Store {
+  id: string;
+  merchant_id: string;
+  slug: string;
+  display_name: string;
+  about: string | null;
+  logo_key: string | null;
+  banner_key: string | null;
+  support_email: string | null;
+  support_phone: string | null;
+  status: StoreStatus;
+  policies: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface Category {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  slug: string;
+  position: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Product {
+  id: string;
+  store_id: string;
+  merchant_id: string;
+  category_id: string | null;
+  title: string;
+  description: string | null;
+  status: ProductStatus;
+  base_price_pesewas: number;
+  currency: 'GHS';
+  attributes: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ProductVariant {
+  id: string;
+  product_id: string;
+  sku: string;
+  option_values: Record<string, unknown>;
+  /** null → use the product's base_price_pesewas. */
+  price_pesewas: number | null;
+  barcode: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ProductImage {
+  id: string;
+  product_id: string;
+  storage_key: string;
+  alt_text: string | null;
+  position: number;
+  created_at: string;
+}
+
+export interface Inventory {
+  id: string;
+  variant_id: string;
+  quantity_available: number;
+  quantity_reserved: number;
+  restock_threshold: number;
+  created_at: string;
+}
+
+export interface ProductPlanOffer {
+  id: string;
+  product_id: string;
+  plan_template_id: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+/** Composed view returned by GET /admin/products/:id and the storefront. */
+export interface ProductDetails extends Product {
+  variants: Array<ProductVariant & { inventory: Inventory | null }>;
+  images: ProductImage[];
+  plan_template_ids: string[];
 }
