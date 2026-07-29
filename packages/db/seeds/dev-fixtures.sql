@@ -50,3 +50,43 @@ INSERT INTO user_roles (user_id, role_id)
   FROM users u CROSS JOIN roles r
   WHERE u.id = 'aaaaaaaa-aaaa-aaaa-aaaa-000000000003' AND r.name = 'customer'
 ON CONFLICT DO NOTHING;
+
+-- ============================================================================
+-- Sample merchant + linked merchant-owner login for the /merchant portal (dev).
+-- Sign in to merchant-web with merchant@demo.local / password123. The portal is
+-- scoped via users.metadata.merchant_id (see MerchantScopeGuard).
+-- ============================================================================
+INSERT INTO merchants (id, business_name, legal_name, email, phone, status) VALUES
+  (
+    'bbbbbbbb-bbbb-bbbb-bbbb-000000000001',
+    'Demo Electronics',
+    'Demo Electronics Ltd',
+    'shop@demo.local',
+    '+233200000001',
+    'active'
+  )
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO users (id, email, name, user_type, is_active, password_hash, metadata) VALUES
+  (
+    'bbbbbbbb-bbbb-bbbb-bbbb-0000000000a1',
+    'merchant@demo.local',
+    'Demo Merchant',
+    'merchant',
+    TRUE,
+    '$2a$12$PHFQt1.YVXidunA0IRa9ZO/KlZbxrr3YgO8yfuplkX1hPaLkZ1WWy',
+    '{"merchant_id":"bbbbbbbb-bbbb-bbbb-bbbb-000000000001"}'::jsonb
+  )
+ON CONFLICT (id) DO NOTHING;
+
+-- Backfill password + merchant link for a merchant login from an earlier seed.
+UPDATE users SET
+    password_hash = '$2a$12$PHFQt1.YVXidunA0IRa9ZO/KlZbxrr3YgO8yfuplkX1hPaLkZ1WWy',
+    metadata = '{"merchant_id":"bbbbbbbb-bbbb-bbbb-bbbb-000000000001"}'::jsonb
+  WHERE id = 'bbbbbbbb-bbbb-bbbb-bbbb-0000000000a1' AND password_hash IS NULL;
+
+INSERT INTO user_roles (user_id, role_id)
+  SELECT u.id, r.id
+  FROM users u CROSS JOIN roles r
+  WHERE u.id = 'bbbbbbbb-bbbb-bbbb-bbbb-0000000000a1' AND r.name = 'merchant_owner'
+ON CONFLICT DO NOTHING;

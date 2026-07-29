@@ -4,7 +4,11 @@ import { ProtectedRoute } from './components/protected-route';
 import { AppShell } from './components/app-shell';
 import { LoginPage } from './pages/login';
 import { DashboardPage } from './pages/dashboard';
-import { PlaceholderPage } from './pages/placeholder';
+import { OrdersListPage } from './pages/orders/list';
+import { OrderDetailPage } from './pages/orders/detail';
+import { SettlementsPage } from './pages/settlements';
+import { StatementsPage } from './pages/statements';
+import { PlanTemplatesPage } from './pages/plan-templates';
 
 export function App() {
   const { isAuthenticated } = useAuth();
@@ -18,10 +22,11 @@ export function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/orders" element={<PlaceholderPage title="Orders" />} />
-          <Route path="/settlements" element={<PlaceholderPage title="Settlements" />} />
-          <Route path="/statements" element={<PlaceholderPage title="Statements" />} />
-          <Route path="/templates" element={<PlaceholderPage title="Plan templates" />} />
+          <Route path="/orders" element={<OrdersListPage />} />
+          <Route path="/orders/:id" element={<OrderDetailPage />} />
+          <Route path="/settlements" element={<SettlementsPage />} />
+          <Route path="/statements" element={<StatementsPage />} />
+          <Route path="/templates" element={<PlanTemplatesPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

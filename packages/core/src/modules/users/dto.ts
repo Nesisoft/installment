@@ -17,6 +17,8 @@ export const createMerchantUserSchema = z.object({
   email: z.string().email(),
   name: z.string().trim().min(1).max(120),
   password,
+  /** The merchant this login belongs to — scopes the merchant portal to it. */
+  merchant_id: z.string().uuid().optional(),
   roleNames,
   metadata: z.record(z.unknown()).optional(),
 });

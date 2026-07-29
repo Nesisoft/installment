@@ -10,6 +10,7 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
+import { useMerchantProfile } from '../lib/merchant-api';
 
 interface NavItem {
   to: string;
@@ -22,20 +23,28 @@ const NAV: NavItem[] = [
   { to: '/orders', label: 'Orders', icon: Store },
   { to: '/settlements', label: 'Settlements', icon: Wallet },
   { to: '/statements', label: 'Statements', icon: FileText },
-  { to: '/templates', label: 'Plan templates', icon: Receipt },
+  { to: '/templates', label: 'Templates', icon: Receipt },
 ];
 
+/**
+ * Responsive shell: a left sidebar on desktop (lg+) and a fixed bottom tab bar
+ * on phones. One layout renders well on both — the merchant runs their store
+ * from a phone or a counter PC.
+ */
 export function AppShell() {
   const { logout } = useAuth();
+  const profile = useMerchantProfile();
+  const name = profile.data?.business_name ?? 'Merchant';
 
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card md:flex">
+      {/* Desktop sidebar */}
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card lg:flex">
         <div className="flex h-14 items-center gap-2 border-b border-border px-5 font-semibold text-primary">
           <span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
             <Store className="size-4" />
           </span>
-          Merchant
+          <span className="truncate">{name}</span>
         </div>
         <nav className="flex-1 space-y-1 p-3">
           {NAV.map(({ to, label, icon: Icon }) => (
@@ -66,18 +75,45 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4 md:hidden">
-          <span className="font-semibold text-primary">Merchant</span>
+        {/* Mobile top bar */}
+        <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4 lg:hidden">
+          <div className="flex min-w-0 items-center gap-2 font-semibold text-primary">
+            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+              <Store className="size-4" />
+            </span>
+            <span className="truncate">{name}</span>
+          </div>
           <Button variant="ghost" size="sm" onClick={logout} aria-label="Sign out">
             <LogOut className="size-4" />
           </Button>
         </header>
-        <main className="flex-1 p-4 md:p-8">
+
+        <main className="flex-1 p-4 pb-24 md:p-8 lg:pb-8">
           <div className="mx-auto max-w-6xl">
             <Outlet />
           </div>
         </main>
       </div>
+
+      {/* Mobile bottom tab bar */}
+      <nav className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-5 border-t border-border bg-card lg:hidden">
+        {NAV.map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/'}
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-1 py-2 text-[11px] font-medium transition-colors',
+                isActive ? 'text-primary' : 'text-muted-foreground',
+              )
+            }
+          >
+            <Icon className="size-5" />
+            {label}
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }

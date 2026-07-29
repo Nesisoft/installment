@@ -768,6 +768,25 @@ export class CustomerPlansService {
       .orderBy(desc(cp.created_at));
   }
 
+  /** Plans (orders) for a merchant, newest first; optional status filter. */
+  async listByMerchant(
+    merchantId: string,
+    opts: { status?: string; limit?: number; offset?: number } = {},
+  ): Promise<CustomerPlan[]> {
+    const limit = Math.min(opts.limit ?? 50, 200);
+    const offset = Math.max(0, opts.offset ?? 0);
+    const filters = [eq(cp.merchant_id, merchantId)];
+    if (opts.status) filters.push(eq(cp.status, opts.status));
+    const where = filters.length === 1 ? filters[0] : and(...filters);
+    return this.db
+      .select()
+      .from(cp)
+      .where(where)
+      .orderBy(desc(cp.created_at))
+      .limit(limit)
+      .offset(offset);
+  }
+
   /** The installment rows for a plan, ordered by sequence. */
   async getSchedule(planId: string): Promise<InstallmentScheduleRow[]> {
     return this.db

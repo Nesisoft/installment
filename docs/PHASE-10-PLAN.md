@@ -16,7 +16,7 @@
 | `@installment/ui`        | shadcn-style components (Button, Card, Input, Label, Badge, Spinner, Skeleton, StatusBadge) + brand Tailwind preset + `globals.css`. Brand green `#0F6B4F`, cream accent, mist background. |
 | `@installment/web-kit`   | Axios client with single-flight token refresh, `AuthProvider`/`useAuth`, React Query client, localStorage session store.                                                                   |
 | `apps/customer-web`      | Vite+React+Router+Query app. Phone-OTP login, mobile-style shell, dashboard placeholder. Port 5173.                                                                                        |
-| `apps/merchant-web`      | Email/password login, sidebar shell, dashboard + section placeholders. Port 5174.                                                                                                          |
+| `apps/merchant-web`      | **Responsive** (sidebar desktop / bottom tabs mobile). Email/password login; live Dashboard, Orders, Settlements, Statements, Plan templates wired to `/merchant/*`. Port 5174.            |
 | `apps/admin-web`         | Staff login, ops sidebar (8 sections), dashboard + placeholders. Port 5175.                                                                                                                |
 
 Each app authenticates against the real backend today; feature screens are the
@@ -36,6 +36,8 @@ next iterations.
 - Shared additions: `Table` primitive in `@installment/ui`; `ScoringDecision`/`ScoreResult`/`TelcoHealth`/`FeatureVector` + form schemas (decision, merchant/customer/plan-template, collections, plan-ops) in `@installment/api-types`.
 
 **Admin is feature-complete** — only an optional standalone scoring playground (arbitrary feature vector) remains.
+
+**merchant-web live screens (done):** responsive shell (sidebar on desktop, bottom tab bar on mobile); Dashboard (balances + recent orders), Orders (list + read-only detail with schedule / settlement footprint / statement view+CSV), Settlements (balances + payouts + reserves), Statements (monthly + print/CSV), Plan templates (read-only). All scoped to the caller's merchant via `/merchant/*` (`MerchantScopeGuard`). Dev login: `merchant@demo.local` / `password123`.
 
 ## Architecture decisions
 
@@ -62,7 +64,7 @@ Discovered during the API mapping. Each is built alongside the UI that needs it.
 | Customer self-onboarding                      | customer onboarding     | OTP login only works for **pre-provisioned** customers; no public signup or Ghana Card upload-by-customer. Need public register + OTP-bootstrap.                                                                                                                                                                                              |
 | Customer-facing checkout / application submit | customer checkout       | Applications are created via `POST /admin/applications` (needs `applications:review`). Need a customer/merchant-scoped submit + live plan calculator (calculator can be client-side from `plan_templates`).                                                                                                                                   |
 | Restructure request                           | customer + admin        | No restructure-request endpoint surfaced; collections restructure is internal.                                                                                                                                                                                                                                                                |
-| Merchant tenant-scoping                       | merchant app            | All merchant data is under `/admin/*` gated only by coarse permissions — **no "own merchant only" check**. Add a merchant-scoped guard or `/merchant/*` surface so a merchant sees only their data.                                                                                                                                           |
+| ✅ Merchant tenant-scoping                    | merchant app            | Done. `/merchant/*` portal scoped by `MerchantScopeGuard` (resolves the caller's merchant from `users.metadata.merchant_id`); plan sub-resources are ownership-checked. Migration-free link; a dedicated FK column is the future hardening. 4 integration tests.                                                                              |
 | Browser Sentry                                | all apps                | Backend Sentry exists; add `@sentry/react` per app with `VITE_SENTRY_DSN`.                                                                                                                                                                                                                                                                    |
 | Richer OpenAPI (optional)                     | typed codegen           | Controllers lack `@ApiProperty`/`@ApiResponse`, so `/docs-json` bodies are `unknown`. `api-types` is the contract source instead.                                                                                                                                                                                                             |
 

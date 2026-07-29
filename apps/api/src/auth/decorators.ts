@@ -21,3 +21,11 @@ export const CurrentUser = createParamDecorator(
     return req.user;
   },
 );
+
+/** Injects the merchant id resolved by MerchantScopeGuard for the current caller. */
+export const CurrentMerchantId = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): string | undefined => {
+    const req = ctx.switchToHttp().getRequest<{ merchantId?: string }>();
+    return req.merchantId;
+  },
+);

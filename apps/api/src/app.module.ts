@@ -11,6 +11,7 @@ import { WorkersModule } from './workers/workers.module';
 import { AuthController } from './auth/auth.controller';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { PermissionsGuard } from './auth/permissions.guard';
+import { MerchantScopeGuard } from './auth/merchant-scope.guard';
 import { MerchantsController } from './modules/merchants.controller';
 import { StoresController } from './modules/stores.controller';
 import { CategoriesController } from './modules/categories.controller';
@@ -29,6 +30,7 @@ import { SettlementsController } from './modules/settlements.controller';
 import { LedgerController } from './modules/ledger.controller';
 import { RefundsController } from './modules/refunds.controller';
 import { CollectionsController } from './modules/collections.controller';
+import { MerchantPortalController } from './modules/merchant-portal.controller';
 import { MeController } from './modules/me.controller';
 import { MeCommerceController } from './modules/me-commerce.controller';
 import { WebhookController } from './modules/webhook.controller';
@@ -81,11 +83,13 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
     LedgerController,
     RefundsController,
     CollectionsController,
+    MerchantPortalController,
     MeController,
     MeCommerceController,
     WebhookController,
   ],
   providers: [
+    MerchantScopeGuard,
     { provide: APP_FILTER, useClass: DomainExceptionFilter },
     // Replay protection for money-mutating routes marked @Idempotent().
     { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
