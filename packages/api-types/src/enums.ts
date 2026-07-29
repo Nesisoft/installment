@@ -116,6 +116,7 @@ export type TelcoHealthStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
 export type StoreStatus = 'draft' | 'active' | 'suspended';
 export type StoreTransitionEvent = 'activate' | 'suspend' | 'unsuspend';
 export type ProductStatus = 'draft' | 'active' | 'archived';
+export type CartStatus = 'active' | 'converted' | 'abandoned';
 
 // RBAC permissions (packages/core/src/shared/auth/permissions.ts +
 // packages/commerce/src/permissions.ts).
