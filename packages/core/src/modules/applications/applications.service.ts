@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, lte } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
-import { runInTransaction } from '../../shared/event-bus/transaction';
+import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
 import {
   listApplicationsSchema,
   recordDecisionSchema,
@@ -46,42 +46,60 @@ export class ApplicationsService {
     private readonly audit: AuditLogger,
   ) {}
 
-  async submit(rawInput: unknown, actor: ApplicationActor): Promise<Application> {
+  /**
+   * Submits a new application. Pass `tx` to enlist the insert + audit row in a
+   * caller's transaction — @installment/commerce's checkout uses this so the
+   * order and its application (order_reference = order.id) commit atomically.
+   * Omit it and the write runs in its own transaction.
+   */
+  async submit(
+    rawInput: unknown,
+    actor: ApplicationActor,
+    tx?: TransactionalTx,
+  ): Promise<Application> {
     const input: SubmitApplicationInput = submitApplicationSchema.parse(rawInput);
-    return runInTransaction(this.db, async (tx) => {
-      let row: Application;
-      try {
-        const inserted = await tx
-          .insert(a)
-          .values({
-            customer_id: input.customer_id,
-            merchant_id: input.merchant_id,
-            plan_template_id: input.plan_template_id,
-            order_reference: input.order_reference,
-            order_amount_pesewas: input.order_amount_pesewas,
-            merchant_category: input.merchant_category,
-            ...(input.expires_at ? { expires_at: input.expires_at } : {}),
-          })
-          .returning();
-        row = inserted[0]!;
-      } catch (err) {
-        if ((err as { cause?: { code?: string } }).cause?.code === '23505') {
-          throw new DuplicateApplicationError(input.merchant_id, input.order_reference);
-        }
-        throw err;
-      }
+    return tx
+      ? this.submitIn(tx, input, actor)
+      : runInTransaction(this.db, (t) => this.submitIn(t, input, actor));
+  }
 
-      await this.audit.append(tx, {
-        entityType: 'application',
-        entityId: row.id,
-        eventType: 'application.submitted',
-        toState: row.status,
-        actorId: actor.actorId,
-        actorType: actor.actorType,
-        metadata: { merchant_id: row.merchant_id, order_reference: row.order_reference },
-      });
-      return row;
+  private async submitIn(
+    tx: TransactionalTx,
+    input: SubmitApplicationInput,
+    actor: ApplicationActor,
+  ): Promise<Application> {
+    let row: Application;
+    try {
+      const inserted = await tx
+        .insert(a)
+        .values({
+          customer_id: input.customer_id,
+          merchant_id: input.merchant_id,
+          plan_template_id: input.plan_template_id,
+          order_reference: input.order_reference,
+          order_amount_pesewas: input.order_amount_pesewas,
+          merchant_category: input.merchant_category,
+          ...(input.expires_at ? { expires_at: input.expires_at } : {}),
+        })
+        .returning();
+      row = inserted[0]!;
+    } catch (err) {
+      if ((err as { cause?: { code?: string } }).cause?.code === '23505') {
+        throw new DuplicateApplicationError(input.merchant_id, input.order_reference);
+      }
+      throw err;
+    }
+
+    await this.audit.append(tx, {
+      entityType: 'application',
+      entityId: row.id,
+      eventType: 'application.submitted',
+      toState: row.status,
+      actorId: actor.actorId,
+      actorType: actor.actorType,
+      metadata: { merchant_id: row.merchant_id, order_reference: row.order_reference },
     });
+    return row;
   }
 
   async get(id: string): Promise<Application> {

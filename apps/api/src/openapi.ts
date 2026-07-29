@@ -122,6 +122,19 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     ],
   } as SchemaObject;
 
+  // Composed view returned by OrdersService (checkout / order reads).
+  models.OrderWithItems = {
+    allOf: [
+      { $ref: '#/components/schemas/Order' },
+      {
+        type: 'object',
+        properties: {
+          items: { type: 'array', items: { $ref: '#/components/schemas/OrderItem' } },
+        },
+      },
+    ],
+  } as SchemaObject;
+
   return models;
 }
 
