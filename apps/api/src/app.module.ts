@@ -28,6 +28,7 @@ import { InstallmentsController } from './modules/installments.controller';
 import { SettlementsController } from './modules/settlements.controller';
 import { CollectionsController } from './modules/collections.controller';
 import { MeController } from './modules/me.controller';
+import { MeCommerceController } from './modules/me-commerce.controller';
 import { WebhookController } from './modules/webhook.controller';
 import { DomainExceptionFilter } from './common/domain-exception.filter';
 
@@ -76,6 +77,7 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
     SettlementsController,
     CollectionsController,
     MeController,
+    MeCommerceController,
     WebhookController,
   ],
   providers: [

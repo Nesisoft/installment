@@ -27,6 +27,7 @@ import type {
   PaymentMethod,
   PaymentProvider,
   RiskBand,
+  CartStatus,
   ProductStatus,
   RuleCategory,
   SalaryBand,
@@ -584,4 +585,44 @@ export interface ProductDetails extends Product {
   variants: Array<ProductVariant & { inventory: Inventory | null }>;
   images: ProductImage[];
   plan_template_ids: string[];
+}
+
+// --- Commerce (cart & addresses) --------------------------------------------
+
+export interface Address {
+  id: string;
+  customer_id: string;
+  recipient: string;
+  phone: string;
+  region: string;
+  city: string;
+  area: string | null;
+  landmark: string | null;
+  ghanapost_gps: string | null;
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface Cart {
+  id: string;
+  customer_id: string;
+  status: CartStatus;
+  created_at: string;
+}
+
+export interface CartItem {
+  id: string;
+  cart_id: string;
+  variant_id: string;
+  merchant_id: string;
+  quantity: number;
+  /** Price snapshotted onto the line when the item was added. */
+  unit_price_pesewas: number;
+  created_at: string;
+}
+
+/** Returned by GET /me/cart and the cart mutation endpoints. */
+export interface CartWithItems extends Cart {
+  items: CartItem[];
+  subtotal_pesewas: number;
 }

@@ -69,6 +69,12 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     ProductImage: drizzleSchema(s.product_images),
     Inventory: drizzleSchema(s.inventory),
     ProductPlanOffer: drizzleSchema(s.product_plan_offers),
+    // Commerce — cart & orders (Phase 12)
+    Address: drizzleSchema(s.addresses),
+    Cart: drizzleSchema(s.carts),
+    CartItem: drizzleSchema(s.cart_items),
+    Order: drizzleSchema(s.orders),
+    OrderItem: drizzleSchema(s.order_items),
   };
 
   // Composed view returned by ProductsService.getWithDetails.
@@ -97,6 +103,20 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
           },
           images: { type: 'array', items: { $ref: '#/components/schemas/ProductImage' } },
           plan_template_ids: { type: 'array', items: { type: 'string', format: 'uuid' } },
+        },
+      },
+    ],
+  } as SchemaObject;
+
+  // Composed view returned by CartService.getCart.
+  models.CartWithItems = {
+    allOf: [
+      { $ref: '#/components/schemas/Cart' },
+      {
+        type: 'object',
+        properties: {
+          items: { type: 'array', items: { $ref: '#/components/schemas/CartItem' } },
+          subtotal_pesewas: { type: 'integer' },
         },
       },
     ],

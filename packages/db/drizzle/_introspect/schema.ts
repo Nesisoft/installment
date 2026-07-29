@@ -1,9 +1,238 @@
-import { pgTable, text, timestamp, index, foreignKey, unique, check, uuid, date, boolean, smallint, jsonb, bigint, integer, char, primaryKey } from "drizzle-orm/pg-core"
+import { pgTable, index, uniqueIndex, foreignKey, uuid, text, boolean, timestamp, check, unique, integer, bigint, jsonb, smallint, char, date, primaryKey } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { citext } from "../../src/citext";
 import { tsvector } from "../../src/tsvector";
 
 
+
+export const addresses = pgTable("addresses", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	customer_id: uuid().notNull(),
+	recipient: text().notNull(),
+	phone: text().notNull(),
+	region: text().notNull(),
+	city: text().notNull(),
+	area: text(),
+	landmark: text(),
+	ghanapost_gps: text(),
+	is_default: boolean().default(false).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("addresses_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("addresses_one_default_idx").using("btree", table.customer_id.asc().nullsLast().op("uuid_ops")).where(sql`is_default`),
+	foreignKey({
+			columns: [table.customer_id],
+			foreignColumns: [customers.id],
+			name: "addresses_customer_id_fkey"
+		}).onDelete("cascade"),
+]);
+
+export const carts = pgTable("carts", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	customer_id: uuid().notNull(),
+	status: text().default('active').notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("carts_one_active_idx").using("btree", table.customer_id.asc().nullsLast().op("uuid_ops")).where(sql`(status = 'active'::text)`),
+	foreignKey({
+			columns: [table.customer_id],
+			foreignColumns: [customers.id],
+			name: "carts_customer_id_fkey"
+		}).onDelete("cascade"),
+	check("carts_status_check", sql`status = ANY (ARRAY['active'::text, 'converted'::text, 'abandoned'::text])`),
+]);
+
+export const cart_items = pgTable("cart_items", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	cart_id: uuid().notNull(),
+	variant_id: uuid().notNull(),
+	merchant_id: uuid().notNull(),
+	quantity: integer().notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	unit_price_pesewas: bigint({ mode: "number" }).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("cart_items_cart_idx").using("btree", table.cart_id.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.cart_id],
+			foreignColumns: [carts.id],
+			name: "cart_items_cart_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.merchant_id],
+			foreignColumns: [merchants.id],
+			name: "cart_items_merchant_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.variant_id],
+			foreignColumns: [product_variants.id],
+			name: "cart_items_variant_id_fkey"
+		}).onDelete("cascade"),
+	unique("cart_items_cart_id_variant_id_key").on(table.cart_id, table.variant_id),
+	check("cart_items_quantity_check", sql`quantity > 0`),
+	check("cart_items_unit_price_pesewas_check", sql`unit_price_pesewas >= 0`),
+]);
+
+export const orders = pgTable("orders", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	order_number: text().notNull(),
+	customer_id: uuid().notNull(),
+	merchant_id: uuid().notNull(),
+	store_id: uuid().notNull(),
+	source: text().default('internal').notNull(),
+	payment_type: text().notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	subtotal_pesewas: bigint({ mode: "number" }).notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	shipping_pesewas: bigint({ mode: "number" }).default(0).notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	discount_pesewas: bigint({ mode: "number" }).default(0).notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	total_pesewas: bigint({ mode: "number" }).notNull(),
+	commission_bps: integer().default(0).notNull(),
+	currency: text().default('GHS').notNull(),
+	status: text().default('pending_payment').notNull(),
+	shipping_address_id: uuid(),
+	application_id: uuid(),
+	customer_plan_id: uuid(),
+	placed_at: timestamp({ withTimezone: true, mode: 'string' }),
+	metadata: jsonb().default({}).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("orders_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("uuid_ops")),
+	index("orders_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("uuid_ops")),
+	index("orders_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")),
+	foreignKey({
+			columns: [table.application_id],
+			foreignColumns: [applications.id],
+			name: "orders_application_id_fkey"
+		}).onDelete("set null"),
+	foreignKey({
+			columns: [table.customer_id],
+			foreignColumns: [customers.id],
+			name: "orders_customer_id_fkey"
+		}).onDelete("restrict"),
+	foreignKey({
+			columns: [table.customer_plan_id],
+			foreignColumns: [customer_plans.id],
+			name: "orders_customer_plan_id_fkey"
+		}).onDelete("set null"),
+	foreignKey({
+			columns: [table.merchant_id],
+			foreignColumns: [merchants.id],
+			name: "orders_merchant_id_fkey"
+		}).onDelete("restrict"),
+	foreignKey({
+			columns: [table.shipping_address_id],
+			foreignColumns: [addresses.id],
+			name: "orders_shipping_address_id_fkey"
+		}).onDelete("set null"),
+	foreignKey({
+			columns: [table.store_id],
+			foreignColumns: [stores.id],
+			name: "orders_store_id_fkey"
+		}).onDelete("restrict"),
+	unique("orders_order_number_key").on(table.order_number),
+	check("orders_commission_bps_check", sql`(commission_bps >= 0) AND (commission_bps <= 10000)`),
+	check("orders_currency_check", sql`currency = 'GHS'::text`),
+	check("orders_discount_pesewas_check", sql`discount_pesewas >= 0`),
+	check("orders_payment_type_check", sql`payment_type = ANY (ARRAY['full'::text, 'installment'::text])`),
+	check("orders_shipping_pesewas_check", sql`shipping_pesewas >= 0`),
+	check("orders_source_check", sql`source = ANY (ARRAY['internal'::text, 'partner'::text])`),
+	check("orders_status_check", sql`status = ANY (ARRAY['pending_payment'::text, 'pending_approval'::text, 'paid'::text, 'financing_active'::text, 'fulfilling'::text, 'shipped'::text, 'delivered'::text, 'completed'::text, 'cancelled'::text, 'payment_failed'::text, 'declined'::text, 'returned'::text, 'defaulted'::text])`),
+	check("orders_subtotal_pesewas_check", sql`subtotal_pesewas >= 0`),
+	check("orders_total_pesewas_check", sql`total_pesewas >= 0`),
+]);
+
+export const order_items = pgTable("order_items", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	order_id: uuid().notNull(),
+	variant_id: uuid(),
+	product_id: uuid(),
+	title: text().notNull(),
+	sku: text().notNull(),
+	quantity: integer().notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	unit_price_pesewas: bigint({ mode: "number" }).notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	line_total_pesewas: bigint({ mode: "number" }).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("order_items_order_idx").using("btree", table.order_id.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.order_id],
+			foreignColumns: [orders.id],
+			name: "order_items_order_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.product_id],
+			foreignColumns: [products.id],
+			name: "order_items_product_id_fkey"
+		}).onDelete("set null"),
+	foreignKey({
+			columns: [table.variant_id],
+			foreignColumns: [product_variants.id],
+			name: "order_items_variant_id_fkey"
+		}).onDelete("set null"),
+	check("order_items_line_total_pesewas_check", sql`line_total_pesewas >= 0`),
+	check("order_items_quantity_check", sql`quantity > 0`),
+	check("order_items_unit_price_pesewas_check", sql`unit_price_pesewas >= 0`),
+]);
+
+export const idempotency_keys = pgTable("idempotency_keys", {
+	key: text().primaryKey().notNull(),
+	request_hash: text().notNull(),
+	response_body: jsonb(),
+	response_status: smallint(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expires_at: timestamp({ withTimezone: true, mode: 'string' }).default(sql`(now() + '24:00:00'::interval)`).notNull(),
+}, (table) => [
+	index("idempotency_keys_expiry_idx").using("btree", table.expires_at.asc().nullsLast().op("timestamptz_ops")),
+]);
+
+export const ledger_entries = pgTable("ledger_entries", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	transaction_id: text().notNull(),
+	account_type: text().notNull(),
+	account_ref: text().notNull(),
+	direction: text().notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	amount_pesewas: bigint({ mode: "number" }).notNull(),
+	currency: char({ length: 3 }).default('GHS').notNull(),
+	description: text().notNull(),
+	metadata: jsonb().default({}).notNull(),
+	occurred_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("ledger_account_balance_idx").using("btree", table.account_type.asc().nullsLast().op("text_ops"), table.account_ref.asc().nullsLast().op("text_ops"), table.occurred_at.asc().nullsLast().op("timestamptz_ops")),
+	index("ledger_transaction_idx").using("btree", table.transaction_id.asc().nullsLast().op("text_ops")),
+	check("ledger_entries_account_type_check", sql`account_type = ANY (ARRAY['paystack_settlement'::text, 'merchant_payable'::text, 'reserve_held'::text, 'default_pool'::text, 'revenue'::text, 'receivable'::text, 'refund_payable'::text])`),
+	check("ledger_entries_amount_pesewas_check", sql`amount_pesewas > 0`),
+	check("ledger_entries_currency_check", sql`currency = 'GHS'::bpchar`),
+	check("ledger_entries_direction_check", sql`direction = ANY (ARRAY['debit'::text, 'credit'::text])`),
+]);
+
+export const audit_events = pgTable("audit_events", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	entity_type: text().notNull(),
+	entity_id: uuid().notNull(),
+	event_type: text().notNull(),
+	from_state: text(),
+	to_state: text(),
+	actor_id: text().notNull(),
+	actor_type: text().notNull(),
+	reason: text(),
+	metadata: jsonb().default({}).notNull(),
+	occurred_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("audit_events_actor_idx").using("btree", table.actor_id.asc().nullsLast().op("text_ops"), table.occurred_at.desc().nullsFirst().op("timestamptz_ops")),
+	index("audit_events_entity_idx").using("btree", table.entity_type.asc().nullsLast().op("uuid_ops"), table.entity_id.asc().nullsLast().op("uuid_ops"), table.occurred_at.desc().nullsFirst().op("text_ops")),
+	index("audit_events_time_idx").using("btree", table.occurred_at.desc().nullsFirst().op("timestamptz_ops")),
+	check("audit_events_actor_type_check", sql`actor_type = ANY (ARRAY['system'::text, 'worker'::text, 'admin'::text, 'customer'::text, 'webhook'::text, 'merchant'::text])`),
+]);
 
 export const schema_migrations = pgTable("schema_migrations", {
 	filename: text().primaryKey().notNull(),
@@ -464,6 +693,31 @@ export const payouts = pgTable("payouts", {
 	check("payouts_status_check", sql`status = ANY (ARRAY['initiated'::text, 'pending_confirmation'::text, 'settled'::text, 'failed'::text, 'unknown'::text, 'reversed'::text])`),
 ]);
 
+export const collections_actions = pgTable("collections_actions", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	case_id: uuid().notNull(),
+	action_type: text().notNull(),
+	channel: text(),
+	outcome: text(),
+	notes: text(),
+	performed_by: uuid(),
+	performed_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	metadata: jsonb().default({}).notNull(),
+}, (table) => [
+	index("collections_actions_case_idx").using("btree", table.case_id.asc().nullsLast().op("timestamptz_ops"), table.performed_at.desc().nullsFirst().op("timestamptz_ops")),
+	foreignKey({
+			columns: [table.case_id],
+			foreignColumns: [collections_cases.id],
+			name: "collections_actions_case_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.performed_by],
+			foreignColumns: [users.id],
+			name: "collections_actions_performed_by_fk"
+		}).onDelete("set null"),
+	check("collections_actions_action_type_check", sql`action_type = ANY (ARRAY['sms_sent'::text, 'email_sent'::text, 'call_made'::text, 'visit_scheduled'::text, 'visit_completed'::text, 'note_added'::text, 'stage_changed'::text])`),
+]);
+
 export const held_reserves = pgTable("held_reserves", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	merchant_id: uuid().notNull(),
@@ -538,31 +792,6 @@ export const collections_cases = pgTable("collections_cases", {
 	check("collections_cases_resolution_check", sql`(resolution IS NULL) OR (resolution = ANY (ARRAY['paid'::text, 'restructured'::text, 'defaulted'::text, 'written_off'::text, 'waived'::text]))`),
 ]);
 
-export const collections_actions = pgTable("collections_actions", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	case_id: uuid().notNull(),
-	action_type: text().notNull(),
-	channel: text(),
-	outcome: text(),
-	notes: text(),
-	performed_by: uuid(),
-	performed_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	metadata: jsonb().default({}).notNull(),
-}, (table) => [
-	index("collections_actions_case_idx").using("btree", table.case_id.asc().nullsLast().op("timestamptz_ops"), table.performed_at.desc().nullsFirst().op("timestamptz_ops")),
-	foreignKey({
-			columns: [table.case_id],
-			foreignColumns: [collections_cases.id],
-			name: "collections_actions_case_id_fkey"
-		}).onDelete("cascade"),
-	foreignKey({
-			columns: [table.performed_by],
-			foreignColumns: [users.id],
-			name: "collections_actions_performed_by_fk"
-		}).onDelete("set null"),
-	check("collections_actions_action_type_check", sql`action_type = ANY (ARRAY['sms_sent'::text, 'email_sent'::text, 'call_made'::text, 'visit_scheduled'::text, 'visit_completed'::text, 'note_added'::text, 'stage_changed'::text])`),
-]);
-
 export const notifications = pgTable("notifications", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	recipient_type: text().notNull(),
@@ -586,57 +815,6 @@ export const notifications = pgTable("notifications", {
 	check("notifications_provider_check", sql`(provider IS NULL) OR (provider = ANY (ARRAY['hubtel'::text, 'arkesel'::text, 'sendgrid'::text, 'postmark'::text, 'fcm'::text]))`),
 	check("notifications_recipient_type_check", sql`recipient_type = ANY (ARRAY['customer'::text, 'merchant'::text, 'admin'::text])`),
 	check("notifications_status_check", sql`status = ANY (ARRAY['queued'::text, 'sent'::text, 'delivered'::text, 'failed'::text, 'bounced'::text])`),
-]);
-
-export const idempotency_keys = pgTable("idempotency_keys", {
-	key: text().primaryKey().notNull(),
-	request_hash: text().notNull(),
-	response_body: jsonb(),
-	response_status: smallint(),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	expires_at: timestamp({ withTimezone: true, mode: 'string' }).default(sql`(now() + '24:00:00'::interval)`).notNull(),
-}, (table) => [
-	index("idempotency_keys_expiry_idx").using("btree", table.expires_at.asc().nullsLast().op("timestamptz_ops")),
-]);
-
-export const ledger_entries = pgTable("ledger_entries", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	transaction_id: text().notNull(),
-	account_type: text().notNull(),
-	account_ref: text().notNull(),
-	direction: text().notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	amount_pesewas: bigint({ mode: "number" }).notNull(),
-	currency: char({ length: 3 }).default('GHS').notNull(),
-	description: text().notNull(),
-	metadata: jsonb().default({}).notNull(),
-	occurred_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("ledger_account_balance_idx").using("btree", table.account_type.asc().nullsLast().op("text_ops"), table.account_ref.asc().nullsLast().op("text_ops"), table.occurred_at.asc().nullsLast().op("timestamptz_ops")),
-	index("ledger_transaction_idx").using("btree", table.transaction_id.asc().nullsLast().op("text_ops")),
-	check("ledger_entries_account_type_check", sql`account_type = ANY (ARRAY['paystack_settlement'::text, 'merchant_payable'::text, 'reserve_held'::text, 'default_pool'::text, 'revenue'::text, 'receivable'::text, 'refund_payable'::text])`),
-	check("ledger_entries_amount_pesewas_check", sql`amount_pesewas > 0`),
-	check("ledger_entries_currency_check", sql`currency = 'GHS'::bpchar`),
-	check("ledger_entries_direction_check", sql`direction = ANY (ARRAY['debit'::text, 'credit'::text])`),
-]);
-
-export const audit_events = pgTable("audit_events", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	entity_type: text().notNull(),
-	entity_id: uuid().notNull(),
-	event_type: text().notNull(),
-	from_state: text(),
-	to_state: text(),
-	actor_id: text().notNull(),
-	actor_type: text().notNull(),
-	reason: text(),
-	metadata: jsonb().default({}).notNull(),
-	occurred_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("audit_events_actor_idx").using("btree", table.actor_id.asc().nullsLast().op("text_ops"), table.occurred_at.desc().nullsFirst().op("timestamptz_ops")),
-	index("audit_events_entity_idx").using("btree", table.entity_type.asc().nullsLast().op("uuid_ops"), table.entity_id.asc().nullsLast().op("uuid_ops"), table.occurred_at.desc().nullsFirst().op("text_ops")),
-	index("audit_events_time_idx").using("btree", table.occurred_at.desc().nullsFirst().op("timestamptz_ops")),
-	check("audit_events_actor_type_check", sql`actor_type = ANY (ARRAY['system'::text, 'worker'::text, 'admin'::text, 'customer'::text, 'webhook'::text, 'merchant'::text])`),
 ]);
 
 export const users = pgTable("users", {

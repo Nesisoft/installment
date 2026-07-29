@@ -45,6 +45,8 @@ import {
   type SmsSender,
 } from '@installment/core';
 import {
+  AddressesService,
+  CartService,
   CategoriesService,
   InventoryService,
   ProductsService,
@@ -118,6 +120,16 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     {
       provide: InventoryService,
       useFactory: (db: Database) => new InventoryService(db),
+      inject: [DRIZZLE],
+    },
+    {
+      provide: AddressesService,
+      useFactory: (db: Database) => new AddressesService(db),
+      inject: [DRIZZLE],
+    },
+    {
+      provide: CartService,
+      useFactory: (db: Database) => new CartService(db),
       inject: [DRIZZLE],
     },
     {
@@ -403,6 +415,8 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     CategoriesService,
     ProductsService,
     InventoryService,
+    AddressesService,
+    CartService,
     CustomersService,
     EmployersService,
     CustomerEmploymentService,
