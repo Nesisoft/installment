@@ -28,6 +28,9 @@ import type {
   PaymentProvider,
   RiskBand,
   CartStatus,
+  OrderSource,
+  OrderStatus,
+  PaymentType,
   ProductStatus,
   RuleCategory,
   SalaryBand,
@@ -625,4 +628,51 @@ export interface CartItem {
 export interface CartWithItems extends Cart {
   items: CartItem[];
   subtotal_pesewas: number;
+}
+
+// --- Commerce (orders) ------------------------------------------------------
+
+export interface Order {
+  id: string;
+  order_number: string;
+  customer_id: string;
+  merchant_id: string;
+  store_id: string;
+  source: OrderSource;
+  payment_type: PaymentType;
+  subtotal_pesewas: number;
+  shipping_pesewas: number;
+  discount_pesewas: number;
+  total_pesewas: number;
+  /** Marketplace take-rate applied to full orders, in basis points (0 for installment). */
+  commission_bps: number;
+  currency: 'GHS';
+  status: OrderStatus;
+  shipping_address_id: string | null;
+  /** Set for installment orders — the engine application (order_reference = order.id). */
+  application_id: string | null;
+  /** Set once financing activates. */
+  customer_plan_id: string | null;
+  placed_at: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface OrderItem {
+  id: string;
+  order_id: string;
+  /** Nulled if the variant/product is later removed; the snapshot below survives. */
+  variant_id: string | null;
+  product_id: string | null;
+  title: string;
+  sku: string;
+  quantity: number;
+  unit_price_pesewas: number;
+  line_total_pesewas: number;
+  created_at: string;
+}
+
+/** Returned by POST /me/checkout and the order read endpoints. */
+export interface OrderWithItems extends Order {
+  items: OrderItem[];
 }

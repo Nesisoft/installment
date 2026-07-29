@@ -118,6 +118,24 @@ export type StoreTransitionEvent = 'activate' | 'suspend' | 'unsuspend';
 export type ProductStatus = 'draft' | 'active' | 'archived';
 export type CartStatus = 'active' | 'converted' | 'abandoned';
 
+// --- Commerce (orders) ------------------------------------------------------
+export type PaymentType = 'full' | 'installment';
+export type OrderSource = 'internal' | 'partner';
+export type OrderStatus =
+  | 'pending_payment'
+  | 'pending_approval'
+  | 'paid'
+  | 'financing_active'
+  | 'fulfilling'
+  | 'shipped'
+  | 'delivered'
+  | 'completed'
+  | 'cancelled'
+  | 'payment_failed'
+  | 'declined'
+  | 'returned'
+  | 'defaulted';
+
 // RBAC permissions (packages/core/src/shared/auth/permissions.ts +
 // packages/commerce/src/permissions.ts).
 export const PERMISSIONS = [

@@ -17,8 +17,10 @@ export * from './modules/catalog/categories.service';
 export * from './modules/catalog/products.service';
 export * from './modules/catalog/inventory.service';
 
-// Orders: cart + addresses (checkout/orders land in the next slice)
+// Orders: cart + addresses + checkout/orders (with the engine hand-off)
 export * from './modules/orders/dto';
 export * from './modules/orders/errors';
+export * from './modules/orders/order-state';
 export * from './modules/orders/addresses.service';
 export * from './modules/orders/cart.service';
+export * from './modules/orders/orders.service';

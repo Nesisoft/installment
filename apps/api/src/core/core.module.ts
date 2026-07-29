@@ -49,6 +49,7 @@ import {
   CartService,
   CategoriesService,
   InventoryService,
+  OrdersService,
   ProductsService,
   StoresService,
 } from '@installment/commerce';
@@ -131,6 +132,25 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       provide: CartService,
       useFactory: (db: Database) => new CartService(db),
       inject: [DRIZZLE],
+    },
+    {
+      provide: OrdersService,
+      useFactory: (
+        db: Database,
+        inventory: InventoryService,
+        applications: ApplicationsService,
+        plans: CustomerPlansService,
+        ledger: LedgerService,
+        audit: AuditLogger,
+      ) => new OrdersService(db, inventory, applications, plans, ledger, audit),
+      inject: [
+        DRIZZLE,
+        InventoryService,
+        ApplicationsService,
+        CustomerPlansService,
+        LedgerService,
+        AuditLogger,
+      ],
     },
     {
       provide: CustomersService,
@@ -417,6 +437,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     InventoryService,
     AddressesService,
     CartService,
+    OrdersService,
     CustomersService,
     EmployersService,
     CustomerEmploymentService,

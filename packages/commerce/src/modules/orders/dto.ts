@@ -30,3 +30,26 @@ export const setCartItemQuantitySchema = z.object({
   quantity: z.number().int().min(0).max(1000),
 });
 export type SetCartItemQuantityInput = z.infer<typeof setCartItemQuantitySchema>;
+
+// --- Checkout ---------------------------------------------------------------
+
+export const checkoutSchema = z
+  .object({
+    /** `full` = pay now; `installment` = finance through the engine. */
+    payment_type: z.enum(['full', 'installment']),
+    /** Optional saved shipping address; must belong to the customer. */
+    shipping_address_id: z.string().uuid().optional(),
+    /** Required for installment checkout — the plan the application is scored against. */
+    plan_template_id: z.string().uuid().optional(),
+  })
+  .refine((v) => v.payment_type !== 'installment' || !!v.plan_template_id, {
+    message: 'installment checkout requires plan_template_id',
+    path: ['plan_template_id'],
+  });
+export type CheckoutInput = z.infer<typeof checkoutSchema>;
+
+/** Provider confirmation that a full order's charge cleared (webhook / admin). */
+export const confirmOrderPaymentSchema = z.object({
+  provider_reference: z.string().trim().min(1).max(200),
+});
+export type ConfirmOrderPaymentInput = z.infer<typeof confirmOrderPaymentSchema>;

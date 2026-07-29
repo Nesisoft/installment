@@ -2,7 +2,9 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from
 import {
   AddressesService,
   CartService,
+  OrdersService,
   addCartItemSchema,
+  checkoutSchema,
   createAddressSchema,
   setCartItemQuantitySchema,
   updateAddressSchema,
@@ -26,12 +28,18 @@ export class MeCommerceController {
     private readonly customers: CustomersService,
     private readonly cart: CartService,
     private readonly addresses: AddressesService,
+    private readonly orders: OrdersService,
   ) {}
 
   private async customerId(user: AuthenticatedUser): Promise<string> {
     const customer = await this.customers.findByUserId(user.id);
     if (!customer) throw new CustomerNotFoundError(user.id);
     return customer.id;
+  }
+
+  /** The audit actor for a customer-initiated action. */
+  private actorFor(customerId: string) {
+    return { actorId: customerId, actorType: 'customer' as const };
   }
 
   // --- Cart -----------------------------------------------------------------
@@ -74,6 +82,29 @@ export class MeCommerceController {
   @ApiModel('CartWithItems')
   async clearCart(@CurrentUser() user: AuthenticatedUser) {
     return this.cart.clear(await this.customerId(user));
+  }
+
+  // --- Checkout & orders ----------------------------------------------------
+
+  @Post('checkout')
+  @HttpCode(201)
+  @ApiZodBody(checkoutSchema)
+  @ApiModel('OrderWithItems', { array: true, created: true })
+  async checkout(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    const customerId = await this.customerId(user);
+    return this.orders.checkout(customerId, body, this.actorFor(customerId));
+  }
+
+  @Get('orders')
+  @ApiModel('OrderWithItems', { array: true })
+  async listOrders(@CurrentUser() user: AuthenticatedUser) {
+    return this.orders.listForCustomer(await this.customerId(user));
+  }
+
+  @Get('orders/:id')
+  @ApiModel('OrderWithItems')
+  async getOrder(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.orders.get(await this.customerId(user), id);
   }
 
   // --- Addresses ------------------------------------------------------------

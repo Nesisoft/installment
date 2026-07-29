@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
-import { runInTransaction } from '@installment/core';
+import { runInTransaction, type TransactionalTx } from '@installment/core';
 import { adjustStockSchema, setStockSchema } from './products.dto';
 import { InsufficientStockError, VariantNotFoundError } from './errors';
 
@@ -58,42 +58,92 @@ export class InventoryService {
     });
   }
 
-  /** Move `qty` from available → reserved (checkout). Throws if not enough available. */
-  async reserve(variantId: string, qty: number): Promise<InventoryRow> {
+  /**
+   * Move `qty` from available → reserved (checkout). Throws if not enough
+   * available. Pass `tx` to enlist in a caller's transaction so the reservation
+   * commits atomically with the order it backs (checkout does this); omit it and
+   * the move runs in its own transaction.
+   */
+  async reserve(variantId: string, qty: number, tx?: TransactionalTx): Promise<InventoryRow> {
     assertPositiveInt(qty, 'reserve');
-    return runInTransaction(this.db, async (tx) => {
-      const current = await this.lock(tx, variantId);
-      if (current.quantity_available < qty) {
-        throw new InsufficientStockError(variantId, qty, current.quantity_available);
-      }
-      const rows = await tx
-        .update(inv)
-        .set({
-          quantity_available: current.quantity_available - qty,
-          quantity_reserved: current.quantity_reserved + qty,
-        })
-        .where(eq(inv.variant_id, variantId))
-        .returning();
-      return rows[0]!;
-    });
+    return this.run(tx, (exec) => this.reserveIn(exec, variantId, qty));
   }
 
   /** Move up to `qty` back from reserved → available (cancel / expiry). */
-  async release(variantId: string, qty: number): Promise<InventoryRow> {
+  async release(variantId: string, qty: number, tx?: TransactionalTx): Promise<InventoryRow> {
     assertPositiveInt(qty, 'release');
-    return runInTransaction(this.db, async (tx) => {
-      const current = await this.lock(tx, variantId);
-      const released = Math.min(qty, current.quantity_reserved);
-      const rows = await tx
-        .update(inv)
-        .set({
-          quantity_available: current.quantity_available + released,
-          quantity_reserved: current.quantity_reserved - released,
-        })
-        .where(eq(inv.variant_id, variantId))
-        .returning();
-      return rows[0]!;
-    });
+    return this.run(tx, (exec) => this.releaseIn(exec, variantId, qty));
+  }
+
+  /**
+   * Finalise a reservation as sold: drop `qty` from reserved without returning
+   * it to available (the goods have left). Used when an order is paid / its
+   * financing activates. Clamps to what's reserved so it can never drive the
+   * counter negative.
+   */
+  async commit(variantId: string, qty: number, tx?: TransactionalTx): Promise<InventoryRow> {
+    assertPositiveInt(qty, 'commit');
+    return this.run(tx, (exec) => this.commitIn(exec, variantId, qty));
+  }
+
+  private run<T>(
+    tx: TransactionalTx | undefined,
+    fn: (exec: TransactionalTx) => Promise<T>,
+  ): Promise<T> {
+    return tx ? fn(tx) : runInTransaction(this.db, fn);
+  }
+
+  private async reserveIn(
+    tx: TransactionalTx,
+    variantId: string,
+    qty: number,
+  ): Promise<InventoryRow> {
+    const current = await this.lock(tx, variantId);
+    if (current.quantity_available < qty) {
+      throw new InsufficientStockError(variantId, qty, current.quantity_available);
+    }
+    const rows = await tx
+      .update(inv)
+      .set({
+        quantity_available: current.quantity_available - qty,
+        quantity_reserved: current.quantity_reserved + qty,
+      })
+      .where(eq(inv.variant_id, variantId))
+      .returning();
+    return rows[0]!;
+  }
+
+  private async releaseIn(
+    tx: TransactionalTx,
+    variantId: string,
+    qty: number,
+  ): Promise<InventoryRow> {
+    const current = await this.lock(tx, variantId);
+    const released = Math.min(qty, current.quantity_reserved);
+    const rows = await tx
+      .update(inv)
+      .set({
+        quantity_available: current.quantity_available + released,
+        quantity_reserved: current.quantity_reserved - released,
+      })
+      .where(eq(inv.variant_id, variantId))
+      .returning();
+    return rows[0]!;
+  }
+
+  private async commitIn(
+    tx: TransactionalTx,
+    variantId: string,
+    qty: number,
+  ): Promise<InventoryRow> {
+    const current = await this.lock(tx, variantId);
+    const committed = Math.min(qty, current.quantity_reserved);
+    const rows = await tx
+      .update(inv)
+      .set({ quantity_reserved: current.quantity_reserved - committed })
+      .where(eq(inv.variant_id, variantId))
+      .returning();
+    return rows[0]!;
   }
 
   private async lock(tx: Pick<Database, 'select'>, variantId: string): Promise<InventoryRow> {
