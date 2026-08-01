@@ -1,332 +1,374 @@
-# Installment Engine — Completion Plan
+<!-- Generated from a two-pass adversarial audit. See §1 for method and confidence. -->
 
-**Status:** audit complete, no implementation started.
-**Scope:** the installment payment engine only (`packages/core`, its wiring in `apps/api`, `packages/db`). Commerce/marketplace gaps are explicitly out of scope and are tracked in `PLATFORM-ROADMAP.md`.
+# Installment Engine — Definitive Completion Plan
 
----
-
-## 1. How this was produced
-
-Ten independent audits swept the engine, each with a distinct lens (payments, settlement, ledger, scoring, schedules/collections, security, observability, API surface, data integrity, testing, ops readiness). Each auditor's findings then went to a second agent whose only job was to **refute** them.
-
-**88 findings total — 51 adversarially verified, 37 unverified.**
-
-Two honest caveats about confidence:
-
-1. **Four areas were never verified.** The refutation agents for _api-surface_, _data-integrity_, _testing_ and _ops-readiness_ died when the org hit its monthly spend limit. Those 37 findings are recovered from the run journal and marked `[U]` below. Treat them as strong leads, not established fact — each needs a confirming read before you build against it.
-2. **The verification pass was permissive.** It refuted only 1 of 52 findings. A refutation rate that low means the pass is weak evidence on its own.
-
-The strongest signal in this document is therefore **cross-corroboration**: findings that two or three auditors hit independently, without seeing each other's work. Those are flagged **⊕** and should be treated as the highest-confidence items regardless of `[V]`/`[U]` status.
-
-Severity distribution: 15 blocker · 35 high · 37 medium · 1 low.
+**Inputs:** 51 findings (permissive pass) + 37 findings (adversarial pass, 0 refuted). ~70 unique after dedupe. I independently re-verified the highest-leverage claims in this session by reading and **executing** code; corrections noted inline.
 
 ---
 
-## 2. The headline
+## 1. The true story
 
-**The domain logic is strong.** Schedule generation, the state machine, the scoring rule engine, the payout calculator and double-entry validation are all genuinely well built, well tested and faithful to the design docs. This is not a codebase in trouble.
+**The hard parts are done and done well. The easy parts are missing. That inversion is why the finding count looks worse than the engine is — and why the engine is still further from a pilot than the owner probably thinks.**
 
-**What is missing is the unhappy edge of the money path.** The engine handles the synchronous success case correctly and loses track of money whenever the provider does something asynchronous, late, duplicated or ambiguous — which, on Ghanaian MoMo, is the _normal_ case rather than the exception. MoMo's standard flow is `pay_offline` → webhook, and that is precisely the path with the least coverage.
+What is genuinely strong, and I checked all of it:
 
-That is the characteristic shape of a payments system that has not yet met production. It is fixable, and the fixes are concentrated in a small number of files.
+- **The schema is excellent and is ahead of the code.** Repeatedly, the DDL specifies machinery that was never written. `schedule_stuck_idx` (`0000_installment_engine_init.sql:420-422`) carries the literal comment _"Reconciliation worker — find stuck processing schedules"_ — there is no such worker. `payment_attempts_in_flight_idx` is built `WHERE status IN ('in_flight','unknown')` (`:477-478`) — the only consumer filters `in_flight` alone. `schedule_due_pickup_idx` includes `retry_scheduled` (`:417-418`) — no query ever selects it. `applications_pending_expiry_idx`, `customer_plans.restructured_from_plan_id`, the `refund_payable` ledger account, the `reversed` payout status: all declared, none reachable. **The migration file is a more complete specification of this engine than the TypeScript is.** That is unusual and it is good news — the remaining work is unusually well-defined.
+- Double-entry ledger with `BEFORE UPDATE OR DELETE` immutability triggers, validate-before-insert, and writes that join the caller's transaction.
+- State machine as data with optimistic `version` guards, `SELECT ... FOR UPDATE` in the right places (`collections.service.ts:131-133`, `recordManualPayment`), a tested `RedisLock` primitive.
+- Ports/adapters discipline in `packages/core` (`SmsSender`, `RetryScheduler`, `TelcoHealthStore`, `ChargeReceiptNotifier`).
+- Audit rows written inside the caller's transaction on every state change.
+- Integer pesewas with explicit ROUND_HALF_UP.
+- CI runs format → lint → typecheck → build → unit → integration against real Postgres and Redis.
 
-A structural observation worth stating plainly: **`WebhookService` is a second, impoverished copy of the charge-outcome pipeline in `PaymentService`.** Three separate blockers trace back to that one duplication. Collapsing the two into a shared outcome applier is the single highest-leverage refactor in this document.
+What is actually broken, and the pattern is remarkably consistent:
 
----
+> **The synchronous happy path works. Almost every asynchronous and exception path has a hole.**
 
-## 3. Tiering
+Ghanaian MoMo is asynchronous by nature — `payment.service.ts:203-210` returns `pay_offline`, so the outcome of virtually every real charge arrives by **webhook**, not synchronously. And `WebhookService` is a second-class reimplementation of the sync path: it never runs the retry ladder (`webhook.service.ts:126-146` stops at `charge_failed`), and it silently swallows every success it cannot apply (`:148-165`). Meanwhile the state machine defines exactly one path to `paid` — `'processing:charge_succeeded'` (`state-machine.ts:52`) — so **every payment-link payment is thrown away**: `PaymentLinkDispatcher` leaves the schedule in `retry_scheduled` by design (`payment-link-dispatcher.ts:89-99`), and a success from that state is an illegal transition that gets swallowed. Customer pays, money moves, installment stays unpaid, dunning continues.
 
-| Tier  | Question it answers                        | Slices |
-| ----- | ------------------------------------------ | ------ |
-| **0** | Can the engine lose or double-take money?  | 1–5    |
-| **1** | Can a pilot physically run?                | 6–8    |
-| **2** | Will credit decisions survive a regulator? | 9–10   |
-| **3** | Can the plan lifecycle be operated?        | 11     |
-| **4** | Can humans use and observe it?             | 12–15  |
+**My honest completion estimate:**
 
-Within a tier, slices are ordered by dependency. Each slice is sized to be one reviewable PR with green gates (build · typecheck · lint · format · unit + integration).
+| Layer                                                                                   | Complete |
+| --------------------------------------------------------------------------------------- | -------- |
+| Engine core — ledger, state machine, money math, schema, scoring framework, RBAC, audit | ~85%     |
+| Async / exception / recovery paths                                                      | ~40%     |
+| Operational skin — deploy, observability, admin + merchant API, user lifecycle          | ~25%     |
+| Regulatory posture — affordability, decision-of-record, PII, backup, SoD                | ~20%     |
+| **As a launchable real-money pilot**                                                    | **~55%** |
 
----
+Two more honest notes:
 
-# TIER 0 — Money correctness
-
-Nothing else matters until these are done. Every item here can lose a customer's money, take it twice, or leave the books wrong.
-
----
-
-## Slice 1 — Charge-path integrity ⭐ **RECOMMENDED FIRST**
-
-**Effort: L** · no dependencies
-
-The engine can debit a customer twice, and can take money without crediting the installment. Both are live today.
-
-| #   | Finding                                                                                                                                                                                                                                                                                                                                                                                 | Sev     | Conf  |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ----- |
-| 1.1 | **Installment in `processing` accepts a second concurrent charge — real double-debit.** `ensureProcessing` treats already-`processing` as a no-op. Because `debit_initiated` bumps `attempt_count`, the second caller computes a _different_ idempotency key and Paystack reference, so the UNIQUE constraint never fires. Two live MoMo prompts; approving both takes the money twice. | blocker | [V]   |
-| 1.2 | **`charge.success` arriving when the schedule is not `processing` is silently discarded.** The transition table only contains `processing:charge_succeeded`, and the success handler blanket-swallows `IllegalScheduleTransitionError`. Money taken, installment never marked paid.                                                                                                     | blocker | [V] ⊕ |
-| 1.3 | **Payment-link settlement is silently discarded** — same root cause as 1.2. `PaymentLinkDispatcher` leaves the schedule in `retry_scheduled`, so _every_ payment-link payment is lost. The engine's designed final fallback never works.                                                                                                                                                | blocker | [V] ⊕ |
-| 1.4 | **Verify-poll gives up after ~7–10 min instead of the specified ~45.** MoMo USSD approvals routinely take longer. Turns "we don't know" into "failed", schedules a retry, and opens a double-charge window when the customer then approves.                                                                                                                                             | high    | [V]   |
-| 1.5 | **Paystack references contain a colon**, which Paystack's reference charset disallows. If rejected, every charge lands in `unknown`.                                                                                                                                                                                                                                                    | high    | [V]   |
-| 1.6 | No test for out-of-order webhooks — the untested path silently drops a successful payment.                                                                                                                                                                                                                                                                                              | high    | [U] ⊕ |
-| 1.7 | Zero concurrency tests; `RedisLock` is stubbed permanently open in every integration spec and `ScheduleConcurrencyError` is asserted nowhere.                                                                                                                                                                                                                                           | high    | [U]   |
-
-**Build:** reject `processing` in `ensureProcessing` and hold the `schedule:<id>` Redis lock across `beginAttempt`→provider-call; refuse a new attempt while an `in_flight`/`unknown` one exists. Widen the state machine so a confirmed success settles from any non-terminal state (`retry_scheduled`, `failed`, `overdue`, `in_collections`) instead of only `processing`, and narrow the swallow to "already paid with the same provider reference". Raise `STALE_AFTER_MS` and `MAX_VERIFY_POLLS` to the ~45-minute envelope. Strip the colon from references. Add the concurrency and out-of-order webhook suites against a real Redis.
-
-**Touches:** `payments/payment.service.ts`, `schedules/state-machine.ts`, `schedules/customer-plans.service.ts`, `payments/retry-policy.ts`, `payments/payment-link-dispatcher.ts`
+1. **A useful lens the finding count destroys: DEFECT vs GAP.** Roughly 22 findings are _defects_ (code actively does the wrong thing with money or state — urgent). Roughly 25 are _gaps_ (planned features never built — schedulable). Roughly 6 are _test/process_. Roughly 8 are _cosmetic_. Only the 22 are emergencies.
+2. **0 refuted out of 88 across two passes is a flag on the review process, not a compliment to the codebase.** A healthy adversarial pass refutes 10-25%. Treat the corpus as **high confidence on existence**, **moderate confidence on severity calibration**. In this session I found exactly one finding whose arithmetic was wrong — and it was wrong in the optimistic direction (see §6, cold start).
 
 ---
 
-## Slice 2 — Retry ladder + stuck-state recovery
+## 2. Cross-corroboration — the strongest evidence available
 
-**Effort: M–L** · depends on Slice 1 (shares the state machine changes)
+Where two audits that never spoke to each other landed on the same underlying defect from different angles. These are the ones to trust without re-verification.
 
-Money that isn't lost outright gets frozen instead. Nothing in the system ever rescues it.
+**A. The idempotency layer was designed, written, and never plugged in — six independent findings.**
+Pass A found the double-debit (`ensureProcessing` no-op) and the ledger's read-then-write dedupe. Pass B found the advertised-but-absent `Idempotency-Key` header, the zero-consumer `IdempotencyService`, the never-enforced TTL, **and** the missing `UNIQUE` on `customer_plans.application_id`. All six are the same root: `grep -rn 'dempotenc' apps/api/src` returns exactly one line — `main.ts:47`, a CORS string. `IdempotencyService.wrap` is fully implemented at `idempotency.service.ts:66-105` and instantiated nowhere. `ledger_entries.transaction_id` is `CREATE INDEX`, not unique (`0000:525`). Every dedupe in the money path is a TOCTOU window.
 
-| #   | Finding                                                                                                                                                                                                                                                                                             | Sev     | Conf  |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ----- |
-| 2.1 | **Webhook-delivered failures never enter the retry ladder.** `WebhookService.handleFailure` never calls `afterFailure` — no retry job, no payment link, no failure SMS, no telco record. Since MoMo's normal path is `pay_offline`→webhook, **the entire 4-attempt retry policy is dead for MoMo.** | blocker | [V]   |
-| 2.2 | **`unknown` attempts and installments stuck in `processing` are never reconciled.** `findStaleInFlight` selects only `in_flight`; `markAttemptUnknown` applies no schedule event. Any Paystack timeout freezes that installment permanently — no retry, no escalation, no worklist.                 | blocker | [V] ⊕ |
-| 2.3 | **Grace-expiry sweep ignores `pending` and `retry_scheduled`** — installments strand in a non-terminal state forever and never enter collections.                                                                                                                                                   | blocker | [V] ⊕ |
-| 2.4 | `retry_scheduled` is a black hole: after the payment-link step (or a lost queue job) the installment never escalates and never completes. No DB-side safety net behind the Redis queue.                                                                                                             | high    | [V] ⊕ |
+**B. `retry_scheduled` is a black hole — five findings, plus the schema agrees.**
+Pass A found it twice (as a payments defect and as a collections defect); pass B found it a third time. The corroborating detail neither pass emphasised enough: `schedule_due_pickup_idx` is partial on `status IN ('pending','due','retry_scheduled')`. **The index exists for a sweep that was never written.** `RetryWorker`'s own docstring (`retry.worker.ts:25`) says "the schedule stays in `retry_scheduled` for the grace-expiry worker to escalate" — and `escalateGraceExpired` filters `['due','failed']` (`collections.service.ts:116`). The code documents a contract it does not honour.
 
-**Build:** extract the post-outcome pipeline into a shared `ChargeOutcomeApplier` used by both `PaymentService` and `WebhookService` — this single refactor kills 2.1 and hardens 1.2. Widen `findStaleInFlight` to include `unknown`. Add a stuck-schedule reconciler over `processing` rows older than a threshold (the `schedule_stuck_idx` already exists). Add `retry_scheduled`/`pending` to `escalateGraceExpired` with the matching transitions.
+**C. The webhook is the real MoMo path and is treated as an afterthought — five findings across four audit areas.**
+Payments found "failures never enter the retry ladder" and "success discarded when not `processing`." Observability found "untracked references dropped with no log." Payouts found "`transfer.*` unhandled." Testing found "no test for out-of-order webhooks." Four different reviewers, one defect: `webhook.service.ts` `dispatch` handles two event types and `idempotent()` swallows everything it cannot apply.
 
-**Touches:** `webhooks/webhook.service.ts`, `payments/payment.service.ts`, `payments/attempt-repository.ts`, `collections/collections.service.ts`, `schedules/state-machine.ts`
+**D. The ledger has no cash-in leg and no uniqueness — six findings.**
+Pass A: cash-in never booked; ledger idempotency advisory. Pass B: collections never recorded (verified exhaustively — `CustomerPlansService`'s constructor at `customer-plans.service.ts:56-75` does not even _take_ a `LedgerService`, so it structurally cannot book one); idempotency advisory again; no property test that the ledger balances globally. Observability: no drift detection. The clincher pass B found: `customer-plans.integration.spec.ts:478` **asserts** receivable is still `-100_000` after a plan is fully paid — the test pins the gap in place.
 
----
+**E. Reserves are a one-way valve — four findings.**
+Layaway never releases (both passes, independently). Defaults strand reserve. Refund clawback drives `reserve_held` negative. Three of four exit paths from `held_reserves` do not exist. `ReserveReleaseService.markDelivered` (`reserve-release.service.ts:114`) has exactly one caller repo-wide, and it is a spec file.
 
-## Slice 3 — Ledger truth: cash-in + uniqueness
+**F. SMS is a console stub — both passes, both graded blocker.**
+`core.module.ts:94` is literally `{ provide: SMS_SENDER, useClass: ConsoleSmsSender }` with no factory and no branch. `@installment/sms-client` is a dependency of nothing. Customer auth is phone+OTP only, so **zero customers can log in**, and every issued OTP sits in plaintext in the log sink next to its phone number.
 
-**Effort: M** · independent of 1–2
+**G. Workers: single process, no election, no heartbeat, silently off — five findings.**
+`ENABLE_SCHEDULED_WORKERS` defaults to `false` (`env.validation.ts:30-33`) and — I confirmed — **is absent from `.env.example` entirely**. Every cron is `if (!this.enabled) return;` with no log. `/health` probes only Postgres and Redis. An operator copying `.env.example` ships a lender that never debits, never settles, and shows green.
 
-The double-entry ledger is rigorous, and the **inbound leg was never wired**. Two auditors found this independently.
+**H. Identity and credentials are a one-way door — four findings.**
+No deactivate, no soft-delete, no role revoke, no password change (`UsersService` is create + read + `assignRole`). No logout, no refresh-token store. Production boots with `dev-access-secret-change-me!!`. And after a clean production migration there is no loginable staff user at all.
 
-| #   | Finding                                                                                                                                                                                                                                                                                                                                                                    | Sev          | Conf      |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | --------- |
-| 3.1 | **Customer cash-in is never booked.** `finalisePaidInstallment` only decrements `outstanding_pesewas`. No `DEBIT paystack_settlement / CREDIT receivable` pair exists, so `paystack_settlement` and `receivable` are fiction and ledger-vs-Paystack reconciliation is impossible. Nobody can answer "does our balance cover this morning's payout batch?" before it fires. | blocker/high | [V]+[U] ⊕ |
-| 3.2 | **`customer_plans.application_id` has no UNIQUE constraint** — under READ COMMITTED two concurrent activations both insert. One order → two plans → two schedules → the customer is charged twice. No index on the column either.                                                                                                                                          | blocker      | [U]       |
-| 3.3 | Ledger idempotency is read-then-write with no `UNIQUE(transaction_id, …)` backstop; `reverseAndFail` and reserve-release have no guard at all.                                                                                                                                                                                                                             | high/med     | [V]+[U] ⊕ |
-| 3.4 | The balance invariant is enforced only per-call in application code — no runtime drift detection or alert.                                                                                                                                                                                                                                                                 | medium       | [V]       |
-
-**Build:** book the cash-in leg inside `finalisePaidInstallment`'s existing transaction with a deterministic `collect:{scheduleId}` id (credit `revenue` for any late fee). Add `CREATE UNIQUE INDEX customer_plans_application_uq` and translate 23505 to `PlanAlreadyActiveError`. Add `ledger_entry_identity_uq` so every dedupe has a DB backstop. Add a daily invariant check that alerts on global imbalance.
-
-**Touches:** `schedules/customer-plans.service.ts`, `shared/ledger/ledger.service.ts`, new migration
+**I. The gates cannot verify the fixes — five findings, and this is the meta-finding.**
+Integration specs run with Vitest file-parallelism against one shared DB with no `TRUNCATE`/`DELETE`/`beforeEach` anywhere; the sweeps under test are globally unscoped; **all three specs that construct a `RedisLock` pass a permanently-open stub**; `apps/api` has zero HTTP-layer tests despite `supertest` being installed. Two smoking guns that the pollution is already real: `settlement.service.ts:99-101` carries a **production** try/catch commented _"a stale non-UUID account_ref left by an earlier test"_, and `settlement.integration.spec.ts:242` weakens its own assertion with _"other merchants from prior tests already cleared."_
 
 ---
 
-## Slice 4 — Settlement correctness
+## 3. Work slices
 
-**Effort: M–L** · depends on Slice 3
+Each is one reviewable PR that can land with green gates. Confidence: **Proven** = I verified it in this session; **High** = adversarially upheld with citations; **Moderate** = permissive pass only.
 
-Merchants are being paid the wrong amounts, and some money can never be released.
-
-| #   | Finding                                                                                                                                                                                                                                                             | Sev         | Conf      |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | --------- |
-| 4.1 | **Per-merchant MDR and reserve rates are collected, stored, displayed — and never used.** `PayoutCalculator` reads only the global `MODEL_CONFIG`. A merchant negotiated to 2.5% is silently charged 4%. The admin console shows a rate the engine does not honour. | high        | [V]       |
-| 4.2 | **Layaway reserve is withheld forever** — `markDelivered` has zero callers and no endpoint, so `delivered_at` is never stamped and the maturity function returns NEVER. No manual override exists.                                                                  | blocker/med | [V]+[U] ⊕ |
-| 4.3 | **Refund clawback ignores whether the reserve still exists** — under-collects from the merchant and drives `reserve_held` negative.                                                                                                                                 | high        | [V]       |
-| 4.4 | **Paystack transfer webhooks are not handled at all.** `transfer.failed`/`transfer.reversed` are ingested, marked processed and discarded. A reversed payout stays `settled` forever and `merchant_payable` stays cleared — the merchant is never re-credited.      | high        | [V]       |
-| 4.5 | Defaulted plans strand their reserve permanently; a BNPL default never touches the reserve withheld to cover it.                                                                                                                                                    | medium      | [V]       |
-| 4.6 | No minimum payout threshold — the daily batch fires a Paystack transfer for any balance above zero.                                                                                                                                                                 | medium      | [V]       |
-
-**Build:** thread `plan.mdr_bps`/`reserve_bps` into `PayoutCalculator`, defaulting to `MODEL_CONFIG` only when absent. Add a delivery-confirmation endpoint calling `markDelivered`. Clamp refund reserve reversal to the actual `reserve_held` balance. Add a transfer branch to `WebhookService.dispatch` wired to `confirmPayout`. Consume reserve on default. Add a configurable payout floor.
-
-**Touches:** `settlements/payout-calculator.ts`, `payout-recorder.ts`, `reserve-release.service.ts`, `default.service.ts`, `settlement.service.ts`, `webhooks/webhook.service.ts`
+### TIER 0 — Money correctness (can lose or double-take money)
 
 ---
 
-## Slice 5 — Refunds actually return money
+**S1 · One installment, one charge** — Effort **M** · Deps none · **Proven**
 
-**Effort: L** · depends on Slice 3
+_Prevents:_ a customer is debited twice for the same installment — and today that is **unrecoverable**, because the refund path (S7) books entries but never returns money.
 
-| #   | Finding                                                                                                                                                                                                                                                                                            | Sev    | Conf |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---- |
-| 5.1 | **The refund path reverses the books but never returns the customer's money.** `PaystackClient` has no refund method; there is no outbound record, no status, no failure handling. The UI, schedule, plan and merchant statement all say "refunded" while the customer's wallet is never credited. | high   | [V]  |
-| 5.2 | No dispute or chargeback handling anywhere; the `refund_payable` ledger account is dead.                                                                                                                                                                                                           | medium | [V]  |
+Build:
 
-**Build:** add `PaystackClient.refund()` and a `RefundService` that credits `refund_payable` in the same transaction as the state flip, with a durable outbound record mirroring `payment_attempts` (status, reference, failure handling, verify sweep).
+- **Pre-flight (do this first, ~1 hour):** round-trip a reference through the Paystack sandbox. `payment.service.ts:296-297` builds `INSTL-{scheduleId}-{scheduleId}:{n}` — it contains a `:` (outside Paystack's documented reference charset) and repeats the UUID, which is plainly unintentional. The payment-link path already uses a colon-free `LINK-{scheduleId}-{attempt}` (`payment-link-dispatcher.ts:70`). If Paystack rejects it, **no charge in this system has ever worked** and everything else is moot.
+- Change to `INSTL-{scheduleId}-{attemptNumber}`; keep `{scheduleId}:{n}` as the internal `idempotency_key` only. Add a boundary guard in `PaystackClient` rejecting `!/^[A-Za-z0-9.=-]{1,100}$/`.
+- `ensureProcessing` (`payment.service.ts:482-484`): replace `case 'processing': return;` with a throw. Today a retried POST against an installment already in `processing` reads a stale `attempt_count`, derives a _different_ key and reference, and issues a second live charge.
+- Wrap `beginAttempt` → provider call in `RedisLock.withLock('schedule:{id}')` — the key `ScheduleStateService` already uses (`schedule-state.service.ts:52`).
+- Reject a new attempt when any `in_flight`/`unknown` attempt exists for the schedule.
+- `CREATE UNIQUE INDEX` on `customer_plans(application_id)` (`0000:322` has no constraint; `activateFromApplication` at `customer-plans.service.ts:154-160` is a bare check-then-insert at READ COMMITTED — a textbook phantom write that pays the merchant twice via `accrue:{planId}:order_approved`). Catch with the existing `isUniqueViolation` (`shared/db/pg-errors.ts:24-28`).
+- **New integration spec using the real CI Redis lock**, not `new RedisLock(ALWAYS_OPEN)`.
 
----
-
-# TIER 1 — Pilot enablement
-
-The engine cannot be put in front of a real merchant until these exist.
-
----
-
-## Slice 6 — SMS delivery
-
-**Effort: M** · no dependencies · **can be done in parallel with Tier 0**
-
-| #   | Finding                                                                                                                                                                                                                                                                                                                | Sev     | Conf      |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | --------- |
-| 6.1 | **SMS is hard-wired to a console stub, and OTP codes are written to logs in plaintext next to the phone number.** Customer auth is phone+OTP only, so **no customer can ever log in**. Reminders, payment links and dunning all terminate at a `console.log`. Anyone with log access can authenticate as any customer. | blocker | [V]+[U] ⊕ |
-| 6.2 | Charges settled by webhook send no receipt — the normal MoMo customer never gets confirmation.                                                                                                                                                                                                                         | medium  | [V]       |
-
-**Build:** add `SMS_PROVIDER` + credentials to `env.validation.ts`, refuse `console` when `NODE_ENV=production`, swap `SMS_SENDER` to a `useFactory`. Independently, reduce `ConsoleSmsSender` to logging masked phone + message length only. Fire the receipt from the shared outcome applier built in Slice 2.
+_Files:_ `packages/core/src/modules/payments/{payment.service,attempt-repository}.ts`, `packages/paystack-client/src/client.ts`, `packages/core/src/modules/schedules/customer-plans.service.ts`, new `packages/db/drizzle/0007_*.sql`, new concurrency spec.
 
 ---
 
-## Slice 7 — Deployment & operations
+**S2 · Idempotency-Key at the HTTP boundary** — Effort **M** · Deps S1 · **Proven**
 
-**Effort: L** · no dependencies
+_Prevents:_ a customer on a flaky Ghanaian mobile connection taps "Pay" twice, or a client auto-retries a timed-out POST, and is charged twice.
 
-| #   | Finding                                                                                                                                                                                                                                                         | Sev     | Conf      |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | --------- |
-| 7.1 | **No deployment artifacts of any kind** — no Dockerfile, no CD, no migrate-on-deploy. `pnpm install --prod` cannot even run `pnpm migrate` (tsx/dotenv are dev-only).                                                                                           | blocker | [U]       |
-| 7.2 | **No worker process and no leader election.** All crons are providers of a module imported into the HTTP app. Scaling to 2 instances runs every sweep twice concurrently; reserve-release has no row-lock protection, so it double-releases.                    | blocker | [U]       |
-| 7.3 | **Workers have no heartbeat, staleness alert or health visibility.** `ENABLE_SCHEDULED_WORKERS` defaults to **false** and logs nothing when off; `/health` still returns green. A deploy that omits the flag charges nobody, settles nobody, and looks healthy. | high    | [V]+[U] ⊕ |
-| 7.4 | No production-safe way to create the first admin user — the pilot is blocked at the first login.                                                                                                                                                                | high    | [U]       |
-| 7.5 | Graceful shutdown never completes — a second Postgres pool and the BullMQ Redis connection leak on SIGTERM.                                                                                                                                                     | medium  | [U]       |
-| 7.6 | Application expiry is implemented and indexed but **never scheduled** — `expireOverdue` has zero callers.                                                                                                                                                       | medium  | [V]+[U] ⊕ |
-| 7.7 | Idempotency keys never expire and are never purged; a crashed request bricks the key forever.                                                                                                                                                                   | medium  | [U]       |
-| 7.8 | No backup / PITR / retention for the financial source of truth; append-only triggers do not cover TRUNCATE.                                                                                                                                                     | medium  | [U]       |
-
-**Build:** multi-stage Dockerfile with an API/worker process split; wrap every cron in `RedisLock.withLock` (the primitive exists and is tested); add a `worker_runs` heartbeat table + staleness alerting + `/health` worker block; add a self-disabling `bootstrap-admin` script; fix shutdown hooks; schedule the expiry sweep.
+Build: an `APP_INTERCEPTOR` keyed on `Idempotency-Key` + route + body hash over every money-mutating POST (`/me/installments/*/pay*`, `/admin/installments/*/record-payment`, `/admin/installments/*/refund`, `/admin/plans/from-application/*`, `/admin/settlements/*`). Register `IdempotencyService` + `DrizzleIdempotencyStore` in `core.module.ts` (`app.module.ts:82-89` has no `APP_INTERCEPTOR` at all). Enforce `expires_at` in `find()` (`drizzle-store.ts:24-35` filters on key alone). Reaper cron using the existing `idempotency_keys_expiry_idx` (`0000:710-713`). Reclaim rows abandoned with `response_status IS NULL`.
 
 ---
 
-## Slice 8 — Security hardening
+**S3 · Async completion parity — make the webhook first-class** — Effort **M** · Deps S1 · **Proven**
 
-**Effort: L** · no dependencies
+_Prevents:_ a customer pays a payment link (or their MoMo approval lands late) and the engine throws the outcome away — never credited, plan never completes, dunning continues against someone who has paid. This fires on **100% of payment-link payments**, not on a race.
 
-| #   | Finding                                                                                                                                                         | Sev    | Conf |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---- |
-| 8.1 | **No rate limiting, throttling or brute-force protection on any endpoint** — unlimited credential stuffing and unlimited SMS pumping via OTP re-issue.          | high   | [V]  |
-| 8.2 | **Production can boot with the repo's published dev JWT secrets.** Anyone who has read the repo can forge an admin token.                                       | high   | [V]  |
-| 8.3 | **No way to deactivate, offboard or rotate credentials for any user.** A departing ops agent's credentials work indefinitely.                                   | high   | [V]  |
-| 8.4 | **Refunds and manual write-offs are gated behind `collections:act`** — the highest-turnover, lowest-trust role. No financial permission tier, no maker-checker. | high   | [V]  |
-| 8.5 | No server-side session revocation: no logout, no refresh-token store, no reuse detection.                                                                       | medium | [V]  |
-| 8.6 | Raw Ghana Card numbers are written into the immutable audit log and returned unmasked to every `customers:read` holder.                                         | medium | [V]  |
-| 8.7 | No HTTP security headers; the full OpenAPI spec is served unauthenticated in every environment.                                                                 | low    | [V]  |
+Build:
 
-**Build:** `@nestjs/throttler` on the existing Redis as an `APP_GUARD` ahead of `JwtAuthGuard`; a production `superRefine` on the env schema requiring real secrets ≥32 chars; user deactivate/offboard/role-revoke with audit; new `payments:refund` / `payments:manual_credit` / `settlements:run` permissions seeded to admin only; refresh-token store with reuse detection; mask Ghana Card at the audit and serialization boundary; helmet + guarded docs.
+- Extract a shared `ChargeOutcomeApplier` so `WebhookService.handleFailure` runs the full `afterFailure` pipeline — retry scheduling, failure SMS, telco recording — instead of stopping at `charge_failed` (`webhook.service.ts:126-146`).
+- Add late-settlement transitions: `retry_scheduled | failed | overdue | in_collections : late_payment_received → paid`.
+- Narrow `idempotent()` (`:148-165`) to swallow **only** "already `paid` with the same `provider_reference`." Everything else: log, `captureAlert`, and land in a manual-reconciliation queue.
+- Guard against stale attempts: `findByProviderReference` (`attempt-repository.ts:87-91`) returns any attempt regardless of whether it is the schedule's current one, and `handleFailure`'s `if (attempt.status !== 'failed')` does not exclude `succeeded` — a late failure downgrades a settled attempt and can fail a live retry.
+- Alert on the untracked-reference branch (`:100 if (!attempt) return;`) — Paystack is telling you a customer was debited.
+- Tests: out-of-order webhook for a superseded attempt; payment-link success; late MoMo approval after verify timeout.
 
 ---
 
-# TIER 2 — Credit correctness
+**S4 · Nothing gets stuck — sweepers for every non-terminal state** — Effort **M** · Deps S3 · **Proven/High**
 
-Where a regulator or an auditor will look first.
+_Prevents:_ debt goes invisible. An installment lands in `processing`, `unknown`, `retry_scheduled` or `pending` and no worker looks at it again — no retry, no escalation, no case, no default. Delinquency reporting systematically under-reports bad debt.
 
----
+Build:
 
-## Slice 9 — Counter-offers and activation-time exposure
-
-**Effort: M** · depends on Slice 3 (uniqueness)
-
-| #   | Finding                                                                                                                                                                                                                                                                                                                                                                                                                         | Sev          | Conf      |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | --------- |
-| 9.1 | **The counter-offer path is a dead end.** Three independent breaks: no HTTP route reaches `acceptCounterOffer`/`cancel`; the accepted counter amounts are ignored when generating the schedule (`customer-plans.service.ts:139`); and the computed amounts can violate the `customer_plans` CHECK. Counter-offer fires whenever limit ≥ 50% of order — a common mid-ticket case — and **every one of those deals is stranded**. | blocker/high | [V]+[U] ⊕ |
-| 9.2 | **Exposure and limit rules are evaluated at scoring time and never re-checked at activation.** No per-customer lock, no re-validation. One customer — or a fraud ring on one identity — can stack N plans past the limit. The engine's most important credit control is advisory.                                                                                                                                               | high         | [V]       |
-
-**Build:** compute counter amounts in integer pesewas inside the engine so down-payment + financed reconcile by construction; honour them in `activateFromApplication`; add accept/cancel routes (admin + customer-scoped) plus `GET /me/applications`. Re-evaluate exposure inside the activation transaction under a per-customer lock.
+- `findStaleInFlight` → `inArray(status, ['in_flight','unknown'])`, matching the partial index already built for it.
+- Stuck-schedule sweep over `status='processing' AND status_changed_at < now() - interval`, using `schedule_stuck_idx`.
+- Add `retry_scheduled` and `pending` to `escalateGraceExpired` (`collections.service.ts:116`) with the matching transitions.
+- Reaper for `retry_scheduled` past its policy delay — covers Redis eviction, workers-off windows, and BullMQ `attempts: 1` job loss (`bullmq-retry-scheduler.ts:33`).
+- **Verify-poll budget:** `STALE_AFTER_MS` is 2 min (`verify-poll.cron.ts:11-12`) and `MAX_VERIFY_POLLS` is 2 (`retry-policy.ts:39`) → the engine gives up at ~10 min against a ~45 min design, classifies `timeout_no_resolution` as _retryable_, and issues a **fresh charge while the customer's original MoMo prompt is still live on their handset**. Raise the budget; on exhaustion park in `unknown` and alert — do not retry.
+- Persist `payment_link_url` on the attempt row.
+- Wire `ApplicationsService.expireOverdue` (`applications.service.ts:193`, zero callers) to a cron.
 
 ---
 
-## Slice 10 — Underwriting reality
+**S5 · The ledger tells the truth** — Effort **L** · Deps none · **Proven** · 🚩 **regulator**
 
-**Effort: L** · depends on Slice 9
+_Prevents:_ you cannot produce a balance sheet, cannot reconcile against Paystack, and cannot detect a duplicate posting. An auditor asks for the trial balance and there isn't one. `DEVELOPMENT-PLAN.md:466` plans a nightly ledger-vs-Paystack cross-check that is **impossible** without this.
 
-| #    | Finding                                                                                                                                                                                                                                                                                                            | Sev    | Conf |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ---- |
-| 10.1 | **Cold start: no first-time customer can be auto-approved.** The maximum achievable score for a thin-file applicant is **475**, below the `near_prime` cutoff of 500 — verified by executing the compiled scoring engine. A pilot is 100% first-time customers, so **every application funnels to manual review**. | high   | [V]  |
-| 10.2 | **No affordability assessment anywhere.** Salary band is collected into the decision snapshot and no rule reads it; limits ignore income entirely. The engine can approve an installment exceeding the customer's income — the classic BNPL harm, and exactly what a Ghana pilot will be judged on.                | high   | [V]  |
-| 10.3 | **Human override decisions produce no credit-decision record and need no reason.** For the applications that matter most (today, all of them), there is nothing to show a regulator.                                                                                                                               | high   | [V]  |
-| 10.4 | Rules-as-data is inert: `RulesetLoader` is provided but never injected, so `rule_definitions` has zero effect on live decisions.                                                                                                                                                                                   | medium | [V]  |
-| 10.5 | Fail-soft collectors fail **open** on the blocklist and prior-default hard gates, and a degraded decision is indistinguishable from a clean one.                                                                                                                                                                   | medium | [V]  |
+Build:
 
-**Build:** a calibrated thin-file/cold-start ruleset (or bootstrap band cutoffs) so a clean first-timer can clear `near_prime`; an affordability rule in the exposure stage reading the derived per-installment amount against income; `credit_profiles` written for human decisions too, with a mandatory reason; inject `RulesetLoader`; make hard-gate collectors fail closed and stamp decision degradation.
+- Inject `LedgerService` into `CustomerPlansService` and book the cash-in leg in `finalisePaidInstallment`: DEBIT `paystack_settlement['main']`, CREDIT `receivable[plan]`. **Handle the layaway wrinkle:** no receivable exists at collection time (accrual only fires at completion, `customer-plans.service.ts:559-560`), so per-installment credits would drive receivable positive — use a `customer_float[plan]` holding account that closes out at completion.
+- Real uniqueness on ledger transactions (`0000:525` is a plain index), so `payout-recorder.ts:80-85`, `default.service.ts:69-75`, `reverseAndFail` (`settlement.service.ts:380-425`, no check at all) and `releaseOne` (`reserve-release.service.ts:231-293`, no check at all) stop being TOCTOU windows.
+- `LedgerIntegrityService.findUnbalancedTransactions()` + `trialBalance()`, hourly cron with `captureAlert`, `GET /admin/ledger/integrity`, and `docs/runbooks/ledger-imbalance.md` (`DEVELOPMENT-PLAN.md:604` requires it; `docs/` has no runbooks at all).
+- Add `fast-check` and a property test that a randomised operation sequence leaves every `transaction_id` balanced. Today no spec performs any cross-transaction aggregate.
+- Fix `confirmPayout` (`settlement.service.ts:292-299`): reads with no transaction and no `FOR UPDATE` before its terminal early-return despite an "Idempotent" docstring — and races the 30-min `ReconciliationCron` against `POST /admin/settlements/reconcile`.
 
 ---
 
-# TIER 3 — Plan lifecycle
+**S6 · Reserves come back out** — Effort **M** · Deps S5 · **High**
 
-## Slice 11 — Operable plans
+_Prevents:_ merchants permanently lose 2-5% of every order with no recovery path; and a refund after a release drives `reserve_held` negative **in an append-only ledger** — permanently.
 
-**Effort: XL — split into 11a/11b/11c** · depends on Tier 0
-
-| #    | Finding                                                                                                                                                                                                                              | Sev    | Conf |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ---- |
-| 11.1 | **No plan cancellation or unwind.** Nothing writes `cancelled` to `customer_plans`. Goods returned → the engine keeps debiting the customer's MoMo every cycle, and the only exit books a loss.                                      | high   | [V]  |
-| 11.2 | **Restructuring is entirely unimplemented** despite DB, state-machine and DTO support. The only outcomes for a struggling customer are keep dunning or write off. Closing a case as `restructured` produces a lie.                   | high   | [V]  |
-| 11.3 | **Collections write-off defaults a plan without re-checking delinquency, and nothing closes a case when its installment is paid.** Ops records a field-agent cash payment, and 90 days later the sweep defaults the customer anyway. | high   | [V]  |
-| 11.4 | **No early settlement / payoff** — a customer cannot pay off the remaining balance. No quote, no interest rebate.                                                                                                                    | medium | [V]  |
-| 11.5 | **Late fees are configurable, priced into every charge and constrained in SQL — but never accrued on any installment.**                                                                                                              | medium | [V]  |
-| 11.6 | Statement double-counts refunded installments; `amountPaid` and `outstanding` are mutually inconsistent.                                                                                                                             | medium | [V]  |
-
-**Suggested split:** 11a = cancellation + case-close-on-payment (safety); 11b = restructure; 11c = early payoff + late-fee accrual + statement fix.
+Build: a delivery-recording endpoint calling `markDelivered` (without it `computeReleaseDate` returns the NEVER sentinel — year 275760 — for every layaway row forever). Stamp a release trigger on default so surviving reserve matures. Make BNPL default consume the 5% reserve withheld for exactly that purpose (`default.service.ts:94-105` sets `fromReserve = 0`). Cap the refund clawback at the live reserve balance — the symmetric guard already exists on the release side (`reserve-release.service.ts:233-236`). Row-lock + idempotency on `releaseOne`.
 
 ---
 
-# TIER 4 — Usability & observability
+**S7 · Refunds return money** — Effort **L** · Deps S5 · **High** · 🚩 **regulator**
 
-## Slice 12 — API completeness
+_Prevents:_ you refund a customer in the admin console — the button is shipped (`apps/admin-web/src/pages/plans/detail.tsx:84-92`) — the books say the merchant owes it back, and **the customer never receives a cedi**. `PaystackClient` has no refund method. The `refund_payable` account the schema defines for exactly this (`0000:512-513`) has zero writers, so the platform's obligation to the customer exists nowhere.
 
-**Effort: L**
-
-| #     | Finding                                                                                                                                                                                                                         | Sev     | Conf  |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ----- |
-| 12.1  | **`Idempotency-Key` is advertised in CORS but never implemented** — every money-mutating POST is replay-unsafe. `IdempotencyService` is fully written and registered nowhere. On Ghanaian networks, client retries are routine. | blocker | [U] ⊕ |
-| 12.2  | Domain errors on live paths are unmapped and leak as 500s (≥7 classes, incl. `PlanDefaultError`, `ScheduleConcurrencyError`).                                                                                                   | high    | [U]   |
-| 12.3  | No plan list/search endpoint — a plan is unreachable unless you already know its UUID. Support cannot find a caller's plan.                                                                                                     | high    | [U]   |
-| 12.4  | `payment_attempts` — the durable charge log — has no read API. Support cannot answer "MTN debited me but the app says unpaid".                                                                                                  | high    | [U]   |
-| 12.5  | Customer self-service incomplete: no early payoff, no payment-method/profile management (stale MoMo numbers silently fail debits).                                                                                              | high    | [U]   |
-| 12.6  | `audit_events` has no read API — the compliance record is write-only and `audit:read` is a dead permission.                                                                                                                     | medium  | [U]   |
-| 12.7  | `GET /admin/applications` rejects any limit/offset — string query params hit a non-coercing Zod schema.                                                                                                                         | medium  | [U]   |
-| 12.8  | No consistent pagination contract — only one of nine list endpoints returns a total.                                                                                                                                            | medium  | [U]   |
-| 12.9  | No API versioning or global prefix — the public contract cannot evolve without breaking integrators.                                                                                                                            | medium  | [U]   |
-| 12.10 | Settlement/payout endpoints gated by `plans:write`, whose seeded meaning is "create/update plan templates".                                                                                                                     | medium  | [U]   |
-
-## Slice 13 — Merchant-facing API
-
-**Effort: L**
-
-| #    | Finding                                                                                                                                                                                                                                  | Sev  | Conf |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---- |
-| 13.1 | **No merchant API surface at all.** `merchant_owner` holds zero permissions and no user↔merchant link exists, so a merchant logs in and sees nothing. The tempting workaround (granting `merchants:read`) is a cross-tenant data breach. | high | [U]  |
-
-## Slice 14 — Observability
-
-**Effort: L**
-
-| #    | Finding                                                                                                                                                                                      | Sev    | Conf |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---- |
-| 14.1 | **Webhooks for untracked references, non-charge events and failed processing are dropped with no log, alert or sweeper** — Paystack telling us a customer was debited, discarded in silence. | high   | [V]  |
-| 14.2 | No metrics of any kind — no counters, histograms or `/metrics`. `infra/observability/` is an empty stub. The `EventBus` is constructed with zero subscribers.                                | medium | [V]  |
-| 14.3 | `packages/core` — the engine itself — has no logger port and emits zero diagnostic logs.                                                                                                     | medium | [V]  |
-| 14.4 | Request/correlation IDs are a per-process counter — not unique, not ingested, not returned, not propagated.                                                                                  | medium | [V]  |
-| 14.5 | Single `/health`: no liveness/readiness split, doesn't probe the BullMQ connection or report build version.                                                                                  | medium | [V]  |
-| 14.6 | `Sentry.init` runs after the app graph is imported, defeating auto-instrumentation; tracing off by default; events never flushed on shutdown.                                                | medium | [V]  |
-
-## Slice 15 — Test infrastructure
-
-**Effort: M** · **do this early — it protects every other slice**
-
-| #    | Finding                                                                                                                                                                                                                                                                                               | Sev    | Conf  |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ----- |
-| 15.1 | **The integration suite runs unscoped global sweeps against a shared DB with Vitest file-parallelism on.** The suite guarding every money path is order- and race-dependent.                                                                                                                          | high   | [U]   |
-| 15.2 | `apps/api` has **no HTTP-layer tests at all** — 24 controllers, both guards, the exception filter and the webhook raw-body path. `PermissionsGuard` returns `true` when the decorator is absent, so a future money route that forgets it is open to any authenticated user, with no test to catch it. | high   | [U]   |
-| 15.3 | No invariant/property test that the ledger balances globally.                                                                                                                                                                                                                                         | medium | [U]   |
-| 15.4 | Hardcoded UNIQUE customer phone makes the applications suite fail on any re-run against a persistent DB. _(Independently observed during this session.)_                                                                                                                                              | medium | [U] ⊕ |
-| 15.5 | No load, performance or soak test anywhere.                                                                                                                                                                                                                                                           | medium | [U]   |
+Build: `PaystackClient.refund()`; a `RefundService` crediting `refund_payable` against `paystack_settlement` in the same transaction as the state flip; a durable refund record with `pending`/`unknown`/`succeeded`/`failed` modelled like payouts; `ReconciliationService` sweeps in-flight refunds. Zero `amount_paid_pesewas` on the refunded row so the statement stops double-counting (`statement.ts:51` sums across all statuses; the refund leaves the column intact — a refunded customer currently sees the money credited as paid **and** added back to their balance).
 
 ---
 
-## 4. Recommended order
+**S8 · Settlement pays the right merchant the right amount** — Effort **M** · Deps S5 · **High**
 
-1. **Slice 1 — Charge-path integrity** ⭐ (the only place money is actively double-taken)
-2. **Slice 2 — Retry ladder + stuck-state recovery** (shares Slice 1's refactor)
-3. **Slice 15 — Test infrastructure** (pull forward; it protects everything after)
-4. **Slice 3 — Ledger cash-in**
-5. **Slice 6 — SMS** (parallelisable at any point)
-6. **Slice 4 — Settlement correctness**
-7. **Slices 7 + 8 — Deployment + security**
-8. **Slice 9 — Counter-offers + exposure**
-9. **Slice 10 — Underwriting reality**
-10. **Slices 5, 11–14** — refunds, lifecycle, API, observability
+_Prevents:_ a merchant onboarded at a negotiated 2.5% MDR is silently charged the global 4%. I confirmed: `customer_plans.mdr_bps`/`reserve_bps` are written at `customer-plans.service.ts:173-174` and **read by nothing** — `PayoutCalculator` uses the hard-coded `MODEL_CONFIG` (`payout-calculator.ts:42-43`). Contract breach discoverable on the first merchant statement.
 
-Slices 6, 7, 8 and 15 have no dependency on Tier 0 and can be interleaved by a second worker.
+Build: read the per-plan rates in both `calculate()` and the refund clawback. `MIN_PAYOUT_PESEWAS` floor with roll-forward (design says GHS 100; today any positive balance fires a real transfer whose fee can exceed the payout). Handle `transfer.success`/`failed`/`reversed` driving `confirmPayout`, including reversal of an already-`settled` payout — Paystack routinely reverses GHS transfers days later, and today the payout stays `settled` forever with the merchant recorded as paid but unpaid. Allow a same-day retry after a failed transfer (`settleMerchant` returns "already settled today" for a payout row in **any** status including `failed`). Add a settlement permission — all three settlement routes currently carry `PERMISSIONS.PLANS_WRITE`, seeded as _"Create / update plan templates"_ (`0002:139`).
 
-## 5. Before building against an `[U]` finding
+> ⚠️ Accruals booked before this lands are wrong in an append-only ledger and can only be compensated, never edited. **Ship before the first real merchant.**
 
-Confirm it first with a direct read — those 37 never faced a refutation pass. The `⊕` items are lower risk because a second auditor reached the same conclusion independently.
+---
+
+### TIER 1 — Pilot enablement (cannot launch without)
+
+---
+
+**S9 · SMS actually sends** — Effort **S** · Deps none · **Proven** · 🚩 **regulator** ⚡ _quick win_
+
+_Prevents:_ **no customer can log in.** Customer auth is phone+OTP only and the OTP terminates at a `console.log`. Every reminder, dunning notice, payment link and receipt dies in the same place — and `NotificationService` stamps `status='sent'` on the stub's return, so the notifications table asserts delivery that never happened.
+
+Build: add `@installment/sms-client` to `apps/api` deps (currently a dependency of nothing); add `SMS_PROVIDER`/`HUBTEL_*`/`ARKESEL_*` to `env.validation.ts` (documented in `.env.example:65-71`, absent from the schema); make `SMS_SENDER` a `useFactory` that **refuses to resolve `console` when NODE_ENV==='production'**. Change `ConsoleSmsSender` to log only the last 3 digits and a length — never the body. `HubtelSmsClient.send({to, sender, message})` already satisfies the port.
+
+---
+
+**S10 · It can be deployed, and the first admin can log in** — Effort **L** · Deps none · **Proven**
+
+_Prevents:_ no reproducible way to ship, and **no way to undo a bad release touching customer money**. I verified by exhaustive search: the only YAML/infra files in the tree are `ci.yml`, `docker-compose.yml` (postgres/redis/pgadmin, no api service) and the two pnpm files. No Dockerfile, no CD, no runbooks. And after a clean production migration there is no loginable staff user — the only seeded users are nine `user_type='system'` actors with no `password_hash`.
+
+Build: multi-stage Dockerfile with an API/worker process split (`apps/workers/` is `src/.gitkeep` + a package.json saying _"Populated from Phase 7 onward"_). Fix the migration runner — `packages/db/package.json:22` runs `tsx src/migrate.ts` while `tsx` and `dotenv` are both devDependencies, so `pnpm install --prod && pnpm migrate` fails. CD workflow. A self-disabling `bootstrap-admin` script — productionise `scripts/smoke.sh:32-41`, which today only `UPDATE`s a dev seed row and would affect zero rows in production (and whose tempting shortcut, `seed:dev`, installs the repo-published password `password123` with full admin permissions). The three runbooks `DEVELOPMENT-PLAN.md:604` names.
+
+**Fix graceful shutdown here:** `db.module.ts` calls `createDb()` twice (`:15` and `:25`) producing two pg Pools and ends only `PG_POOL` — the pool every service actually uses is never closed. BullMQ's `shared` connection is never quit (verified against bullmq 5.78.0 `redis-connection.js:410`). With live sockets the event loop never drains, so **SIGTERM never completes and the pod is SIGKILLed mid-charge on every rolling deploy.**
+
+---
+
+**S11 · Underwriting that works on day one** — Effort **L** · Deps none · **Proven, and worse than filed** · 🚩 **regulator**
+
+_Prevents:_ a Ghana pilot is 100% first-time customers and **the engine cannot approve any of them.** I executed the compiled engine (`packages/core/dist/modules/scoring/scoring-engine.js`):
+
+| Applicant                                                         | Score   | Band       | Outcome           |
+| ----------------------------------------------------------------- | ------- | ---------- | ----------------- |
+| True day-1 walk-in (fresh customer row, no employer)              | **225** | unscorable | **auto-DECLINED** |
+| Day-1 + employer linked, no payroll consent                       | 325     | unscorable | **auto-DECLINED** |
+| Day-1 + employer + payroll consent + 120mo tenure (best possible) | **375** | subprime   | manual_review     |
+| Same, but customer row ≥1 year old                                | 475     | subprime   | manual_review     |
+| Above + device fingerprinting                                     | 525     | near_prime | approved_tier_2   |
+
+`near_prime` starts at 500. `score.account_age` (100 pts) requires a **365-day-old customer row** — nobody has one at pilot launch. `score.device_stability` (50 pts) is **structurally unreachable**: `TenureCollector` hard-codes `deviceFingerprintKnown: false` (`tenure.collector.ts:27`). The original audit's "max 475" quietly assumed both. **The real day-one ceiling is 375, and the typical walk-in is auto-declined at 225.**
+
+Build: a cold-start ruleset (thin-file baseline, alternative data, or a first-plan micro-limit ladder); make `device_stability` reachable or delete it; **an affordability rule that actually reads `f.employment.salaryBand`** — it is collected, snapshotted into the decision record, and read by no rule, so the record _looks_ as if income was considered when it was not; re-check exposure at activation, not only at scoring; reach `accept_counter` over HTTP and honour the accepted amount (`customer-plans.service.ts:137-138` says counter-offer amounts are "honoured in a later refinement" — meanwhile `counter_offer` fires whenever the limit is ≥50% of the order, a common mid-ticket case, and the application is then a permanent dead end); make exposure/repayment collector defaults **fail closed** on the blocklist and prior-default gates (`exposure.collector.ts:59-67` returns `isOnBlocklist:false` on a DB hiccup); write a `credit_profiles` row for every human override and require a reason (today an override writes only the application row + audit, so the decision-of-record permanently disagrees with the decision actually made); inject `RulesetLoader` so `rule_definitions` is live.
+
+---
+
+**S12 · Config, credentials and abuse resistance** — Effort **M** · Deps none · **Proven** · 🚩 **regulator**
+
+_Prevents:_ production boots with `dev-access-secret-change-me!!` (`env.validation.ts:18-19`, no NODE_ENV refinement anywhere) and anyone who has read this repo mints `{sub, type:'access'}` for any admin. An attacker burns the SMS budget with unlimited `/auth/customer/otp/start` (which overwrites the key on every call — the 5-attempt cap limits _guesses_, not _issuance_). A departed ops agent's credentials work forever.
+
+Build: `.superRefine` requiring real JWT secrets, `PAYSTACK_SECRET_KEY` and `CORS_ORIGINS` in production and rejecting the dev literals; drop the `'sk_test_unset'` fallback. `@nestjs/throttler` on the existing Redis provider as an `APP_GUARD` ordered before `JwtAuthGuard`, with named throttles on login / otp-start / otp-verify / the `/me` pay routes; failed-login counter + lockout. `UsersService.deactivate / softDelete / revokeRole / changePassword` — the read side is fully built (`is_active` and `deleted_at` are checked on password login, OTP start, OTP verify **and** refresh) so this is a one-way door, not an unbuilt feature. `POST /auth/logout`. Helmet; auth-gate the OpenAPI doc outside dev.
+
+---
+
+### TIER 2 — Operability and compliance
+
+---
+
+**S13 · Financial separation of duties + PII** — Effort **L** · Deps none · **High** · 🚩 **regulator**
+
+_Prevents:_ a single collections agent — highest turnover, lowest trust, most customer contact — can mark **any** installment on **any** plan paid (wiping a real debt) or refund **any** paid installment, unlimited times. Both routes carry `COLLECTIONS_ACT` (`installments.controller.ts:17,31`), which the `ops` role holds, alongside benign case-note logging. This is verbatim the "refund fraud, internal abuse" scenario `DEVELOPMENT-PLAN.md:579` requires the threat model to cover.
+
+Build: a financial permission tier separate from `collections:act`; maker-checker above a configurable amount; per-actor daily caps and alerts on high-value manual adjustments. Mask Ghana Card to last-4 for non-privileged readers and stop writing the raw number into audit metadata (`customers.service.ts:178`) — those rows sit behind a `BEFORE UPDATE OR DELETE` trigger and are **permanently un-erasable**. Add statement-level `BEFORE TRUNCATE` triggers (the row-level ones do not cover TRUNCATE) and a least-privilege DB role — no `GRANT`/`REVOKE`/`CREATE ROLE` appears in any of the six migrations, so the app connects as table owner and can `ALTER TABLE ... DISABLE TRIGGER`. Backup/PITR with a documented restore drill and RPO/RTO. A retention + erasure routine (`DEVELOPMENT-PLAN.md:586` requires one; none exists).
+
+---
+
+**S14 · Workers you can trust and see** — Effort **M** · Deps S10 · **Proven**
+
+_Prevents:_ an operator copying `.env.example` ships a lender that never debits and never settles with `/health` green — discovered when a merchant phones about a missing payout, after days of missed debits have pushed live installments into collections through no fault of the customer. And with the flag on across two replicas, two reserve-release sweeps credit the same merchant twice — a doubled posting is 2 debits + 2 credits and **still balances**, so the debit=credit check cannot detect it.
+
+Build: a `worker_runs` heartbeat upserted in a `finally`; a staleness cron with per-worker budgets calling `captureAlert`; `schedulerEnabled` + per-worker staleness on `/health`; split `/health/live` and `/health/ready` and probe the BullMQ ioredis client (a separate connection the health check never touches); report build/commit. Wrap every money-touching cron in `RedisLock.withLock` — its only caller repo-wide today is `schedule-state.service.ts:52`. Move `Sentry.init` into `instrument.ts` imported first (today it runs after `AppModule` is in `require.cache`, so v8's require-in-the-middle hooks never apply and every captured exception arrives context-free), set a `release`, add a PII-scrubbing `beforeSend`, flush on shutdown. Map the eight unmapped domain errors in `DomainExceptionFilter` so they stop firing Sentry as 500s.
+
+---
+
+**S15 · Gates that mean something** — Effort **M** · Deps none · **Proven** · _enabler for S1, S3, S4, S5, S6_
+
+_Prevents:_ every slice above claims "green gates," and today that claim is hollow. A concurrency fix can pass CI **without being tested at all**, because all three integration specs that construct a lock pass `new RedisLock(ALWAYS_OPEN)`.
+
+Build: per-worker schema or transaction-rollback isolation (no `TRUNCATE`/`DELETE FROM`/`beforeEach` exists in any integration spec — only `afterAll(() => pool.end())`). Scope the global sweeps in tests. Use the real CI Redis in the lock specs. Add supertest HTTP-layer tests for both global guards, the exception filter and the webhook raw-body path — `supertest` is at `apps/api/package.json:45-46` and imported by nothing. Randomise the hardcoded `'0244111222'` at `applications.integration.spec.ts:43` (unique-constrained; the suite fails on any local re-run).
+
+---
+
+### TIER 3 — Completeness
+
+---
+
+**S16 · Plan lifecycle: cancel, pay off, restructure, charge late fees** — Effort **L** · Deps S5, S7 · **High**
+
+_Prevents:_ goods are returned and **the engine keeps auto-debiting the customer every cycle forever** — nothing writes `customer_plans.status='cancelled'`, `refundInstallment` cannot touch unpaid rows, and the only exit is `markPlanDefaulted`, which brands the customer a defaulter, claws back merchant reserve, and books a fictitious loss. In a pilot with physical goods, returns are routine.
+
+Build: cancellation/unwind. Early payoff with a quote and an unearned-interest rebate (the generator front-loads all interest at `schedule-generator.ts:94`, so paying early today costs full interest). Restructure — the state machine has `in_collections:restructure_approved → restructured` and `customer_plans.restructured_from_plan_id` exists and nothing fires either, so ops closing a case with `resolution='restructured'` records an outcome the engine cannot produce and the debt is abandoned mid-state. Late-fee accrual on grace expiry (`installment_schedule.late_fee_pesewas` is read by five call sites and written by none — a merchant configures GHS 20 and it silently does nothing). Close a collections case when its installment is paid, and re-check delinquency before `resolveWriteOff` calls `markPlanDefaulted` (`collections.service.ts:337-354` defaults the plan **before** it ever looks at the schedule — an agent-collected cash payment plus a forgotten case-close defaults a paying customer 90 days later, irreversibly).
+
+---
+
+**S17 · An API surface you can operate** — Effort **L** · Deps none · **Proven**
+
+_Prevents:_ a plan is unreachable unless you already know its UUID. The admin console has literally shipped a paste-the-UUID form — I read `apps/admin-web/src/pages/plans/lookup.tsx`, a single "Plan UUID" input that navigates to `/plans/{uuid}` — because `plans.controller.ts` has no `@Get()` collection handler. A MoMo debit dispute, the most common Ghanaian support ticket, requires direct DB access because `payment_attempts` has **no read API at all**.
+
+Build: `GET /admin/plans` with filters. `GET /admin/schedules/:id/attempts` plus a force-verify route (`verifyAttempt` is reachable only via cron). An audit reader + `GET /admin/audit` (`audit:read` is seeded, referenced by no controller, and `AuditLoggerService` has only `append` and a private `validate`; the index it needs already exists at `0000:663`). A `Page<T>` envelope and consistent limit/offset/sort — only `listPayouts` returns a total, and `GET /admin/applications` 400s on any string `limit` because its Zod schema alone among the admin lists does not coerce. Customer self-service: payoff quote, MoMo number update (admin-only today, and `DebitRunner` reads the stored number, so a stale one silently fails auto-debit forever). A `/merchant` namespace with a `merchants.owner_user_id` link and real `merchant_owner` grants — that role holds **zero** permissions in every migration, and the tempting workaround (granting `MERCHANTS_READ`) is genuinely cross-tenant because `merchants.controller.ts:123-181` never compares `:id` to the caller. Routes reaching `acceptCounterOffer` and `cancel`.
+
+---
+
+## 4. Ordering
+
+**Day 0, before writing any code (~1 hour):** round-trip a Paystack sandbox charge with the current reference format. Everything below assumes charges work at all.
+
+**Week 1 — parallel, disjoint files:** **S1** (double-charge) and **S9** (SMS, effort S). S9 is a dependency line, three env keys and a factory, and it unblocks every piece of customer-facing testing for the rest of the programme.
+
+**Wave 1 — stop the bleeding (money correctness):** S1 → S3 → S4 → S2, with **S15** threaded in immediately after S1 so the later slices have gates that mean something.
+
+**Wave 2 — books you can audit:** S5 → S6 → S8 → S7. S8 before your first real merchant; pre-fix accruals can only be compensated, never edited.
+
+**Wave 3 — launch enablement:** S9 (done) → S12 (the `superRefine` alone is an hour) → S10 → S11.
+
+**Wave 4 — run it:** S14 → S13.
+
+**Wave 5 — operate it comfortably:** S17 → S16.
+
+### 🚩 Would fail a regulator or auditor
+
+| Slice       | Failure                                                                                                                                                                                                                                                                                                                 |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **S11**     | No affordability assessment anywhere, while `salary_band` is collected and snapshotted into the decision record — the record _looks_ as if income was considered. Plus adverse-action declines with no recorded reason and human overrides with no decision-of-record. Fails a BoG responsible-lending review outright. |
+| **S5**      | No cash-in leg → no trial balance, no balance sheet, no ledger-vs-Paystack reconciliation. A pilot can operate for weeks with this; it cannot be **audited**.                                                                                                                                                           |
+| **S7 + S1** | Double-debit with a refund path that books entries but moves no money. Consumer protection.                                                                                                                                                                                                                             |
+| **S13**     | Ghana Card in plaintext in an un-erasable audit row with no retention or erasure routine (Ghana DPA 2012). Plus a single ops agent able to wipe or refund any debt with no maker-checker.                                                                                                                               |
+| **S9**      | OTPs written in plaintext to the log sink next to the phone number — anyone with log access authenticates as any customer and initiates MoMo charges.                                                                                                                                                                   |
+| **S10**     | No backup/PITR and no rollback procedure for a system holding a lending book.                                                                                                                                                                                                                                           |
+
+---
+
+## 5. The single next slice
+
+### ▶ **S1 — "One installment, one charge"**
+
+**Reasoning:**
+
+1. **It is the only defect class whose harm is currently irreversible.** Everything else is recoverable by SQL, by a compensating entry, or by an operator. A double-debit is not — because the refund path (S7) books ledger entries and never calls Paystack. Debiting a Ghanaian customer twice for one installment and being structurally unable to give the money back is the single worst outcome available to this system, and today it is one double-tap away.
+
+2. **It carries the pre-flight that gates everything else.** `INSTL-{uuid}-{uuid}:{n}` contains a colon and repeats the UUID — a format that could not have survived one real sandbox round-trip. Whether Paystack accepts it changes the entire plan: if it does not, nothing in this engine has ever charged anyone, and every other slice is theory. That check belongs in the same PR and takes an hour.
+
+3. **It is coherent, contained, and honestly one review.** Five files, one migration, one new spec, all answering one question a reviewer can hold in their head: _can any sequence of requests produce two charges for one installment?_ It is not a refactor and it has no dependencies.
+
+4. **It forces the test-infrastructure fix at exactly the right scope.** You cannot prove S1 with `new RedisLock(ALWAYS_OPEN)`. Writing one properly-isolated concurrency spec against the real CI Redis inside this PR establishes the pattern S15 then backfills — rather than spending your first PR on test plumbing while a live double-debit sits in production.
+
+5. **It is the parent of the largest cross-corroboration cluster.** Six independent findings from two audits point at the same missing idempotency layer. Fixing the state-machine and locking half here makes S2 (the HTTP-boundary half) a mechanical follow-up.
+
+Ship **S9 (SMS)** the same week. Effort S, disjoint files, and until it lands you cannot test a single customer-facing path end to end.
+
+---
+
+## 6. What the finding count overstates
+
+Rank these **down**. They are real — I am not refuting them — but they consume review attention out of proportion to pilot risk.
+
+**Genuinely low value at pilot scale:**
+
+| Finding                                            | Why it ranks lower than it reads                                                                                                                                           |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No API versioning / global prefix                  | All three consumers are first-party in this monorepo. Zero external integrators. Cheap (S) and should land before the first partner — but it is not a pilot item.          |
+| Idempotency keys never expire / never purged       | The table **cannot grow**: nothing writes a row because nothing consumes the service. A pure duplicate of the wiring finding, inert until S2 lands. Fold in; do not track. |
+| Sequential scans on three hot query paths          | Correctness-neutral. Milliseconds at thousands of rows. Three `CREATE INDEX` statements, whenever.                                                                         |
+| No load / soak test                                | A missing **measurement**, not a defect. Batch entry points already carry sane caps (limit 200, limit 1000). Effort L for zero pilot-day value.                            |
+| Hardcoded `'0244111222'` in the applications spec  | A loud, immediately-reproducible local `beforeAll` failure. Zero production exposure, cannot corrupt another suite. One-line fix; do it inside S15.                        |
+| `GET /admin/applications` rejects `limit`/`offset` | The default 50 works. The screen degrades; it does not die.                                                                                                                |
+| No consistent pagination contract                  | Cosmetic at pilot row counts. Real API-design debt, but it is S17 filler, not a slice.                                                                                     |
+| No HTTP security headers; unauthenticated OpenAPI  | Real hardening, near-zero pilot exposure. Ride along in S12.                                                                                                               |
+| Domain errors unmapped → 500                       | Diagnostic and alert-budget noise. The underlying operations all re-check state under `FOR UPDATE`, so a confused operator retry is safe.                                  |
+
+**Overweighted relative to effort — defer past pilot:**
+
+- **No metrics / `/metrics` endpoint (effort L).** The raw material is all queryable: `payment_attempts` persists `failure_reason` and `raw_response` per attempt, `payouts`/`ledger_entries` hold settlement totals, and pino-http already emits per-request `responseTime`. This slows analysis; it does not hide a money-losing failure. **S14's heartbeat + staleness alerting delivers ~80% of the operational value for ~20% of the effort.** Build the heartbeat, skip Prometheus until after the pilot.
+- **Correlation IDs (effort M).** The actual forensic path for "was she debited twice on 14 Aug" is `payment_attempts` → `webhook_events` → `audit_events`, all keyed by `schedule_id` and `provider_reference`. The log-side gap is real and worth the `genReqId` one-liner; the full AsyncLocalStorage + audit-column + BullMQ-payload propagation is not pilot work.
+- **No logger port in `packages/core` (effort M).** A genuine reusability defect for a framework-free engine — but `payment_attempts.raw_response` already answers "what did Paystack say." Matters when a second host app appears, not before.
+- **No dispute / chargeback handling (effort L).** Important, and MoMo disputes in Ghana are rare compared to card. Ship a manual runbook, defer the machinery.
+- **Rules-as-data is inert (effort M).** `DEFAULT_RULESET` is correct-by-construction and version-stamped. The real cost is tuning velocity, and S11 has to touch this code anyway — fold it in rather than tracking it separately.
+- **Restructure unimplemented (effort L).** Matters enormously for a mature book; a 3-month pilot plan rarely needs restructuring inside the pilot window, and a manual write-off + re-application workaround exists. It is S16, correctly last.
+
+**And one that must be ranked UP, against both audits:**
+
+> **Cold start (S11) was filed as `high` and its arithmetic was optimistic.** The original finding said the ceiling for a thin-file applicant is 475 → subprime → manual_review. I executed the engine: that number requires a customer row **≥365 days old** _and_ device fingerprinting that `TenureCollector` hard-codes to unavailable. The true day-one ceiling is **375**, and a normal walk-in scores **225 → unscorable → auto-DECLINED**. Combined with the counter-offer dead end and a manual-review queue that has no assignment, claim, aging or SLA mechanics — and human overrides that write no `credit_profiles` row — **the pilot's day-one approval throughput is effectively zero, and every approval it does produce is unauditable.** Treat S11 as a launch blocker, not a Tier-2 nicety.
+
+---
+
+**Bottom line:** the ~70 findings collapse to **9 root causes**, and 7 of them live in code that runs only when something goes wrong or arrives late. The schema already tells you what to build — in several places it is commented with the name of the worker that was never written. That is a good position to be in. Fix the async paths, wire the idempotency layer that is already written, turn on SMS, and make the ledger record cash, and this becomes a pilot-ready lending engine in roughly four focused waves.
+
+---
+
+## Appendix — provenance
+
+**Pass A (permissive).** Ten independent audits of `packages/core`, `apps/api`, `packages/db`, each followed by a refutation agent. Six of ten refutation agents completed; four died on an account spend limit. 52 findings adjudicated, 1 refuted.
+
+**Pass B (strict).** The 37 findings orphaned by Pass A were re-adjudicated by fresh adversarial reviewers required to cite `file:line` for every verdict. 37 adjudicated, 0 refuted, 37/37 citations present.
+
+**Synthesis.** Merged both passes (~70 unique findings after dedupe) and independently re-verified the highest-leverage claims by reading and executing code — which corrected the cold-start arithmetic (S11) in the pessimistic direction.
+
+**Caveat carried forward:** 0 refuted across 88 findings in two passes is a flag on review rigour, not a compliment to the codebase. Confidence is high on _existence_, moderate on _severity calibration_. Findings tagged **Proven** were confirmed by direct code reading in-session.
