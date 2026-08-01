@@ -7,20 +7,17 @@ import { ScheduleStateService } from '../schedules/schedule-state.service';
 import {
   IllegalScheduleTransitionError,
   ScheduleTerminalStateError,
-  type ScheduleEvent,
 } from '../schedules/state-machine';
 import { AttemptRepository, type PaymentAttempt, type PaymentMethod } from './attempt-repository';
-import { classifyFailure } from './failure-classifier';
 import {
   ChargeAlreadyInFlightError,
   InstallmentNotChargeableError,
   PaymentAttemptNotFoundError,
 } from './errors';
-import { MAX_VERIFY_POLLS, retryStepFor } from './retry-policy';
+import { MAX_VERIFY_POLLS } from './retry-policy';
 import type { RetryScheduler } from './retry-scheduler';
+import { ChargeFailureEscalator, type ChargeReceiptNotifier } from './charge-failure-escalator';
 import { LockAcquisitionError, type RedisLock } from '../../shared/lock/redis-lock';
-
-const HOUR_MS = 3_600_000;
 
 /**
  * Held for the whole initiate-charge critical section. Long enough to cover a
@@ -68,15 +65,7 @@ export interface PaystackChargeClient {
   verifyTransaction(reference: string): Promise<PaystackVerifyResponse>;
 }
 
-/**
- * Customer-facing receipt SMS port. Fired after a terminal charge outcome
- * lands. Implementations must be best-effort (never throw, never block the
- * charge); PaymentService still wraps calls in try/catch as belt-and-braces.
- */
-export interface ChargeReceiptNotifier {
-  notifyChargeSucceeded(scheduleId: string, amountPesewas: number): Promise<void>;
-  notifyChargeFailed(scheduleId: string, amountPesewas: number): Promise<void>;
-}
+export type { ChargeReceiptNotifier } from './charge-failure-escalator';
 
 /** Records a MoMo charge outcome for telco health (satisfied by TelcoHealthMonitor). */
 export interface TelcoChargeRecorder {
@@ -148,7 +137,16 @@ export class PaymentService {
      * the installment and transitioning it.
      */
     private readonly lock?: RedisLock,
-  ) {}
+  ) {
+    this.escalator = new ChargeFailureEscalator(plans, schedules, retryScheduler, receipts);
+  }
+
+  /**
+   * The shared post-failure pipeline. WebhookService is given the same
+   * instance, so a decline delivered by webhook escalates and retries exactly
+   * as a synchronous one does.
+   */
+  private readonly escalator: ChargeFailureEscalator;
 
   /**
    * Runs the initiate-charge critical section under a per-schedule lock. A
@@ -401,8 +399,7 @@ export class PaymentService {
       rawResponse: response,
       failedAt: new Date(),
     });
-    await this.tryEvent(scheduleId, 'charge_failed', { ...actor, reason });
-    await this.afterFailure(scheduleId, reason, actor);
+    await this.escalator.apply(scheduleId, reason, actor);
     return { status: 'failed', attempt: failed, failureReason: reason };
   }
 
@@ -449,75 +446,13 @@ export class PaymentService {
       lastVerifiedAt: new Date(),
       verifyPollCount: attempt.verify_poll_count + 1,
     });
-    await this.tryEvent(attempt.schedule_id, 'charge_failed', { ...actor, reason });
-    await this.afterFailure(attempt.schedule_id, reason, actor);
+    await this.escalator.apply(attempt.schedule_id, reason, actor);
     return { status: 'failed', attempt: failed, failureReason: reason };
   }
 
-  /**
-   * After a failure lands the schedule in `failed`: a non-retryable reason
-   * escalates to `overdue`; a retryable one (with attempts remaining and a
-   * scheduler wired) transitions to `retry_scheduled` and enqueues the next
-   * attempt — otherwise the row is left at `failed`.
-   */
-  private async afterFailure(scheduleId: string, reason: string, actor: PlanActor): Promise<void> {
-    const installment = await this.plans.getInstallment(scheduleId);
-    const amount = installment.amount_due_pesewas + installment.late_fee_pesewas;
-
-    if (classifyFailure(reason) === 'non_retryable') {
-      await this.tryEvent(scheduleId, 'non_retryable_decline', { ...actor, reason });
-      this.notify((n) => n.notifyChargeFailed(scheduleId, amount)); // terminal
-      return;
-    }
-    // No scheduler wired → the row stays `failed`, which is terminal here.
-    if (!this.retryScheduler) {
-      this.notify((n) => n.notifyChargeFailed(scheduleId, amount));
-      return;
-    }
-
-    const nextAttempt = installment.attempt_count + 1;
-    const step = retryStepFor(nextAttempt);
-    if (!step) {
-      // Out of retries — terminal failure; the grace-expiry worker escalates.
-      this.notify((n) => n.notifyChargeFailed(scheduleId, amount));
-      return;
-    }
-
-    // Retryable with attempts left: no SMS now — the retry / payment-link
-    // messaging covers it, so the customer isn't pinged on every attempt.
-    const moved = await this.tryEvent(scheduleId, 'retryable', { ...actor, reason });
-    if (moved) {
-      await this.retryScheduler.scheduleRetry({
-        scheduleId,
-        attempt: nextAttempt,
-        channel: step.channel,
-        delayMs: step.delayHours * HOUR_MS,
-      });
-    }
-  }
-
-  /**
-   * Applies a schedule event, returning whether it actually transitioned.
-   * "Already in the target state" (illegal / terminal) returns false rather
-   * than throwing — a transition that races a webhook is a safe no-op.
-   */
-  private async tryEvent(
-    scheduleId: string,
-    event: ScheduleEvent,
-    ctx: { actorId: string; actorType: PlanActor['actorType']; reason?: string },
-  ): Promise<boolean> {
-    try {
-      await this.schedules.applyEvent(scheduleId, event, ctx);
-      return true;
-    } catch (err) {
-      if (
-        err instanceof IllegalScheduleTransitionError ||
-        err instanceof ScheduleTerminalStateError
-      ) {
-        return false;
-      }
-      throw err;
-    }
+  /** Exposes the shared failure pipeline so WebhookService reuses it verbatim. */
+  get failureEscalator(): ChargeFailureEscalator {
+    return this.escalator;
   }
 
   /** Swallows illegal/terminal transition errors thrown from within `fn`. */

@@ -30,6 +30,7 @@ export type ScheduleEvent =
   | 'due_date_reached'
   | 'debit_initiated'
   | 'charge_succeeded'
+  | 'late_payment_received'
   | 'charge_failed'
   | 'retryable'
   | 'non_retryable_decline'
@@ -50,6 +51,18 @@ const TRANSITIONS: Partial<Record<Key, ScheduleStatus>> = {
   'pending:due_date_reached': 'due',
   'due:debit_initiated': 'processing',
   'processing:charge_succeeded': 'paid',
+
+  // Late settlement. MoMo confirms asynchronously, so money frequently arrives
+  // after the schedule has moved on: a payment-link payment lands while the row
+  // is `retry_scheduled` (PaymentLinkDispatcher leaves it there by design), and
+  // a slow USSD approval lands after the verify poll gave up and failed it.
+  // Without these edges the only path to `paid` was from `processing`, so every
+  // such payment was taken from the customer and then discarded.
+  'pending:late_payment_received': 'paid',
+  'due:late_payment_received': 'paid',
+  'failed:late_payment_received': 'paid',
+  'retry_scheduled:late_payment_received': 'paid',
+  'overdue:late_payment_received': 'paid',
 
   // Failure & retry loop
   'processing:charge_failed': 'failed',

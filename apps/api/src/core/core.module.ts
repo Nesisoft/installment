@@ -55,6 +55,7 @@ import {
 } from '@installment/commerce';
 import { PaystackClient } from '@installment/paystack-client';
 import type { Database } from '@installment/db';
+import { captureAlert } from '../common/alerting';
 import { DRIZZLE } from '../db/db.module';
 import { REDIS } from '../redis/redis.module';
 import { RedisTelcoHealthStore } from './redis-telco-store';
@@ -396,13 +397,26 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         attempts: AttemptRepository,
         plans: CustomerPlansService,
         scheduleState: ScheduleStateService,
-      ) => new WebhookService(db, paystack, attempts, plans, scheduleState),
+        payments: PaymentService,
+      ) =>
+        // Share PaymentService's failure pipeline so a webhook-delivered
+        // decline runs the same retry ladder as a synchronous one.
+        new WebhookService(
+          db,
+          paystack,
+          attempts,
+          plans,
+          scheduleState,
+          payments.failureEscalator,
+          { unhandled: (detail) => captureAlert('paystack webhook not applied', 'error', detail) },
+        ),
       inject: [
         DRIZZLE,
         PaystackClient,
         AttemptRepository,
         CustomerPlansService,
         ScheduleStateService,
+        PaymentService,
       ],
     },
     {

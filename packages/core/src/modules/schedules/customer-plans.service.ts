@@ -4,7 +4,12 @@ import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service'
 import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
 import { isUniqueViolation } from '../../shared/db/pg-errors';
 import { ScheduleGenerator, type ScheduleBusinessModel } from './schedule-generator';
-import { SCHEDULE_TERMINAL_STATES, nextScheduleStatus, type ScheduleStatus } from './state-machine';
+import {
+  SCHEDULE_TERMINAL_STATES,
+  nextScheduleStatus,
+  type ScheduleEvent,
+  type ScheduleStatus,
+} from './state-machine';
 import { recordManualPaymentSchema } from './dto';
 import {
   CustomerPlanNotFoundError,
@@ -47,6 +52,16 @@ export interface ManualPaymentResult {
   schedule: InstallmentScheduleRow;
   plan: CustomerPlan;
 }
+
+/**
+ * Which settlement event to apply for the state the schedule is actually in
+ * when confirmed money arrives. Anything not listed uses
+ * `late_payment_received` (see the state machine's late-settlement edges).
+ */
+const SETTLEMENT_EVENT: Partial<Record<ScheduleStatus, ScheduleEvent>> = {
+  processing: 'charge_succeeded',
+  in_collections: 'payment_recovered',
+};
 
 /**
  * Owns the `customer_plans` lifecycle. Activation turns an approved application
@@ -299,18 +314,17 @@ export class CustomerPlansService {
       if (!installment) throw new ScheduleNotFoundError(scheduleId);
 
       const from = installment.status as ScheduleStatus;
-      nextScheduleStatus(from, 'charge_succeeded'); // validates processing → paid
-      return this.finalisePaidInstallment(
-        tx,
-        installment,
-        from,
-        'schedule.charge_succeeded',
-        actor,
-        {
-          nowIso,
-          providerReference: opts.providerReference,
-        },
-      );
+      // Money confirmed by the provider settles the installment regardless of
+      // where the schedule had moved to in the meantime. Only the event name
+      // differs, so the audit trail records *how* the payment arrived.
+      // nextScheduleStatus still rejects the genuinely illegal cases — an
+      // already-`paid` row, or a terminal one.
+      const event = SETTLEMENT_EVENT[from] ?? 'late_payment_received';
+      nextScheduleStatus(from, event);
+      return this.finalisePaidInstallment(tx, installment, from, `schedule.${event}`, actor, {
+        nowIso,
+        providerReference: opts.providerReference,
+      });
     });
   }
 
