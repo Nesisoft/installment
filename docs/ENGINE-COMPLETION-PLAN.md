@@ -223,7 +223,7 @@ Build: a cold-start ruleset (thin-file baseline, alternative data, or a first-pl
 
 **S12 · Config, credentials and abuse resistance** — Effort **M** · Deps none · **Proven** · 🚩 **regulator**
 
-_Prevents:_ production boots with `dev-access-secret-change-me!!` (`env.validation.ts:18-19`, no NODE_ENV refinement anywhere) and anyone who has read this repo mints `{sub, type:'access'}` for any admin. An attacker burns the SMS budget with unlimited `/auth/customer/otp/start` (which overwrites the key on every call — the 5-attempt cap limits _guesses_, not _issuance_). A departed ops agent's credentials work forever.
+_Prevents:_ production boots with `dev-access-secret-change-me!!` (`env.validation.ts:18-19`, no NODE*ENV refinement anywhere) and anyone who has read this repo mints `{sub, type:'access'}` for any admin. An attacker burns the SMS budget with unlimited `/auth/customer/otp/start` (which overwrites the key on every call — the 5-attempt cap limits \_guesses*, not _issuance_). A departed ops agent's credentials work forever.
 
 Build: `.superRefine` requiring real JWT secrets, `PAYSTACK_SECRET_KEY` and `CORS_ORIGINS` in production and rejecting the dev literals; drop the `'sk_test_unset'` fallback. `@nestjs/throttler` on the existing Redis provider as an `APP_GUARD` ordered before `JwtAuthGuard`, with named throttles on login / otp-start / otp-verify / the `/me` pay routes; failed-login counter + lockout. `UsersService.deactivate / softDelete / revokeRole / changePassword` — the read side is fully built (`is_active` and `deleted_at` are checked on password login, OTP start, OTP verify **and** refresh) so this is a one-way door, not an unbuilt feature. `POST /auth/logout`. Helmet; auth-gate the OpenAPI doc outside dev.
 
@@ -355,7 +355,7 @@ Rank these **down**. They are real — I am not refuting them — but they consu
 
 **And one that must be ranked UP, against both audits:**
 
-> **Cold start (S11) was filed as `high` and its arithmetic was optimistic.** The original finding said the ceiling for a thin-file applicant is 475 → subprime → manual_review. I executed the engine: that number requires a customer row **≥365 days old** _and_ device fingerprinting that `TenureCollector` hard-codes to unavailable. The true day-one ceiling is **375**, and a normal walk-in scores **225 → unscorable → auto-DECLINED**. Combined with the counter-offer dead end and a manual-review queue that has no assignment, claim, aging or SLA mechanics — and human overrides that write no `credit_profiles` row — **the pilot's day-one approval throughput is effectively zero, and every approval it does produce is unauditable.** Treat S11 as a launch blocker, not a Tier-2 nicety.
+> **Cold start (S11) was filed as `high` and its arithmetic was optimistic.** The original finding said the ceiling for a thin-file applicant is 475 → subprime → manual*review. I executed the engine: that number requires a customer row **≥365 days old** \_and* device fingerprinting that `TenureCollector` hard-codes to unavailable. The true day-one ceiling is **375**, and a normal walk-in scores **225 → unscorable → auto-DECLINED**. Combined with the counter-offer dead end and a manual-review queue that has no assignment, claim, aging or SLA mechanics — and human overrides that write no `credit_profiles` row — **the pilot's day-one approval throughput is effectively zero, and every approval it does produce is unauditable.** Treat S11 as a launch blocker, not a Tier-2 nicety.
 
 ---
 

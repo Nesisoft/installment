@@ -318,6 +318,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         retryScheduler: BullMqRetryScheduler,
         receipts: ChargeReceiptService,
         telco: TelcoHealthMonitor,
+        lock: RedisLock,
       ) =>
         new PaymentService(
           plans,
@@ -327,6 +328,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
           retryScheduler,
           receipts,
           telco,
+          lock,
         ),
       inject: [
         CustomerPlansService,
@@ -336,6 +338,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         BullMqRetryScheduler,
         ChargeReceiptService,
         TelcoHealthMonitor,
+        RedisLock,
       ],
     },
     {

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { PaymentAttemptNotFoundError } from './errors';
 
@@ -92,6 +92,23 @@ export class AttemptRepository {
 
   async findByIdempotencyKey(key: string): Promise<PaymentAttempt | undefined> {
     return (await this.db.select().from(pa).where(eq(pa.idempotency_key, key)).limit(1))[0];
+  }
+
+  /**
+   * The newest unresolved attempt for a schedule, if any. `in_flight` means a
+   * charge is live at the provider; `unknown` means we could not determine
+   * whether money moved. Either way a fresh charge risks debiting the customer
+   * twice, so callers must refuse rather than initiate one.
+   */
+  async findUnresolvedForSchedule(scheduleId: string): Promise<PaymentAttempt | undefined> {
+    return (
+      await this.db
+        .select()
+        .from(pa)
+        .where(and(eq(pa.schedule_id, scheduleId), inArray(pa.status, ['in_flight', 'unknown'])))
+        .orderBy(desc(pa.initiated_at))
+        .limit(1)
+    )[0];
   }
 
   /**

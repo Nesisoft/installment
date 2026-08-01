@@ -47,6 +47,7 @@ const NAME_STATUS: Record<string, number> = {
   PlanAlreadyActiveError: HttpStatus.CONFLICT,
   InstallmentNotPayableError: HttpStatus.CONFLICT,
   InstallmentNotChargeableError: HttpStatus.CONFLICT,
+  ChargeAlreadyInFlightError: HttpStatus.CONFLICT,
   ReceiptNotAvailableError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
   CaseAlreadyClosedError: HttpStatus.CONFLICT,

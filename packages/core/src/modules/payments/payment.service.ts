@@ -11,11 +11,23 @@ import {
 } from '../schedules/state-machine';
 import { AttemptRepository, type PaymentAttempt, type PaymentMethod } from './attempt-repository';
 import { classifyFailure } from './failure-classifier';
-import { InstallmentNotChargeableError, PaymentAttemptNotFoundError } from './errors';
+import {
+  ChargeAlreadyInFlightError,
+  InstallmentNotChargeableError,
+  PaymentAttemptNotFoundError,
+} from './errors';
 import { MAX_VERIFY_POLLS, retryStepFor } from './retry-policy';
 import type { RetryScheduler } from './retry-scheduler';
+import { LockAcquisitionError, type RedisLock } from '../../shared/lock/redis-lock';
 
 const HOUR_MS = 3_600_000;
+
+/**
+ * Held for the whole initiate-charge critical section. Long enough to cover a
+ * slow provider call, short enough that a crashed process frees the schedule
+ * well inside the retry cadence.
+ */
+const CHARGE_LOCK_TTL_MS = 45_000;
 
 interface PaystackChargeResponse {
   data: {
@@ -128,7 +140,37 @@ export class PaymentService {
     private readonly receipts?: ChargeReceiptNotifier,
     /** Optional telco health recorder — best-effort; never affects the charge. */
     private readonly telcoRecorder?: TelcoChargeRecorder,
+    /**
+     * Serialises charge initiation per schedule across processes. Optional so
+     * framework-free callers can omit it — the state-machine transition and the
+     * unresolved-attempt check still prevent a double charge without it, but
+     * production should always wire this: it closes the window between reading
+     * the installment and transitioning it.
+     */
+    private readonly lock?: RedisLock,
   ) {}
+
+  /**
+   * Runs the initiate-charge critical section under a per-schedule lock. A
+   * caller that loses the race fails fast (waitMs 0) rather than queueing
+   * behind a live charge — a queued duplicate would debit the customer again
+   * the moment the first one finished.
+   */
+  private async withChargeLock<T>(scheduleId: string, fn: () => Promise<T>): Promise<T> {
+    if (!this.lock) return fn();
+    try {
+      return await this.lock.withLock(
+        `charge:${scheduleId}`,
+        { ttlMs: CHARGE_LOCK_TTL_MS, waitMs: 0 },
+        fn,
+      );
+    } catch (err) {
+      if (err instanceof LockAcquisitionError) {
+        throw new ChargeAlreadyInFlightError(scheduleId, 'another charge holds the lock');
+      }
+      throw err;
+    }
+  }
 
   /** Fires a receipt SMS without ever letting it affect the charge outcome. */
   private notify(fn: (n: ChargeReceiptNotifier) => Promise<void>): void {
@@ -147,69 +189,73 @@ export class PaymentService {
   }
 
   async chargeCard(input: ChargeCardInput, actor: PlanActor): Promise<ChargeResult> {
-    const { attempt, reference, amount, installment } = await this.beginAttempt(
-      input.scheduleId,
-      'card',
-      actor,
-    );
+    return this.withChargeLock(input.scheduleId, async () => {
+      const { attempt, reference, amount, installment } = await this.beginAttempt(
+        input.scheduleId,
+        'card',
+        actor,
+      );
 
-    let response: PaystackChargeResponse;
-    try {
-      response = await this.paystack.chargeCard({
-        email: input.email,
-        amount,
-        currency: 'GHS',
-        authorization_code: input.authorizationCode,
-        reference,
-        metadata: { schedule_id: input.scheduleId, attempt_id: attempt.id },
-      });
-    } catch (err) {
-      return this.markAttemptUnknown(attempt.id, err);
-    }
+      let response: PaystackChargeResponse;
+      try {
+        response = await this.paystack.chargeCard({
+          email: input.email,
+          amount,
+          currency: 'GHS',
+          authorization_code: input.authorizationCode,
+          reference,
+          metadata: { schedule_id: input.scheduleId, attempt_id: attempt.id },
+        });
+      } catch (err) {
+        return this.markAttemptUnknown(attempt.id, err);
+      }
 
-    if (response.data.status === 'success') {
-      return this.settleAttemptSuccess(attempt.id, installment.id, response, actor);
-    }
-    return this.handleSyncFailure(attempt.id, installment.id, response, actor);
+      if (response.data.status === 'success') {
+        return this.settleAttemptSuccess(attempt.id, installment.id, response, actor);
+      }
+      return this.handleSyncFailure(attempt.id, installment.id, response, actor);
+    });
   }
 
   async chargeMobileMoney(input: ChargeMobileMoneyInput, actor: PlanActor): Promise<ChargeResult> {
-    const { attempt, reference, amount, installment } = await this.beginAttempt(
-      input.scheduleId,
-      'momo',
-      actor,
-    );
+    return this.withChargeLock(input.scheduleId, async () => {
+      const { attempt, reference, amount, installment } = await this.beginAttempt(
+        input.scheduleId,
+        'momo',
+        actor,
+      );
 
-    let response: PaystackChargeResponse;
-    try {
-      response = await this.paystack.chargeMobileMoney({
-        email: input.email,
-        amount,
-        currency: 'GHS',
-        phone: input.phone,
-        provider: input.provider,
-        reference,
-        metadata: { schedule_id: input.scheduleId, attempt_id: attempt.id },
-      });
-    } catch (err) {
-      return this.markAttemptUnknown(attempt.id, err);
-    }
+      let response: PaystackChargeResponse;
+      try {
+        response = await this.paystack.chargeMobileMoney({
+          email: input.email,
+          amount,
+          currency: 'GHS',
+          phone: input.phone,
+          provider: input.provider,
+          reference,
+          metadata: { schedule_id: input.scheduleId, attempt_id: attempt.id },
+        });
+      } catch (err) {
+        return this.markAttemptUnknown(attempt.id, err);
+      }
 
-    const status = response.data.status;
-    if (status === 'success') {
-      this.recordTelco(input.provider, true);
-      return this.settleAttemptSuccess(attempt.id, installment.id, response, actor);
-    }
-    if (status === 'pay_offline' || status === 'pending') {
-      // In-flight — not a telco-decisive outcome; the webhook/verify resolves it.
-      const updated = await this.attempts.update(attempt.id, {
-        providerReference: response.data.reference,
-        rawResponse: response,
-      });
-      return { status: 'pending', attempt: updated, providerReference: response.data.reference };
-    }
-    this.recordTelco(input.provider, false);
-    return this.handleSyncFailure(attempt.id, installment.id, response, actor);
+      const status = response.data.status;
+      if (status === 'success') {
+        this.recordTelco(input.provider, true);
+        return this.settleAttemptSuccess(attempt.id, installment.id, response, actor);
+      }
+      if (status === 'pay_offline' || status === 'pending') {
+        // In-flight — not a telco-decisive outcome; the webhook/verify resolves it.
+        const updated = await this.attempts.update(attempt.id, {
+          providerReference: response.data.reference,
+          rawResponse: response,
+        });
+        return { status: 'pending', attempt: updated, providerReference: response.data.reference };
+      }
+      this.recordTelco(input.provider, false);
+      return this.handleSyncFailure(attempt.id, installment.id, response, actor);
+    });
   }
 
   /**
@@ -292,9 +338,25 @@ export class PaymentService {
     amount: number;
   }> {
     const installment = await this.plans.getInstallment(scheduleId);
+
+    // An unresolved attempt means money may already be moving for this
+    // installment (`in_flight`), or we genuinely don't know (`unknown`).
+    // Charging again on top of either is how a customer gets debited twice.
+    const unresolved = await this.attempts.findUnresolvedForSchedule(scheduleId);
+    if (unresolved) {
+      throw new ChargeAlreadyInFlightError(
+        scheduleId,
+        `attempt ${unresolved.id} is ${unresolved.status}`,
+      );
+    }
+
     await this.ensureProcessing(installment, actor);
-    const idempotencyKey = `${scheduleId}:${installment.attempt_count + 1}`;
-    const reference = `INSTL-${scheduleId}-${idempotencyKey}`;
+    const attemptNumber = installment.attempt_count + 1;
+    const idempotencyKey = `${scheduleId}:${attemptNumber}`;
+    // Paystack's reference charset excludes ':' — keep the colon-joined key
+    // internal and send a charset-safe reference. UNIQUE(idempotency_key) is
+    // what actually de-duplicates; the reference just has to be stable.
+    const reference = `INSTL-${scheduleId}-${attemptNumber}`;
     const amount = installment.amount_due_pesewas + installment.late_fee_pesewas;
     const attempt = await this.attempts.create({
       scheduleId,
@@ -481,7 +543,11 @@ export class PaymentService {
     const id = installment.id;
     switch (installment.status) {
       case 'processing':
-        return;
+        // Already being charged. Treating this as a no-op (as this once did)
+        // let a second caller through: it read a stale attempt_count, derived a
+        // different idempotency key and reference, and slipped past
+        // UNIQUE(idempotency_key) to issue a second live charge.
+        throw new ChargeAlreadyInFlightError(id, 'installment is already processing');
       case 'pending':
         await this.schedules.applyEvent(id, 'due_date_reached', actor);
         await this.schedules.applyEvent(id, 'debit_initiated', actor);
