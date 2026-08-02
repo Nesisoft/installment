@@ -172,6 +172,26 @@ describe.skipIf(!RUN_DB)('PlanCashLedger (integration)', () => {
     await assertPlanTransactionsBalance(plan.id);
   });
 
+  it('rent_to_own: accrual precedes cash like bnpl, over a long 12-installment tail', async () => {
+    // Same accrual timing as bnpl (100% at activation) but a 12% reserve and a
+    // 12-month tail, so the schedule generator distributes a remainder across
+    // many rows. Worth its own case: if those rows did not sum back to the
+    // order amount, receivable would not close out and the residue would be
+    // permanent on an append-only table.
+    const { plan, schedule } = await activate(
+      await template({ model: 'rent_to_own', installments: 12 }),
+      120_000,
+    );
+    expect(await bal('receivable', plan.id)).toBe(-120_000);
+
+    for (const row of schedule) await payInstallment(row.id);
+
+    expect(await bal('receivable', plan.id)).toBe(0);
+    expect(await bal('customer_float', plan.id)).toBe(0);
+    expect(await bal('reserve_held', plan.id)).toBe(14_400); // 12% of 120,000
+    await assertPlanTransactionsBalance(plan.id);
+  });
+
   it('layaway: cash is held in float until completion, then attributed', async () => {
     const { plan, schedule } = await activate(
       await template({ model: 'layaway', installments: 4 }),
