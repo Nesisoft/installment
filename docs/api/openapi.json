@@ -4537,6 +4537,27 @@
         ]
       }
     },
+    "/admin/ledger/integrity": {
+      "get": {
+        "description": "The trial balance sums every account. Individual accounts are expected to be non-zero; their total must be exactly 0, because every transaction posts equal debits and credits. A non-zero total means the books have drifted, and unbalancedTransactions locates it. See docs/runbooks/ledger-imbalance.md.",
+        "operationId": "LedgerController_integrityReport",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Trial balance and any unbalanced transactions",
+        "tags": [
+          "ledger"
+        ]
+      }
+    },
     "/admin/collections/cases": {
       "get": {
         "operationId": "CollectionsController_list",

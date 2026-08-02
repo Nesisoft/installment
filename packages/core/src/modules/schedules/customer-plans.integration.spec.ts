@@ -12,6 +12,7 @@ import { ApplicationsService } from '../applications/applications.service';
 import { LedgerService } from '../../shared/ledger/ledger.service';
 import { PayoutRecorder } from '../settlements/payout-recorder';
 import { CustomerPlansService } from './customer-plans.service';
+import { PlanCashLedger } from './plan-cash-ledger';
 import {
   InstallmentNotPayableError,
   PlanActivationError,
@@ -288,7 +289,20 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — payout accruals
   const customers = new CustomersService(db, audit, new MockGhanaCardVerifier());
   const planTemplates = new PlanTemplatesService(db, audit);
   const apps = new ApplicationsService(db, audit);
-  const plans = new CustomerPlansService(db, audit, undefined, payouts);
+  // Wired exactly as production wires it. Without the cash ledger these tests
+  // describe a configuration the app never runs, and the receivable assertions
+  // below would keep pinning the pre-S5 behaviour (a fully paid plan still
+  // showing the whole order as owed) instead of the real one.
+  const cashLedger = new PlanCashLedger(ledger);
+  const plans = new CustomerPlansService(
+    db,
+    audit,
+    undefined,
+    payouts,
+    undefined,
+    undefined,
+    cashLedger,
+  );
   const ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 
   let bnplTemplateId: string;
@@ -458,7 +472,11 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — payout accruals
     // 40% of 100k → gross 40k, MDR 4% = 1_600, reserve 7% = 2_800, net = 35_600
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(35_600);
     expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(2_800);
-    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-40_000);
+    // 40,000 recognised as owed and 40,000 collected, so nothing is outstanding.
+    // (Pre-S5 this read -40,000 because the cash leg did not exist: the accrual
+    // was booked and the customer's payment was never recorded against it.)
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(0);
+    expect(await ledger.balanceOf('customer_float', plan.id)).toBe(0);
   });
 
   it('books both hybrid slices once the plan completes (40% + 60% = 100% gross)', async () => {
@@ -475,7 +493,11 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — payout accruals
     expect((await plans.get(plan.id)).status).toBe('completed');
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(89_000);
     expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(7_000);
-    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-100_000);
+    // A fully paid plan owes nothing. This assertion previously read -100,000 —
+    // it encoded the missing cash leg, asserting the whole order was still
+    // collectable from a customer who had paid every installment.
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(0);
+    expect(await ledger.balanceOf('customer_float', plan.id)).toBe(0);
   });
 
   it('books plan_completed (100%) for layaway only when the plan completes', async () => {
@@ -521,7 +543,20 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
   const customers = new CustomersService(db, audit, new MockGhanaCardVerifier());
   const planTemplates = new PlanTemplatesService(db, audit);
   const apps = new ApplicationsService(db, audit);
-  const plans = new CustomerPlansService(db, audit, undefined, payouts);
+  // Wired exactly as production wires it. Without the cash ledger these tests
+  // describe a configuration the app never runs, and the receivable assertions
+  // below would keep pinning the pre-S5 behaviour (a fully paid plan still
+  // showing the whole order as owed) instead of the real one.
+  const cashLedger = new PlanCashLedger(ledger);
+  const plans = new CustomerPlansService(
+    db,
+    audit,
+    undefined,
+    payouts,
+    undefined,
+    undefined,
+    cashLedger,
+  );
   const ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 
   let bnplTemplateId: string;
@@ -709,7 +744,11 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
     // Totals: gross 20_000, net 17_800, reserve 1_400.
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(89_000 - 17_800);
     expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(7_000 - 1_400);
-    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-100_000 + 20_000);
+    // The customer had paid in full, so they owe nothing: the accrual clawback
+    // credits receivable and the cash reversal debits it straight back. What
+    // changes is that the platform now owes the customer their money.
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(0);
+    expect(await ledger.balanceOf('refund_payable', plan.id)).toBe(20_000);
   });
 
   it('refunds a layaway installment with no ledger reversal before completion', async () => {

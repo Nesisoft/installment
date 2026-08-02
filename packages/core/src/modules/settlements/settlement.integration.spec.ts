@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { createDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
@@ -109,9 +109,23 @@ describe.skipIf(!RUN_DB)('SettlementService (integration)', () => {
 
     // Payable cleared; cash account credited the same amount.
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
-    expect(
-      await ledger.balanceOf('paystack_settlement', SETTLEMENT_CASH_REF),
-    ).toBeGreaterThanOrEqual(50_000);
+    // Assert this payout's own credit, not the global cash balance. Since S5
+    // books the inbound leg, paystack_settlement is no longer monotonically
+    // positive — collections debit it — so its aggregate balance says nothing
+    // about whether this particular cash-out was booked.
+    const cashOut = await db
+      .select({ amount: schema.ledger_entries.amount_pesewas })
+      .from(schema.ledger_entries)
+      .where(
+        and(
+          eq(schema.ledger_entries.transaction_id, `payout:${result.payoutId}`),
+          eq(schema.ledger_entries.account_type, 'paystack_settlement'),
+          eq(schema.ledger_entries.account_ref, SETTLEMENT_CASH_REF),
+          eq(schema.ledger_entries.direction, 'credit'),
+        ),
+      );
+    expect(cashOut).toHaveLength(1);
+    expect(cashOut[0]!.amount).toBe(50_000);
 
     const payout = (
       await db.select().from(schema.payouts).where(eq(schema.payouts.merchant_id, merchantId))

@@ -1,5 +1,12 @@
 export * from './shared/money/money';
 export * from './shared/ledger/ledger.service';
+export {
+  LedgerIntegrityService,
+  type TrialBalance,
+  type TrialBalanceRow,
+  type UnbalancedTransaction,
+  type IntegrityReport,
+} from './shared/ledger/ledger-integrity.service';
 export * from './shared/lock/redis-lock';
 export * from './shared/event-bus/event-bus';
 export * from './shared/event-bus/transaction';
@@ -116,6 +123,11 @@ export {
   type ChargeResult,
 } from './modules/payments/payment.service';
 export { ChargeFailureEscalator } from './modules/payments/charge-failure-escalator';
+export {
+  PlanCashLedger,
+  PROVIDER_CASH_REF,
+  MANUAL_CASH_REF,
+} from './modules/schedules/plan-cash-ledger';
 export {
   StuckScheduleRunner,
   type StuckOutcome,

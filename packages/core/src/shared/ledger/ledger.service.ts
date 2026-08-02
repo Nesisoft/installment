@@ -3,7 +3,7 @@ import { schema, type Database } from '@installment/db';
 
 const ledger = schema.ledger_entries;
 
-/** The seven account types enforced by the ledger_entries CHECK constraint. */
+/** The account types enforced by the ledger_entries CHECK constraint. */
 export const LEDGER_ACCOUNT_TYPES = [
   'paystack_settlement',
   'merchant_payable',
@@ -12,6 +12,14 @@ export const LEDGER_ACCOUNT_TYPES = [
   'revenue',
   'receivable',
   'refund_payable',
+  /**
+   * Cash collected from a customer that is not yet attributed to a merchant
+   * obligation. Credit-normal — it is a liability, we are holding their money.
+   * Non-zero only while a plan has collected more than has been accrued
+   * (layaway for its whole life; hybrid between its two triggers). See
+   * migration 0008 for why crediting `receivable` directly is wrong.
+   */
+  'customer_float',
 ] as const;
 
 export type LedgerAccountType = (typeof LEDGER_ACCOUNT_TYPES)[number];
@@ -89,6 +97,52 @@ export class LedgerService {
     }
 
     return transactionId;
+  }
+
+  /**
+   * True when any row already exists under this logical transaction id.
+   *
+   * Deterministic transaction ids are how every write site here stays
+   * replay-safe. Note this is a check-then-insert: it narrows the window but
+   * does not close it. `ledger_posting_identity_uq` (migration 0008) is the
+   * actual guarantee — a concurrent double-post raises a unique violation
+   * rather than silently booking twice.
+   */
+  async transactionExists(transactionId: string, tx?: LedgerExecutor): Promise<boolean> {
+    const exec = tx ?? this.db;
+    const rows = await exec
+      .select({ transaction_id: ledger.transaction_id })
+      .from(ledger)
+      .where(eq(ledger.transaction_id, transactionId))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /**
+   * The postings of one logical transaction, so a caller can book an exact
+   * inverse. Reversing by reconstructing the amounts would drift from what was
+   * actually written; reading them cannot.
+   */
+  async entriesFor(
+    transactionId: string,
+    tx?: LedgerExecutor,
+  ): Promise<Array<Omit<LedgerEntryInput, 'transactionId' | 'description' | 'metadata'>>> {
+    const exec = tx ?? this.db;
+    const rows = await exec
+      .select({
+        accountType: ledger.account_type,
+        accountRef: ledger.account_ref,
+        direction: ledger.direction,
+        amountPesewas: ledger.amount_pesewas,
+      })
+      .from(ledger)
+      .where(eq(ledger.transaction_id, transactionId));
+    return rows.map((r) => ({
+      accountType: r.accountType as LedgerAccountType,
+      accountRef: r.accountRef,
+      direction: r.direction as LedgerDirection,
+      amountPesewas: Number(r.amountPesewas),
+    }));
   }
 
   /**
