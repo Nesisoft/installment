@@ -29,6 +29,15 @@ export interface WebhookAlertSink {
   }): Promise<void> | void;
 }
 
+/** The slice of SettlementService this needs to apply a transfer outcome. */
+export interface PayoutConfirmer {
+  confirmPayout(
+    reference: string,
+    outcome: 'settled' | 'failed',
+    opts?: { transferId?: string; error?: string },
+  ): Promise<void>;
+}
+
 export interface PaystackWebhookEvent {
   event: string;
   data: { reference: string; status?: string; gateway_response?: string; [key: string]: unknown };
@@ -69,6 +78,11 @@ export class WebhookService {
     private readonly escalator?: ChargeFailureEscalator,
     /** Optional sink for outcomes we could not apply — best-effort. */
     private readonly alerts?: WebhookAlertSink,
+    /**
+     * Applies outbound transfer outcomes. Without it a `transfer.reversed`
+     * cannot be acted on and is only alerted.
+     */
+    private readonly settlements?: PayoutConfirmer,
   ) {}
 
   /** Reports an unapplied outcome without ever failing the ingest. */
@@ -131,6 +145,10 @@ export class WebhookService {
   }
 
   private async dispatch(event: PaystackWebhookEvent): Promise<void> {
+    if (event.event.startsWith('transfer.')) {
+      await this.handleTransfer(event);
+      return;
+    }
     if (event.event !== 'charge.success' && event.event !== 'charge.failed') return;
     const reference = event.data.reference;
     if (!reference) {
@@ -153,6 +171,60 @@ export class WebhookService {
       await this.handleSuccess(attempt, reference);
     } else {
       await this.handleFailure(attempt, reference, event.data.gateway_response ?? 'charge_failed');
+    }
+  }
+
+  /**
+   * Outbound merchant transfers.
+   *
+   * `dispatch` previously dropped every event that was not a charge, so
+   * `transfer.success`, `transfer.failed` and `transfer.reversed` were ingested,
+   * marked processed and discarded. Paystack routinely reverses GHS transfers
+   * days later when the recipient bank or MoMo account rejects them — and when
+   * that happened the payout stayed `settled` forever, `merchant_payable`
+   * stayed cleared, and the merchant was recorded as paid while holding
+   * nothing. Nothing else in the system would ever have noticed.
+   */
+  private async handleTransfer(event: PaystackWebhookEvent): Promise<void> {
+    const reference = event.data.reference;
+    if (!reference) {
+      this.alert({
+        eventType: event.event,
+        reference: '(none)',
+        reason: 'transfer event carried no reference',
+      });
+      return;
+    }
+    if (!this.settlements) {
+      this.alert({
+        eventType: event.event,
+        reference,
+        reason: 'no settlement service wired to apply the transfer outcome',
+      });
+      return;
+    }
+
+    const outcome =
+      event.event === 'transfer.success'
+        ? 'settled'
+        : event.event === 'transfer.failed' || event.event === 'transfer.reversed'
+          ? 'failed'
+          : undefined;
+    if (!outcome) return; // transfer.* we do not act on
+
+    try {
+      await this.settlements.confirmPayout(reference, outcome, {
+        transferId: typeof event.data.id === 'string' ? event.data.id : undefined,
+        error: event.data.gateway_response ?? event.event,
+      });
+    } catch (err) {
+      // An unknown reference means Paystack moved money we have no payout for.
+      this.alert({
+        eventType: event.event,
+        reference,
+        reason: `could not apply transfer outcome: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      throw err;
     }
   }
 

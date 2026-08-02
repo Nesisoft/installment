@@ -142,7 +142,12 @@ export class SettlementService {
         .where(and(eq(payouts.merchant_id, merchantId), eq(payouts.as_of_date, asOfDate)))
         .limit(1)
     )[0];
-    if (existing) {
+    // A payout that FAILED or was REVERSED left the merchant unpaid and its
+    // ledger debit reversed, so the balance is owed again. Treating it as
+    // "already settled today" stranded that merchant until the next calendar
+    // day for a transfer that never happened — the retry is the whole point of
+    // recording the failure. Only a live or successful payout blocks a re-run.
+    if (existing && existing.status !== 'failed' && existing.status !== 'reversed') {
       return {
         merchantId,
         status: existing.status as PayoutStatus,
@@ -160,7 +165,11 @@ export class SettlementService {
 
     const merchant = (
       await this.db
-        .select({ status: merchants.status, recipient: merchants.paystack_recipient_code })
+        .select({
+          status: merchants.status,
+          recipient: merchants.paystack_recipient_code,
+          minPayout: merchants.min_payout_pesewas,
+        })
         .from(merchants)
         .where(eq(merchants.id, merchantId))
         .limit(1)
@@ -181,28 +190,62 @@ export class SettlementService {
         reason: 'no Paystack recipient code',
       };
     }
+    // Below the floor the balance simply rolls forward — it stays in
+    // merchant_payable and is picked up by a later run. Without this, a
+    // few-pesewa residue fires a real transfer whose fee can exceed it.
+    if (balance < merchant.minPayout) {
+      return {
+        merchantId,
+        status: 'skipped',
+        amountPesewas: balance,
+        reason: `below minimum payout (${merchant.minPayout} pesewas) — rolled forward`,
+      };
+    }
 
-    const reference = `payout:${merchantId}:${asOfDate}`;
+    // A retry needs a NEW provider reference: Paystack treats a repeated
+    // reference as the same transaction, so reusing the failed one would
+    // silently no-op instead of transferring. The row itself is reused —
+    // UNIQUE(merchant_id, as_of_date) permits only one per merchant per day.
+    const reference = existing
+      ? `payout:${merchantId}:${asOfDate}:r${Date.now()}`
+      : `payout:${merchantId}:${asOfDate}`;
 
-    // Book the liability down + create the payout row atomically, BEFORE the
-    // transfer, so we can never double-pay.
+    // Book the liability down + create/reset the payout row atomically, BEFORE
+    // the transfer, so we can never double-pay.
     const payoutId = await runInTransaction(this.db, async (tx) => {
-      const [row] = await tx
-        .insert(payouts)
-        .values({
-          merchant_id: merchantId,
-          amount_pesewas: balance,
-          as_of_date: asOfDate,
-          reference,
-          status: 'initiated',
-        })
-        .returning();
-      if (!row) throw new Error('payouts insert returned no row');
+      const [row] = existing
+        ? await tx
+            .update(payouts)
+            .set({
+              amount_pesewas: balance,
+              reference,
+              status: 'initiated',
+              // Clear the previous attempt's outcome so the row describes this
+              // attempt only.
+              settled_at: null,
+              failed_at: null,
+              last_error: null,
+              paystack_transfer_code: null,
+              paystack_transfer_id: null,
+            })
+            .where(eq(payouts.id, existing.id))
+            .returning()
+        : await tx
+            .insert(payouts)
+            .values({
+              merchant_id: merchantId,
+              amount_pesewas: balance,
+              as_of_date: asOfDate,
+              reference,
+              status: 'initiated',
+            })
+            .returning();
+      if (!row) throw new Error('payouts upsert returned no row');
 
       await this.ledger.record(
         [
           {
-            transactionId: `payout:${row.id}`,
+            transactionId: reference,
             accountType: 'merchant_payable',
             accountRef: merchantId,
             direction: 'debit',
@@ -211,7 +254,7 @@ export class SettlementService {
             metadata: { payout_id: row.id, as_of_date: asOfDate },
           },
           {
-            transactionId: `payout:${row.id}`,
+            transactionId: reference,
             accountType: 'paystack_settlement',
             accountRef: SETTLEMENT_CASH_REF,
             direction: 'credit',
@@ -252,7 +295,7 @@ export class SettlementService {
         return { merchantId, status: 'settled', amountPesewas: balance, payoutId, reference };
       }
       if (status === 'failed' || status === 'reversed') {
-        await this.reverseAndFail(payoutId, merchantId, balance, `transfer ${status}`);
+        await this.reverseAndFail(payoutId, merchantId, balance, `transfer ${status}`, reference);
         return {
           merchantId,
           status: 'failed',
@@ -331,6 +374,7 @@ export class SettlementService {
           payout.merchant_id,
           payout.amount_pesewas,
           opts.error ?? 'transfer failed',
+          payout.reference,
           tx,
         );
       }
@@ -411,6 +455,13 @@ export class SettlementService {
     merchantId: string,
     amountPesewas: number,
     reason: string,
+    /**
+     * The attempt's provider reference. Ledger transaction ids are keyed on it
+     * rather than on the payout row id, because a same-day retry reuses the row
+     * (UNIQUE(merchant_id, as_of_date)) — keying on the id would post the same
+     * logical transaction twice and trip ledger_posting_identity_uq.
+     */
+    reference: string,
     /** Join the caller's transaction so the lock covers the write too. */
     caller?: TransactionalTx,
   ): Promise<void> {
@@ -419,7 +470,7 @@ export class SettlementService {
       await this.ledger.record(
         [
           {
-            transactionId: `payout-reversal:${payoutId}`,
+            transactionId: `payout-reversal:${reference}`,
             accountType: 'paystack_settlement',
             accountRef: SETTLEMENT_CASH_REF,
             direction: 'debit',
@@ -428,7 +479,7 @@ export class SettlementService {
             metadata: { payout_id: payoutId },
           },
           {
-            transactionId: `payout-reversal:${payoutId}`,
+            transactionId: `payout-reversal:${reference}`,
             accountType: 'merchant_payable',
             accountRef: merchantId,
             direction: 'credit',

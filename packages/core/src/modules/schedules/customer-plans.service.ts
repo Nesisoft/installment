@@ -27,7 +27,7 @@ import { buildReceipt, type Receipt } from '../receipts/receipt';
 import type { PayoutRecorder, RecordPayoutAccrualInput } from '../settlements/payout-recorder';
 import type { ReserveReleaseService } from '../settlements/reserve-release.service';
 import type { DefaultService } from '../settlements/default.service';
-import type { BusinessModel } from '../settlements/model-config';
+import { MODEL_CONFIG, type BusinessModel } from '../settlements/model-config';
 
 const cp = schema.customer_plans;
 const sched = schema.installment_schedule;
@@ -152,12 +152,24 @@ export class CustomerPlansService {
 
     const merchant = (
       await this.db
-        .select({ mdr: merchants.default_mdr_bps, reserve: merchants.default_reserve_bps })
+        .select({
+          mdrOverride: merchants.mdr_bps_override,
+          reserveOverride: merchants.reserve_bps_override,
+        })
         .from(merchants)
         .where(eq(merchants.id, application.merchant_id))
         .limit(1)
     )[0];
     if (!merchant) throw new PlanActivationError(`Merchant ${application.merchant_id} not found`);
+
+    // Freeze the effective rates onto the plan. A NULL override means this
+    // merchant never negotiated, so the business model's own risk-based rate
+    // applies — layaway carries a lower reserve than rent_to_own for a reason.
+    // Snapshotting rather than re-reading means changing a merchant's terms can
+    // never retroactively alter accruals already booked on an append-only book.
+    const modelConfig = MODEL_CONFIG[template.business_model as BusinessModel];
+    const effectiveMdrBps = merchant.mdrOverride ?? modelConfig.mdrBps;
+    const effectiveReserveBps = merchant.reserveOverride ?? modelConfig.reserveBps;
 
     // Schedule is derived from the template's terms. (Accepted counter-offer
     // amounts on the application are honoured in a later refinement.)
@@ -200,8 +212,8 @@ export class CustomerPlansService {
             number_of_installments: template.number_of_installments,
             installment_frequency_days: template.installment_frequency_days,
             grace_period_days: template.grace_period_days,
-            mdr_bps: merchant.mdr,
-            reserve_bps: merchant.reserve,
+            mdr_bps: effectiveMdrBps,
+            reserve_bps: effectiveReserveBps,
             order_amount_pesewas: application.order_amount_pesewas,
             down_payment_pesewas: generated.downPaymentPesewas,
             financed_amount_pesewas: generated.financedAmountPesewas,
@@ -441,6 +453,9 @@ export class CustomerPlansService {
             scheduleId: installment.id,
             refundAmountPesewas: refundAmount,
             model: plan.business_model as BusinessModel,
+            // Mirror the forward accrual exactly.
+            mdrBps: plan.mdr_bps,
+            reserveBps: plan.reserve_bps,
           },
           tx,
         );
@@ -614,6 +629,11 @@ export class CustomerPlansService {
         merchantId: plan.merchant_id,
         orderAmountPesewas: plan.order_amount_pesewas,
         model: plan.business_model as BusinessModel,
+        // The merchant's negotiated terms, snapshotted onto the plan at
+        // activation. Until now these were written and never read, so every
+        // accrual silently used the model default instead.
+        mdrBps: plan.mdr_bps,
+        reserveBps: plan.reserve_bps,
       };
       const heldAt = new Date(opts.nowIso);
       // Hybrid plans accrue 40% when the down-payment row (sequence 1) settles.

@@ -281,6 +281,7 @@ export {
   type WebhookSignatureVerifier,
   type WebhookIngestResult,
   type WebhookAlertSink,
+  type PayoutConfirmer,
 } from './modules/webhooks/webhook.service';
 export * from './modules/webhooks/errors';
 export * from './modules/applications/dto';

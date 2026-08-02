@@ -18,6 +18,13 @@ export interface RecordPayoutAccrualInput {
   trigger: PayoutTrigger;
   /** Required when `trigger` is `installment_n`. */
   installmentNumber?: number;
+  /**
+   * The plan's negotiated rates (customer_plans.mdr_bps / reserve_bps).
+   * Omitted only by callers with no plan in hand, which fall back to
+   * MODEL_CONFIG. Passing them is what makes a merchant's agreed terms real.
+   */
+  mdrBps?: number;
+  reserveBps?: number;
 }
 
 export interface ReverseAccrualsForRefundInput {
@@ -27,6 +34,13 @@ export interface ReverseAccrualsForRefundInput {
   /** The amount returning to the customer; scales the proportional clawback. */
   refundAmountPesewas: number;
   model: BusinessModel;
+  /**
+   * The same per-plan rates the forward accrual used. The reversal must mirror
+   * the original split exactly — recomputing at the model default would claw
+   * back a different amount than was ever credited.
+   */
+  mdrBps?: number;
+  reserveBps?: number;
 }
 
 export interface RefundReversalSummary {
@@ -70,7 +84,10 @@ export class PayoutRecorder {
       input.orderAmountPesewas,
       input.model,
       input.trigger,
-      { installmentNumber: input.installmentNumber },
+      {
+        installmentNumber: input.installmentNumber,
+        rates: { mdrBps: input.mdrBps, reserveBps: input.reserveBps },
+      },
     );
     if (!breakdown || breakdown.grossPesewas === 0) return null;
 
@@ -206,9 +223,11 @@ export class PayoutRecorder {
 
       // mdr/reserve recomputed from gross so the row sums stay balanced
       // regardless of rounding (net absorbs the residual).
-      const reversalMdr = Money.fromPesewas(reversalGross).multiplyBps(config.mdrBps).toNumber();
+      const reversalMdr = Money.fromPesewas(reversalGross)
+        .multiplyBps(input.mdrBps ?? config.mdrBps)
+        .toNumber();
       const reversalReserve = Money.fromPesewas(reversalGross)
-        .multiplyBps(config.reserveBps)
+        .multiplyBps(input.reserveBps ?? config.reserveBps)
         .toNumber();
       const reversalNet = reversalGross - reversalMdr - reversalReserve;
 
