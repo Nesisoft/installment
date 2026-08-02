@@ -48,6 +48,11 @@ const NAME_STATUS: Record<string, number> = {
   InstallmentNotPayableError: HttpStatus.CONFLICT,
   InstallmentNotChargeableError: HttpStatus.CONFLICT,
   ChargeAlreadyInFlightError: HttpStatus.CONFLICT,
+  // Same key, different request — a client bug. Replaying an unrelated cached
+  // response would be worse than refusing.
+  IdempotencyConflictError: HttpStatus.CONFLICT,
+  // The first request with this key is still running; the client should retry.
+  IdempotencyInProgressError: HttpStatus.CONFLICT,
   ReceiptNotAvailableError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
   CaseAlreadyClosedError: HttpStatus.CONFLICT,
@@ -93,10 +98,17 @@ export class DomainExceptionFilter implements ExceptionFilter {
         typeof resp === 'string'
           ? resp
           : ((resp as { message?: string | string[] }).message ?? exception.message);
+      // Honour an explicit `error` code when the thrower supplied one, so a
+      // client can tell e.g. IdempotencyKeyRequired from any other 400 and
+      // react correctly instead of guessing from prose.
+      const code =
+        typeof resp === 'object' && typeof (resp as { error?: unknown }).error === 'string'
+          ? (resp as { error: string }).error
+          : exception.name;
       return {
         status,
         body: {
-          error: exception.name,
+          error: code,
           message: Array.isArray(message) ? message.join('; ') : message,
         },
       };

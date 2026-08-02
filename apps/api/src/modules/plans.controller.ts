@@ -19,6 +19,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
 import { ApiModel } from '../common/api-model';
+import { Idempotent } from '../common/idempotent.decorator';
 
 @ApiTags('plans')
 @ApiBearerAuth()
@@ -30,6 +31,7 @@ export class PlansController {
   ) {}
 
   @Post('from-application/:applicationId')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.APPLICATIONS_REVIEW)
   @HttpCode(201)
   @ApiOperation({ summary: 'Activate an approved application into a plan + installment schedule' })
@@ -45,6 +47,7 @@ export class PlansController {
   }
 
   @Post(':id/default')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(200)
   @ApiOperation({

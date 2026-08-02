@@ -21,6 +21,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
+import { Idempotent } from '../common/idempotent.decorator';
 
 /**
  * Customer self-service. The JWT identifies a `users` row; the domain
@@ -88,6 +89,7 @@ export class MeController {
   }
 
   @Post('installments/:scheduleId/pay')
+  @Idempotent()
   @HttpCode(200)
   @ApiOperation({ summary: 'Pay one of my installments now with a tokenised card' })
   async pay(
@@ -111,6 +113,7 @@ export class MeController {
   }
 
   @Post('installments/:scheduleId/pay-momo')
+  @Idempotent()
   @HttpCode(200)
   @ApiOperation({ summary: 'Pay one of my installments now via Mobile Money' })
   async payMomo(

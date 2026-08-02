@@ -5,6 +5,7 @@ import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth
 import { actorOf } from '../auth/current-actor';
 import { recordManualPaymentSchema } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
+import { Idempotent } from '../common/idempotent.decorator';
 
 @ApiTags('plans')
 @ApiBearerAuth()
@@ -13,6 +14,7 @@ export class InstallmentsController {
   constructor(private readonly plans: CustomerPlansService) {}
 
   @Post(':scheduleId/record-payment')
+  @Idempotent()
   @ApiZodBody(recordManualPaymentSchema)
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(200)
@@ -28,6 +30,7 @@ export class InstallmentsController {
   }
 
   @Post(':scheduleId/refund')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(200)
   @ApiOperation({

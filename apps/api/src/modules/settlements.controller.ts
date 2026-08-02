@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
 import { PERMISSIONS, ReconciliationService, SettlementService } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../auth/decorators';
+import { Idempotent } from '../common/idempotent.decorator';
 
 /**
  * Operator-facing settlement controls. The daily run normally fires from a
@@ -17,6 +18,7 @@ export class SettlementsController {
   ) {}
 
   @Post('run')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.PLANS_WRITE)
   @HttpCode(200)
   @ApiOperation({
@@ -28,6 +30,7 @@ export class SettlementsController {
   }
 
   @Post('merchants/:merchantId/run')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.PLANS_WRITE)
   @HttpCode(200)
   @ApiOperation({ summary: 'Settle a single merchant for the day (idempotent)' })
@@ -37,6 +40,7 @@ export class SettlementsController {
   }
 
   @Post('reconcile')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.PLANS_WRITE)
   @HttpCode(200)
   @ApiOperation({

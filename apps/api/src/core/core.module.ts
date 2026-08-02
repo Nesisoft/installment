@@ -18,6 +18,8 @@ import {
   VerifyRunner,
   EventBus,
   FeatureCollector,
+  DrizzleIdempotencyStore,
+  IdempotencyService,
   JwtService,
   LedgerService,
   MerchantsService,
@@ -344,6 +346,11 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       ],
     },
     {
+      provide: IdempotencyService,
+      useFactory: (db: Database) => new IdempotencyService(new DrizzleIdempotencyStore(db)),
+      inject: [DRIZZLE],
+    },
+    {
       provide: StuckScheduleRunner,
       useFactory: (db: Database, attempts: AttemptRepository, payments: PaymentService) =>
         new StuckScheduleRunner(db, attempts, payments, {
@@ -481,6 +488,8 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     MerchantDashboardService,
     CollectionsService,
     PaymentService,
+    IdempotencyService,
+    StuckScheduleRunner,
     DebitRunner,
     VerifyRunner,
     NotificationService,
