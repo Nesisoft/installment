@@ -150,6 +150,29 @@ describe.skipIf(!RUN_DB)('PlanCashLedger (integration)', () => {
     expect(rows.rows).toEqual([]);
   }
 
+  /**
+   * Cash debited to the provider account by this plan's transactions.
+   *
+   * Scoped deliberately: `paystack_settlement` uses one global account_ref
+   * ('main') shared by every plan and every spec, and it now moves in both
+   * directions — collections debit it, payouts credit it. Its aggregate
+   * balance therefore says nothing about a particular plan and depends on
+   * whatever else has run against the same database.
+   */
+  async function cashInFor(planId: string, cashRef = PROVIDER_CASH_REF): Promise<number> {
+    const rows = await db.execute(sql`
+      SELECT coalesce(sum(amount_pesewas), 0) AS total
+      FROM ledger_entries
+      WHERE account_type = 'paystack_settlement'
+        AND account_ref = ${cashRef}
+        AND direction = 'debit'
+        AND transaction_id IN (
+          SELECT DISTINCT transaction_id FROM ledger_entries WHERE account_ref = ${planId}
+        )
+    `);
+    return Number((rows.rows as Array<{ total: string }>)[0]!.total);
+  }
+
   it('bnpl: cash retires receivable directly and float never holds anything', async () => {
     const { plan, schedule } = await activate(
       await template({ model: 'bnpl', installments: 4 }),
@@ -168,7 +191,8 @@ describe.skipIf(!RUN_DB)('PlanCashLedger (integration)', () => {
 
     expect(await bal('receivable', plan.id)).toBe(0);
     expect(await bal('customer_float', plan.id)).toBe(0);
-    expect(await bal('paystack_settlement', PROVIDER_CASH_REF)).toBeLessThanOrEqual(-100_000);
+    // The whole order arrived as cash and was booked to the provider account.
+    expect(await cashInFor(plan.id)).toBe(100_000);
     await assertPlanTransactionsBalance(plan.id);
   });
 
@@ -267,18 +291,18 @@ describe.skipIf(!RUN_DB)('PlanCashLedger (integration)', () => {
   });
 
   it('keeps out-of-band cash out of the provider reconciliation account', async () => {
-    const { schedule } = await activate(
+    const { plan, schedule } = await activate(
       await template({ model: 'bnpl', installments: 4 }),
       100_000,
     );
-    const manualBefore = await bal('paystack_settlement', MANUAL_CASH_REF);
 
     await db.update(sched).set({ status: 'due' }).where(eq(sched.id, schedule[0]!.id));
     await plans.recordManualPayment(schedule[0]!.id, { reason: 'field agent cash' }, ACTOR);
 
     // Booking this to 'main' would poison the exact balance the cash-in leg
-    // exists to make reconcilable against Paystack.
-    expect(await bal('paystack_settlement', MANUAL_CASH_REF)).toBe(manualBefore - 25_000);
+    // exists to make reconcilable against the provider.
+    expect(await cashInFor(plan.id, MANUAL_CASH_REF)).toBe(25_000);
+    expect(await cashInFor(plan.id, PROVIDER_CASH_REF)).toBe(0);
   });
 
   it('is replay-safe: re-booking a collection is a no-op', async () => {
