@@ -8,8 +8,13 @@ import { captureWorkerError } from '../common/alerting';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.VERIFY_WORKER, actorType: 'system' as const };
 
-/** How long an attempt stays in-flight before we poll — gives the webhook a head start. */
-const STALE_AFTER_MS = 2 * 60_000;
+/**
+ * How long an attempt stays unresolved before we poll — gives the webhook a
+ * head start. Deliberately generous: MoMo approvals routinely outlast a couple
+ * of minutes, and polling too eagerly burns the verify budget before the
+ * customer has even seen the prompt.
+ */
+const STALE_AFTER_MS = 15 * 60_000;
 
 /**
  * Verify-poll sweep (every 5 minutes). Drains in-flight MoMo attempts whose

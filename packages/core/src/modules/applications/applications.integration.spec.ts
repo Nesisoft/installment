@@ -40,7 +40,15 @@ describe.skipIf(!RUN_DB)('ApplicationsService (integration)', () => {
     );
     merchantId = merchant.id;
     const customer = await customers.register(
-      { first_name: 'Ama', last_name: 'M', email: `ama+${suffix}@x.gh`, phone: '0244111222' },
+      {
+        first_name: 'Ama',
+        last_name: 'M',
+        email: `ama+${suffix}@x.gh`,
+        // Randomised: customers.phone is UNIQUE, so a hardcoded number makes
+        // this suite pass only against a virgin database and fail on every
+        // local re-run.
+        phone: `024${Math.floor(1_000_000 + Math.random() * 8_999_999)}`,
+      },
       SYSTEM_ACTOR,
     );
     customerId = customer.id;

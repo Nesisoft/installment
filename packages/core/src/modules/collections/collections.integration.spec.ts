@@ -93,6 +93,25 @@ describe.skipIf(!RUN_DB)('CollectionsService (integration)', () => {
       .where(eq(schema.installment_schedule.id, scheduleId));
   }
 
+  /**
+   * Backdates one schedule so it is genuinely past grace *now*.
+   *
+   * Tests used to make a row sweepable by passing `asOf` far into the future
+   * instead. That works only while the sweep matches a handful of statuses —
+   * once `pending` is in scope (the common case), a future `asOf` makes an
+   * unscoped sweep match every schedule in the shared test database. Backdating
+   * the subject row keeps the sweep scoped to it and matches how the cron
+   * actually runs, which always passes the real current time.
+   *
+   * Both dates move: there is a CHECK (grace_until_date >= due_date).
+   */
+  async function backdatePastGrace(scheduleId: string) {
+    await db
+      .update(schema.installment_schedule)
+      .set({ due_date: '2000-01-01', grace_until_date: '2000-01-02' })
+      .where(eq(schema.installment_schedule.id, scheduleId));
+  }
+
   function loadSchedule(id: string) {
     return db
       .select()
@@ -104,9 +123,9 @@ describe.skipIf(!RUN_DB)('CollectionsService (integration)', () => {
   it('escalates a failed installment past grace to overdue', async () => {
     const { schedule } = await activatedSchedule();
     await setStatus(schedule[0]!.id, 'failed');
+    await backdatePastGrace(schedule[0]!.id);
 
-    const future = new Date(Date.now() + 400 * DAY_MS);
-    const n = await collections.escalateGraceExpired(future, ACTOR, { limit: 5_000 });
+    const n = await collections.escalateGraceExpired(new Date(), ACTOR, { limit: 5_000 });
     expect(n).toBeGreaterThanOrEqual(1);
     expect((await loadSchedule(schedule[0]!.id))!.status).toBe('overdue');
   });
@@ -177,9 +196,10 @@ describe.skipIf(!RUN_DB)('CollectionsService (integration)', () => {
 
   it('runSweep does grace-expiry, case-opening and stage-advance in one pass', async () => {
     const { schedule } = await activatedSchedule();
-    await setStatus(schedule[0]!.id, 'failed'); // past grace at the far-future asOf
+    await setStatus(schedule[0]!.id, 'failed');
+    await backdatePastGrace(schedule[0]!.id);
 
-    const summary = await collections.runSweep(ACTOR, new Date(Date.now() + 400 * DAY_MS));
+    const summary = await collections.runSweep(ACTOR, new Date());
 
     expect(summary.graceExpired).toBeGreaterThanOrEqual(1);
     expect(summary.casesOpened).toBeGreaterThanOrEqual(1);

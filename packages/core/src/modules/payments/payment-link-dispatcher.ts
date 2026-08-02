@@ -96,6 +96,9 @@ export class PaymentLinkDispatcher {
       amountPesewas: amount,
       idempotencyKey: reference,
       providerReference: reference,
+      // Persisted so support can re-send the exact link a customer was given,
+      // and so a paid link is traceable back to the attempt that issued it.
+      paymentLinkUrl: url,
     });
 
     const notification = await this.notifications.sendToCustomer({

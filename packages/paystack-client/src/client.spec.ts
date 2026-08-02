@@ -229,3 +229,46 @@ describe('PaystackClient error handling', () => {
     expect(() => client.verifyTransfer('')).toThrow(PaystackError);
   });
 });
+
+describe('PaystackClient reference charset', () => {
+  const client = new PaystackClient({ secretKey: SECRET });
+  const momo = {
+    email: 'a@b.gh',
+    amount: 1000,
+    currency: 'GHS' as const,
+    phone: '+233244000111',
+    provider: 'mtn' as const,
+  };
+
+  it('rejects a reference containing a colon', () => {
+    // The exact format this engine used to send. Paystack's charset excludes
+    // ':', so every charge would have failed at the API and been recorded as
+    // `unknown` — indistinguishable from a network fault.
+    const legacy = `INSTL-${'a'.repeat(36)}-${'a'.repeat(36)}:1`;
+    expect(() => client.chargeMobileMoney({ ...momo, reference: legacy })).toThrow(PaystackError);
+  });
+
+  it('rejects references with spaces, slashes or over-length', () => {
+    for (const bad of ['has space', 'has/slash', 'a'.repeat(101)]) {
+      expect(() => client.chargeMobileMoney({ ...momo, reference: bad })).toThrow(PaystackError);
+    }
+  });
+
+  it('accepts the reference format the engine now sends', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ status: true, data: { reference: 'r', status: 'success' } }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+    );
+    const ok = new PaystackClient({ secretKey: SECRET, fetchImpl: fetchImpl as typeof fetch });
+    await expect(
+      ok.chargeMobileMoney({ ...momo, reference: `INSTL-${crypto.randomUUID()}-1` }),
+    ).resolves.toBeTruthy();
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+});

@@ -3859,11 +3859,21 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
           }
         ],
         "responses": {
-          "201": {
-            "description": ""
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
           }
         },
         "security": [
@@ -3923,11 +3933,21 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
           }
         ],
         "responses": {
-          "200": {
-            "description": ""
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
           }
         },
         "security": [
@@ -4268,6 +4288,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
           }
         ],
         "requestBody": {
@@ -4294,8 +4324,8 @@
           }
         },
         "responses": {
-          "200": {
-            "description": ""
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
           }
         },
         "security": [
@@ -4320,11 +4350,21 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
           }
         ],
         "responses": {
-          "200": {
-            "description": ""
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
           }
         },
         "security": [
@@ -4399,10 +4439,21 @@
     "/admin/settlements/run": {
       "post": {
         "operationId": "SettlementsController_run",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          }
+        ],
         "responses": {
-          "200": {
-            "description": ""
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
           }
         },
         "security": [
@@ -4427,11 +4478,21 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
           }
         ],
         "responses": {
-          "200": {
-            "description": ""
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
           }
         },
         "security": [
@@ -4448,10 +4509,21 @@
     "/admin/settlements/reconcile": {
       "post": {
         "operationId": "SettlementsController_reconcile",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          }
+        ],
         "responses": {
-          "200": {
-            "description": ""
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
           }
         },
         "security": [
@@ -4902,11 +4974,21 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
           }
         ],
         "responses": {
-          "200": {
-            "description": ""
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
           }
         },
         "security": [
@@ -4931,11 +5013,21 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
           }
         ],
         "responses": {
-          "200": {
-            "description": ""
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
           }
         },
         "security": [

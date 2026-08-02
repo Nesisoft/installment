@@ -35,5 +35,18 @@ export function retryStepFor(attempt: number): RetryStep | undefined {
   return RETRY_POLICY[attempt - 1];
 }
 
-/** Max times to poll /transaction/verify for one attempt before giving up. */
-export const MAX_VERIFY_POLLS = 2;
+/**
+ * Max times to poll /transaction/verify for one attempt before giving up.
+ *
+ * Sized against how long a real MoMo approval takes, not how fast we would
+ * like an answer. A customer may be away from their handset, on a congested
+ * network, or topping up before approving; USSD approvals routinely take far
+ * longer than ten minutes. With the 5-minute sweep and a 15-minute staleness
+ * threshold this spans roughly 45 minutes, matching the reference design.
+ *
+ * Getting this wrong is expensive in one direction only: giving up early
+ * converts "we don't know" into "failed", which schedules a retry and can
+ * issue a fresh charge while the customer's original prompt is still live on
+ * their phone. Polling a few more times costs an API call.
+ */
+export const MAX_VERIFY_POLLS = 6;

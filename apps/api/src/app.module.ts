@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv, type Env } from './config/env.validation';
 import { DbModule } from './db/db.module';
@@ -31,6 +31,7 @@ import { MeController } from './modules/me.controller';
 import { MeCommerceController } from './modules/me-commerce.controller';
 import { WebhookController } from './modules/webhook.controller';
 import { DomainExceptionFilter } from './common/domain-exception.filter';
+import { IdempotencyInterceptor } from './common/idempotency.interceptor';
 
 @Module({
   imports: [
@@ -82,6 +83,8 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
   ],
   providers: [
     { provide: APP_FILTER, useClass: DomainExceptionFilter },
+    // Replay protection for money-mutating routes marked @Idempotent().
+    { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
     // Order matters: authenticate first, then check permissions.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },

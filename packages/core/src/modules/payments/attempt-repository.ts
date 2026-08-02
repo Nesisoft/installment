@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { PaymentAttemptNotFoundError } from './errors';
 
@@ -21,6 +21,8 @@ export interface CreateAttemptInput {
   provider?: PaymentProvider;
   paymentMethod?: PaymentMethod;
   providerReference?: string;
+  /** Hosted checkout URL, for the payment-link channel. */
+  paymentLinkUrl?: string;
 }
 
 export interface UpdateAttemptInput {
@@ -56,6 +58,7 @@ export class AttemptRepository {
         amount_pesewas: input.amountPesewas,
         idempotency_key: input.idempotencyKey,
         provider_reference: input.providerReference,
+        payment_link_url: input.paymentLinkUrl,
       })
       .returning();
     if (!row) throw new Error('payment_attempts insert returned no row');
@@ -95,23 +98,53 @@ export class AttemptRepository {
   }
 
   /**
-   * In-flight attempts that started before `staleBefore` and haven't been
+   * The newest unresolved attempt for a schedule, if any. `in_flight` means a
+   * charge is live at the provider; `unknown` means we could not determine
+   * whether money moved. Either way a fresh charge risks debiting the customer
+   * twice, so callers must refuse rather than initiate one.
+   */
+  async findUnresolvedForSchedule(scheduleId: string): Promise<PaymentAttempt | undefined> {
+    return (
+      await this.db
+        .select()
+        .from(pa)
+        .where(and(eq(pa.schedule_id, scheduleId), inArray(pa.status, ['in_flight', 'unknown'])))
+        .orderBy(desc(pa.initiated_at))
+        .limit(1)
+    )[0];
+  }
+
+  /**
+   * Unresolved attempts that started before `staleBefore` and haven't been
    * verified since — the lost-webhook backlog the verify-poll worker drains.
    * Oldest first so the longest-stuck attempts resolve first.
+   *
+   * Covers `unknown` as well as `in_flight`. `unknown` is what a network fault
+   * or provider 5xx leaves behind — "we don't know whether money moved" — and
+   * it is precisely the state that most needs resolving. This query previously
+   * filtered `in_flight` alone, so every `unknown` attempt was stranded
+   * permanently and its installment sat in `processing` forever, invisible to
+   * the debit sweep, the retry queue and collections alike. The partial index
+   * `payment_attempts_in_flight_idx` was already built over both statuses.
    */
-  async findStaleInFlight(staleBefore: Date, limit = 200): Promise<PaymentAttempt[]> {
+  async findStaleUnresolved(staleBefore: Date, limit = 200): Promise<PaymentAttempt[]> {
     const cutoff = staleBefore.toISOString();
     return this.db
       .select()
       .from(pa)
       .where(
         and(
-          eq(pa.status, 'in_flight'),
+          inArray(pa.status, ['in_flight', 'unknown']),
           lt(pa.initiated_at, cutoff),
           or(isNull(pa.last_verified_at), lt(pa.last_verified_at, cutoff)),
         ),
       )
       .orderBy(asc(pa.initiated_at))
       .limit(limit);
+  }
+
+  /** @deprecated Use {@link findStaleUnresolved} — this misses `unknown` attempts. */
+  async findStaleInFlight(staleBefore: Date, limit = 200): Promise<PaymentAttempt[]> {
+    return this.findStaleUnresolved(staleBefore, limit);
   }
 }

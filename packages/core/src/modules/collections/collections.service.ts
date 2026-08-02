@@ -2,7 +2,11 @@ import { and, desc, eq, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction } from '../../shared/event-bus/transaction';
-import { nextScheduleStatus, type ScheduleStatus } from '../schedules/state-machine';
+import {
+  nextScheduleStatus,
+  type ScheduleEvent,
+  type ScheduleStatus,
+} from '../schedules/state-machine';
 import { PlanDefaultError } from '../schedules/errors';
 import { assignCaseSchema, closeCaseSchema, listCasesSchema, recordActionSchema } from './dto';
 import { CaseAlreadyClosedError, CollectionsCaseNotFoundError } from './errors';
@@ -20,6 +24,18 @@ const plansTable = schema.customer_plans;
 const customersTable = schema.customers;
 
 const DAY_MS = 86_400_000;
+
+/**
+ * The event that escalates each sweepable state to `overdue`. A state absent
+ * from this map is not escalatable — either it is already past `overdue`, or
+ * it is terminal, or the row raced into it after being selected.
+ */
+const GRACE_ESCALATION_EVENT: Partial<Record<ScheduleStatus, ScheduleEvent>> = {
+  due: 'unprocessed_past_grace',
+  pending: 'unprocessed_past_grace',
+  failed: 'grace_expired',
+  retry_scheduled: 'grace_expired',
+};
 
 export type CollectionsCase = typeof schema.collections_cases.$inferSelect;
 export type CollectionsAction = typeof schema.collections_actions.$inferSelect;
@@ -103,7 +119,18 @@ export class CollectionsService {
     });
   }
 
-  /** Moves due/failed installments past their grace date to `overdue`. */
+  /**
+   * Moves any non-terminal, unpaid installment past its grace date to
+   * `overdue`.
+   *
+   * `retry_scheduled` and `pending` are included deliberately. The retry queue
+   * is the only owner of `retry_scheduled`, so a lost BullMQ job, an evicted
+   * Redis key, or simply reaching the payment-link step and never being paid
+   * left the row there permanently — no case, no dunning, no write-off, no
+   * default. `pending` covers a plan activated for a customer who never had a
+   * chargeable instrument. Both were invisible to every sweep in the system,
+   * which means delinquency reporting systematically under-reported bad debt.
+   */
   async escalateGraceExpired(
     asOf: Date,
     actor: CollectionsActor,
@@ -113,7 +140,12 @@ export class CollectionsService {
     const candidates = await this.db
       .select({ id: sched.id, status: sched.status })
       .from(sched)
-      .where(and(inArray(sched.status, ['due', 'failed']), lt(sched.grace_until_date, asOfDate)))
+      .where(
+        and(
+          inArray(sched.status, ['due', 'failed', 'retry_scheduled', 'pending']),
+          lt(sched.grace_until_date, asOfDate),
+        ),
+      )
       .limit(opts.limit ?? 1_000);
 
     let count = 0;
@@ -134,9 +166,8 @@ export class CollectionsService {
       )[0];
       if (!row) return false;
       const from = row.status as ScheduleStatus;
-      if (from !== 'due' && from !== 'failed') return false; // raced; skip
-
-      const event = from === 'due' ? 'unprocessed_past_grace' : 'grace_expired';
+      const event = GRACE_ESCALATION_EVENT[from];
+      if (!event) return false; // raced into another state; skip
       nextScheduleStatus(from, event); // validates → overdue
 
       const updated = await tx

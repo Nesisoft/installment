@@ -18,6 +18,8 @@ import {
   VerifyRunner,
   EventBus,
   FeatureCollector,
+  DrizzleIdempotencyStore,
+  IdempotencyService,
   JwtService,
   LedgerService,
   MerchantsService,
@@ -39,6 +41,7 @@ import {
   ScheduleStateService,
   ScoringEngine,
   ScoringService,
+  StuckScheduleRunner,
   TelcoHealthMonitor,
   UsersService,
   WebhookService,
@@ -55,6 +58,7 @@ import {
 } from '@installment/commerce';
 import { PaystackClient } from '@installment/paystack-client';
 import type { Database } from '@installment/db';
+import { captureAlert } from '../common/alerting';
 import { DRIZZLE } from '../db/db.module';
 import { REDIS } from '../redis/redis.module';
 import { RedisTelcoHealthStore } from './redis-telco-store';
@@ -318,6 +322,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         retryScheduler: BullMqRetryScheduler,
         receipts: ChargeReceiptService,
         telco: TelcoHealthMonitor,
+        lock: RedisLock,
       ) =>
         new PaymentService(
           plans,
@@ -327,6 +332,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
           retryScheduler,
           receipts,
           telco,
+          lock,
         ),
       inject: [
         CustomerPlansService,
@@ -336,7 +342,21 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         BullMqRetryScheduler,
         ChargeReceiptService,
         TelcoHealthMonitor,
+        RedisLock,
       ],
+    },
+    {
+      provide: IdempotencyService,
+      useFactory: (db: Database) => new IdempotencyService(new DrizzleIdempotencyStore(db)),
+      inject: [DRIZZLE],
+    },
+    {
+      provide: StuckScheduleRunner,
+      useFactory: (db: Database, attempts: AttemptRepository, payments: PaymentService) =>
+        new StuckScheduleRunner(db, attempts, payments, {
+          stuck: (detail) => captureAlert('installment stuck in processing', 'error', detail),
+        }),
+      inject: [DRIZZLE, AttemptRepository, PaymentService],
     },
     {
       provide: DebitRunner,
@@ -393,13 +413,26 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         attempts: AttemptRepository,
         plans: CustomerPlansService,
         scheduleState: ScheduleStateService,
-      ) => new WebhookService(db, paystack, attempts, plans, scheduleState),
+        payments: PaymentService,
+      ) =>
+        // Share PaymentService's failure pipeline so a webhook-delivered
+        // decline runs the same retry ladder as a synchronous one.
+        new WebhookService(
+          db,
+          paystack,
+          attempts,
+          plans,
+          scheduleState,
+          payments.failureEscalator,
+          { unhandled: (detail) => captureAlert('paystack webhook not applied', 'error', detail) },
+        ),
       inject: [
         DRIZZLE,
         PaystackClient,
         AttemptRepository,
         CustomerPlansService,
         ScheduleStateService,
+        PaymentService,
       ],
     },
     {
@@ -455,6 +488,8 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     MerchantDashboardService,
     CollectionsService,
     PaymentService,
+    IdempotencyService,
+    StuckScheduleRunner,
     DebitRunner,
     VerifyRunner,
     NotificationService,

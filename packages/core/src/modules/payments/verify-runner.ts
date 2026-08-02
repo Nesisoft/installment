@@ -42,7 +42,7 @@ export class VerifyRunner {
     actor: PlanActor,
     opts: { limit?: number } = {},
   ): Promise<VerifySweepSummary> {
-    const stale = await this.attempts.findStaleInFlight(staleBefore, opts.limit);
+    const stale = await this.attempts.findStaleUnresolved(staleBefore, opts.limit);
     const summary: VerifySweepSummary = {
       checked: 0,
       succeeded: 0,

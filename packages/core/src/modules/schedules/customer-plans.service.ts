@@ -2,8 +2,14 @@ import { and, desc, eq, inArray, lte } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
+import { isUniqueViolation } from '../../shared/db/pg-errors';
 import { ScheduleGenerator, type ScheduleBusinessModel } from './schedule-generator';
-import { SCHEDULE_TERMINAL_STATES, nextScheduleStatus, type ScheduleStatus } from './state-machine';
+import {
+  SCHEDULE_TERMINAL_STATES,
+  nextScheduleStatus,
+  type ScheduleEvent,
+  type ScheduleStatus,
+} from './state-machine';
 import { recordManualPaymentSchema } from './dto';
 import {
   CustomerPlanNotFoundError,
@@ -46,6 +52,16 @@ export interface ManualPaymentResult {
   schedule: InstallmentScheduleRow;
   plan: CustomerPlan;
 }
+
+/**
+ * Which settlement event to apply for the state the schedule is actually in
+ * when confirmed money arrives. Anything not listed uses
+ * `late_payment_received` (see the state machine's late-settlement edges).
+ */
+const SETTLEMENT_EVENT: Partial<Record<ScheduleStatus, ScheduleEvent>> = {
+  processing: 'charge_succeeded',
+  in_collections: 'payment_recovered',
+};
 
 /**
  * Owns the `customer_plans` lifecycle. Activation turns an approved application
@@ -159,31 +175,43 @@ export class CustomerPlansService {
         .limit(1);
       if (existing[0]) throw new PlanAlreadyActiveError(applicationId);
 
-      const [plan] = await tx
-        .insert(cp)
-        .values({
-          customer_id: application.customer_id,
-          merchant_id: application.merchant_id,
-          plan_template_id: application.plan_template_id,
-          application_id: applicationId,
-          business_model: template.business_model,
-          number_of_installments: template.number_of_installments,
-          installment_frequency_days: template.installment_frequency_days,
-          grace_period_days: template.grace_period_days,
-          mdr_bps: merchant.mdr,
-          reserve_bps: merchant.reserve,
-          order_amount_pesewas: application.order_amount_pesewas,
-          down_payment_pesewas: generated.downPaymentPesewas,
-          financed_amount_pesewas: generated.financedAmountPesewas,
-          total_interest_pesewas: generated.totalInterestPesewas,
-          total_fees_pesewas: generated.totalFeesPesewas,
-          total_payable_pesewas: generated.totalPayablePesewas,
-          outstanding_pesewas: generated.totalPayablePesewas,
-          status: 'active',
-          approved_at: nowIso,
-          activated_at: nowIso,
-        })
-        .returning();
+      // The check above is only a friendly-error fast path — it races under
+      // READ COMMITTED. customer_plans_application_uq (0007) is what actually
+      // guarantees one plan per application; translate it to the same error so
+      // the loser of a race is indistinguishable from a sequential duplicate.
+      let plan: CustomerPlan | undefined;
+      try {
+        [plan] = await tx
+          .insert(cp)
+          .values({
+            customer_id: application.customer_id,
+            merchant_id: application.merchant_id,
+            plan_template_id: application.plan_template_id,
+            application_id: applicationId,
+            business_model: template.business_model,
+            number_of_installments: template.number_of_installments,
+            installment_frequency_days: template.installment_frequency_days,
+            grace_period_days: template.grace_period_days,
+            mdr_bps: merchant.mdr,
+            reserve_bps: merchant.reserve,
+            order_amount_pesewas: application.order_amount_pesewas,
+            down_payment_pesewas: generated.downPaymentPesewas,
+            financed_amount_pesewas: generated.financedAmountPesewas,
+            total_interest_pesewas: generated.totalInterestPesewas,
+            total_fees_pesewas: generated.totalFeesPesewas,
+            total_payable_pesewas: generated.totalPayablePesewas,
+            outstanding_pesewas: generated.totalPayablePesewas,
+            status: 'active',
+            approved_at: nowIso,
+            activated_at: nowIso,
+          })
+          .returning();
+      } catch (err) {
+        if (isUniqueViolation(err, 'customer_plans_application_uq')) {
+          throw new PlanAlreadyActiveError(applicationId);
+        }
+        throw err;
+      }
       if (!plan) throw new Error('customer_plans insert returned no row');
 
       const schedule = await tx
@@ -286,18 +314,17 @@ export class CustomerPlansService {
       if (!installment) throw new ScheduleNotFoundError(scheduleId);
 
       const from = installment.status as ScheduleStatus;
-      nextScheduleStatus(from, 'charge_succeeded'); // validates processing → paid
-      return this.finalisePaidInstallment(
-        tx,
-        installment,
-        from,
-        'schedule.charge_succeeded',
-        actor,
-        {
-          nowIso,
-          providerReference: opts.providerReference,
-        },
-      );
+      // Money confirmed by the provider settles the installment regardless of
+      // where the schedule had moved to in the meantime. Only the event name
+      // differs, so the audit trail records *how* the payment arrived.
+      // nextScheduleStatus still rejects the genuinely illegal cases — an
+      // already-`paid` row, or a terminal one.
+      const event = SETTLEMENT_EVENT[from] ?? 'late_payment_received';
+      nextScheduleStatus(from, event);
+      return this.finalisePaidInstallment(tx, installment, from, `schedule.${event}`, actor, {
+        nowIso,
+        providerReference: opts.providerReference,
+      });
     });
   }
 

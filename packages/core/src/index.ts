@@ -115,6 +115,13 @@ export {
   type ChargeMobileMoneyInput,
   type ChargeResult,
 } from './modules/payments/payment.service';
+export { ChargeFailureEscalator } from './modules/payments/charge-failure-escalator';
+export {
+  StuckScheduleRunner,
+  type StuckOutcome,
+  type StuckSweepSummary,
+  type StuckScheduleAlertSink,
+} from './modules/payments/stuck-schedule-runner';
 export {
   TelcoHealthMonitor,
   InMemoryTelcoHealthStore,
@@ -261,6 +268,7 @@ export {
   type PaystackWebhookEvent,
   type WebhookSignatureVerifier,
   type WebhookIngestResult,
+  type WebhookAlertSink,
 } from './modules/webhooks/webhook.service';
 export * from './modules/webhooks/errors';
 export * from './modules/applications/dto';

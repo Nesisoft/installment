@@ -111,6 +111,24 @@ export interface PaystackClientOptions {
 const DEFAULT_BASE_URL = 'https://api.paystack.co';
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+/**
+ * Paystack's documented reference charset: alphanumerics plus `-`, `.` and `=`.
+ * A reference outside it is rejected by the API, which would surface here as a
+ * generic failure and park the attempt in `unknown` — indistinguishable from a
+ * network fault. Validating at the boundary turns a silent, systemic outage
+ * into an obvious programming error at the call site.
+ */
+const REFERENCE_PATTERN = /^[A-Za-z0-9.=-]{1,100}$/;
+
+function assertValidReference(op: string, reference: string): void {
+  if (!REFERENCE_PATTERN.test(reference)) {
+    throw new PaystackError(
+      `${op}: reference "${reference}" is not a valid Paystack reference ` +
+        `(allowed: letters, digits, "-", ".", "=", max 100 chars)`,
+    );
+  }
+}
+
 export class PaystackClient {
   private readonly secretKey: string;
   private readonly baseUrl: string;
@@ -148,6 +166,7 @@ export class PaystackClient {
   }
 
   chargeMobileMoney(req: ChargeMobileMoneyRequest): Promise<PaystackResponse<ChargeData>> {
+    assertValidReference('chargeMobileMoney', req.reference);
     return this.request<ChargeData>('POST', '/charge', {
       email: req.email,
       amount: req.amount,
@@ -159,6 +178,7 @@ export class PaystackClient {
   }
 
   chargeCard(req: ChargeCardRequest): Promise<PaystackResponse<ChargeData>> {
+    assertValidReference('chargeCard', req.reference);
     return this.request<ChargeData>('POST', '/charge', {
       email: req.email,
       amount: req.amount,
@@ -180,6 +200,7 @@ export class PaystackClient {
   createPaymentLink(
     req: CreatePaymentLinkRequest,
   ): Promise<PaystackResponse<CreatePaymentLinkData>> {
+    assertValidReference('createPaymentLink', req.reference);
     return this.request<CreatePaymentLinkData>('POST', '/transaction/initialize', {
       email: req.email,
       amount: req.amount,

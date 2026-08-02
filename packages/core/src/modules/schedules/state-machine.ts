@@ -30,6 +30,7 @@ export type ScheduleEvent =
   | 'due_date_reached'
   | 'debit_initiated'
   | 'charge_succeeded'
+  | 'late_payment_received'
   | 'charge_failed'
   | 'retryable'
   | 'non_retryable_decline'
@@ -51,6 +52,18 @@ const TRANSITIONS: Partial<Record<Key, ScheduleStatus>> = {
   'due:debit_initiated': 'processing',
   'processing:charge_succeeded': 'paid',
 
+  // Late settlement. MoMo confirms asynchronously, so money frequently arrives
+  // after the schedule has moved on: a payment-link payment lands while the row
+  // is `retry_scheduled` (PaymentLinkDispatcher leaves it there by design), and
+  // a slow USSD approval lands after the verify poll gave up and failed it.
+  // Without these edges the only path to `paid` was from `processing`, so every
+  // such payment was taken from the customer and then discarded.
+  'pending:late_payment_received': 'paid',
+  'due:late_payment_received': 'paid',
+  'failed:late_payment_received': 'paid',
+  'retry_scheduled:late_payment_received': 'paid',
+  'overdue:late_payment_received': 'paid',
+
   // Failure & retry loop
   'processing:charge_failed': 'failed',
   'failed:retryable': 'retry_scheduled',
@@ -60,6 +73,14 @@ const TRANSITIONS: Partial<Record<Key, ScheduleStatus>> = {
   'failed:non_retryable_decline': 'overdue',
   'failed:grace_expired': 'overdue',
   'due:unprocessed_past_grace': 'overdue',
+  // A schedule can also strand in `retry_scheduled` (the retry queue is its
+  // only owner, so a lost job, an evicted Redis key, or simply reaching the
+  // payment-link step and never being paid leaves it there forever) or in
+  // `pending` (a plan whose customer never had a chargeable instrument). Both
+  // need a database-side path out, or the debt silently disappears from
+  // collections and from delinquency reporting.
+  'retry_scheduled:grace_expired': 'overdue',
+  'pending:unprocessed_past_grace': 'overdue',
   'overdue:case_opened': 'in_collections',
 
   // Collections outcomes
