@@ -3,6 +3,7 @@ import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
 import { isUniqueViolation } from '../../shared/db/pg-errors';
+import { MANUAL_CASH_REF, PROVIDER_CASH_REF, PlanCashLedger } from './plan-cash-ledger';
 import { ScheduleGenerator, type ScheduleBusinessModel } from './schedule-generator';
 import {
   SCHEDULE_TERMINAL_STATES,
@@ -88,6 +89,13 @@ export class CustomerPlansService {
      * settlement services; optional for the same reason.
      */
     private readonly defaultService?: DefaultService,
+    /**
+     * Books the customer-side cash legs. Optional so framework-free callers and
+     * tests can omit ledger plumbing — but production must wire it: without it
+     * the ledger has no inbound leg at all and cannot be reconciled against the
+     * provider.
+     */
+    private readonly cashLedger?: PlanCashLedger,
   ) {}
 
   /**
@@ -291,6 +299,9 @@ export class CustomerPlansService {
         nowIso,
         providerReference,
         reason: input.reason,
+        // Out-of-band cash never reached the provider; keep it out of the
+        // account we reconcile against their balance.
+        cashRef: MANUAL_CASH_REF,
       });
     });
   }
@@ -435,6 +446,17 @@ export class CustomerPlansService {
         );
       }
 
+      // Undo the collection's own credit. reverseAccrualsForRefund only claws
+      // the accrual back from the merchant; without this the installment's
+      // cash-in credit stands, so one refund releases `receivable` twice and
+      // understates what the customer still owes. The obligation to return the
+      // money lands in `refund_payable` and stays there until it physically
+      // leaves (S7).
+      await this.cashLedger?.reverseCollection(
+        { scheduleId: installment.id, customerPlanId: plan.id, amountPesewas: refundAmount },
+        tx,
+      );
+
       return { schedule: updatedSchedule, plan: updatedPlan };
     });
   }
@@ -505,7 +527,7 @@ export class CustomerPlansService {
     from: ScheduleStatus,
     eventType: string,
     actor: PlanActor,
-    opts: { nowIso: string; providerReference: string; reason?: string },
+    opts: { nowIso: string; providerReference: string; reason?: string; cashRef?: string },
   ): Promise<ManualPaymentResult> {
     const amountDue = installment.amount_due_pesewas;
     const settled = amountDue + installment.late_fee_pesewas;
@@ -567,6 +589,22 @@ export class CustomerPlansService {
       });
     }
 
+    // Book the cash BEFORE any accrual. Placement matters twice over: it must
+    // be after the optimistic-lock check above, so a lost version race never
+    // leaves a ledger row for a payment that did not apply; and before the
+    // accrual, so the waterfall sees the pre-accrual receivable balance and
+    // floats money the merchant has not yet been credited for.
+    await this.cashLedger?.collect(
+      {
+        scheduleId: installment.id,
+        customerPlanId: plan.id,
+        amountDuePesewas: amountDue,
+        lateFeePesewas: installment.late_fee_pesewas,
+        cashRef: opts.cashRef ?? PROVIDER_CASH_REF,
+      },
+      tx,
+    );
+
     // Payout accruals — MODEL_CONFIG decides whether each trigger books anything;
     // the recorder returns null on unmapped triggers, so it's safe to attempt
     // both. Stays in the caller's tx so the accrual lives or dies with the row.
@@ -581,13 +619,24 @@ export class CustomerPlansService {
       // Hybrid plans accrue 40% when the down-payment row (sequence 1) settles.
       if (installment.sequence_number === 1) {
         await this.accrueAndTrack(tx, { ...base, trigger: 'down_payment_received' }, heldAt);
+        // The accrual just recognised new debt — apply cash already held to it.
+        await this.cashLedger?.sweepFloatToReceivable(plan.id, 'down_payment_received', tx);
       }
       // Layaway 100% / hybrid 60% accrue at completion.
       if (completed) {
         await this.accrueAndTrack(tx, { ...base, trigger: 'plan_completed' }, heldAt);
+        await this.cashLedger?.sweepFloatToReceivable(plan.id, 'plan_completed', tx);
         // Both buffer-policy models start their release clock at completion.
         await this.reserveRelease?.markPlanCompleted(plan.id, heldAt, tx);
       }
+    }
+
+    // Whatever float survives a completed plan is interest and fees — the
+    // platform's finance income. Collections total order + interest + fees while
+    // accruals only ever debit the order amount, so without this the difference
+    // would sit in float forever on an append-only table.
+    if (completed) {
+      await this.cashLedger?.recogniseFinanceIncome(plan.id, tx);
     }
 
     return { schedule: updatedSchedule, plan: updatedPlan! };

@@ -117,6 +117,11 @@ export {
 } from './modules/payments/payment.service';
 export { ChargeFailureEscalator } from './modules/payments/charge-failure-escalator';
 export {
+  PlanCashLedger,
+  PROVIDER_CASH_REF,
+  MANUAL_CASH_REF,
+} from './modules/schedules/plan-cash-ledger';
+export {
   StuckScheduleRunner,
   type StuckOutcome,
   type StuckSweepSummary,
