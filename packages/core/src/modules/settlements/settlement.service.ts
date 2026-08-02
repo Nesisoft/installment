@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { LedgerService } from '../../shared/ledger/ledger.service';
-import { runInTransaction } from '../../shared/event-bus/transaction';
+import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 
 const payouts = schema.payouts;
@@ -79,6 +79,14 @@ export class PayoutNotFoundError extends Error {
  * most one payout per merchant per day; a re-run returns the existing row.
  */
 export class SettlementService {
+  /** Runs `fn` in the caller's transaction when given one, else its own. */
+  private inTransaction<T>(
+    caller: TransactionalTx | undefined,
+    fn: (tx: TransactionalTx) => Promise<T>,
+  ): Promise<T> {
+    return caller ? fn(caller) : runInTransaction(this.db, fn);
+  }
+
   constructor(
     private readonly db: Database,
     private readonly ledger: LedgerService,
@@ -290,24 +298,43 @@ export class SettlementService {
     outcome: 'settled' | 'failed',
     opts: { transferId?: string; error?: string } = {},
   ): Promise<void> {
-    const payout = (
-      await this.db.select().from(payouts).where(eq(payouts.reference, reference)).limit(1)
-    )[0];
-    if (!payout) throw new PayoutNotFoundError(reference);
-    if (payout.status === 'settled' || payout.status === 'failed' || payout.status === 'reversed') {
-      return; // terminal — idempotent no-op
-    }
+    // The read, the terminal check and the write all happen under one lock.
+    // Previously the row was read outside any transaction and without
+    // FOR UPDATE, so the "idempotent" guard was a TOCTOU window: the 30-minute
+    // reconciliation cron and POST /admin/settlements/reconcile could both see
+    // the same pending payout, both pass the check, and both run
+    // reverseAndFail — reversing one payout's ledger entries twice and
+    // over-crediting the merchant on an append-only book.
+    await runInTransaction(this.db, async (tx) => {
+      const payout = (
+        await tx
+          .select()
+          .from(payouts)
+          .where(eq(payouts.reference, reference))
+          .for('update')
+          .limit(1)
+      )[0];
+      if (!payout) throw new PayoutNotFoundError(reference);
+      if (
+        payout.status === 'settled' ||
+        payout.status === 'failed' ||
+        payout.status === 'reversed'
+      ) {
+        return; // terminal — idempotent no-op
+      }
 
-    if (outcome === 'settled') {
-      await this.markTerminal(payout.id, 'settled', { transferId: opts.transferId });
-    } else {
-      await this.reverseAndFail(
-        payout.id,
-        payout.merchant_id,
-        payout.amount_pesewas,
-        opts.error ?? 'transfer failed',
-      );
-    }
+      if (outcome === 'settled') {
+        await this.markTerminal(payout.id, 'settled', { transferId: opts.transferId }, tx);
+      } else {
+        await this.reverseAndFail(
+          payout.id,
+          payout.merchant_id,
+          payout.amount_pesewas,
+          opts.error ?? 'transfer failed',
+          tx,
+        );
+      }
+    });
   }
 
   /** Marks a payout settled (no ledger change — the debit happened at initiation). */
@@ -315,9 +342,11 @@ export class SettlementService {
     payoutId: string,
     status: 'settled',
     opts: { transferCode?: string; transferId?: string },
+    /** Join the caller's transaction so the lock covers the write too. */
+    caller?: TransactionalTx,
   ): Promise<void> {
     const nowIso = new Date().toISOString();
-    await runInTransaction(this.db, async (tx) => {
+    await this.inTransaction(caller, async (tx) => {
       await tx
         .update(payouts)
         .set({
@@ -382,9 +411,11 @@ export class SettlementService {
     merchantId: string,
     amountPesewas: number,
     reason: string,
+    /** Join the caller's transaction so the lock covers the write too. */
+    caller?: TransactionalTx,
   ): Promise<void> {
     const nowIso = new Date().toISOString();
-    await runInTransaction(this.db, async (tx) => {
+    await this.inTransaction(caller, async (tx) => {
       await this.ledger.record(
         [
           {

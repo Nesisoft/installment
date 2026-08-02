@@ -22,6 +22,7 @@ import {
   IdempotencyService,
   JwtService,
   LedgerService,
+  LedgerIntegrityService,
   MerchantsService,
   MockGhanaCardVerifier,
   OtpService,
@@ -198,6 +199,11 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     {
       provide: LedgerService,
       useFactory: (db: Database) => new LedgerService(db),
+      inject: [DRIZZLE],
+    },
+    {
+      provide: LedgerIntegrityService,
+      useFactory: (db: Database) => new LedgerIntegrityService(db),
       inject: [DRIZZLE],
     },
     {
@@ -494,6 +500,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     RulesetLoader,
     CustomerPlansService,
     LedgerService,
+    LedgerIntegrityService,
     PayoutRecorder,
     ReserveReleaseService,
     DefaultService,
