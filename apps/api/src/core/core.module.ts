@@ -39,6 +39,7 @@ import {
   ScheduleStateService,
   ScoringEngine,
   ScoringService,
+  StuckScheduleRunner,
   TelcoHealthMonitor,
   UsersService,
   WebhookService,
@@ -341,6 +342,14 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         TelcoHealthMonitor,
         RedisLock,
       ],
+    },
+    {
+      provide: StuckScheduleRunner,
+      useFactory: (db: Database, attempts: AttemptRepository, payments: PaymentService) =>
+        new StuckScheduleRunner(db, attempts, payments, {
+          stuck: (detail) => captureAlert('installment stuck in processing', 'error', detail),
+        }),
+      inject: [DRIZZLE, AttemptRepository, PaymentService],
     },
     {
       provide: DebitRunner,

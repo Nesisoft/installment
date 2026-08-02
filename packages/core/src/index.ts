@@ -117,6 +117,12 @@ export {
 } from './modules/payments/payment.service';
 export { ChargeFailureEscalator } from './modules/payments/charge-failure-escalator';
 export {
+  StuckScheduleRunner,
+  type StuckOutcome,
+  type StuckSweepSummary,
+  type StuckScheduleAlertSink,
+} from './modules/payments/stuck-schedule-runner';
+export {
   TelcoHealthMonitor,
   InMemoryTelcoHealthStore,
   TELCOS,

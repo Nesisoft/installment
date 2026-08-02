@@ -4,15 +4,15 @@ import { VerifyRunner } from './verify-runner';
 const ACTOR = { actorId: 'verify', actorType: 'system' as const };
 
 function make(stale: Array<{ id: string; schedule_id: string }>) {
-  const findStaleInFlight = vi.fn(async () => stale);
+  const findStaleUnresolved = vi.fn(async () => stale);
   const verifyAttempt = vi.fn();
-  const runner = new VerifyRunner({ findStaleInFlight } as never, { verifyAttempt } as never);
-  return { runner, findStaleInFlight, verifyAttempt };
+  const runner = new VerifyRunner({ findStaleUnresolved } as never, { verifyAttempt } as never);
+  return { runner, findStaleUnresolved, verifyAttempt };
 }
 
 describe('VerifyRunner.sweepStale', () => {
   it('re-verifies each stale attempt and tallies outcomes by status', async () => {
-    const { runner, findStaleInFlight, verifyAttempt } = make([
+    const { runner, findStaleUnresolved, verifyAttempt } = make([
       { id: 'a1', schedule_id: 's1' },
       { id: 'a2', schedule_id: 's2' },
       { id: 'a3', schedule_id: 's3' },
@@ -27,7 +27,7 @@ describe('VerifyRunner.sweepStale', () => {
     const staleBefore = new Date('2026-10-15T12:00:00Z');
     const summary = await runner.sweepStale(staleBefore, ACTOR);
 
-    expect(findStaleInFlight).toHaveBeenCalledWith(staleBefore, undefined);
+    expect(findStaleUnresolved).toHaveBeenCalledWith(staleBefore, undefined);
     expect(verifyAttempt).toHaveBeenCalledTimes(4);
     expect(verifyAttempt).toHaveBeenNthCalledWith(1, 'a1', ACTOR);
     expect(summary).toMatchObject({
@@ -72,8 +72,8 @@ describe('VerifyRunner.sweepStale', () => {
   });
 
   it('passes a custom limit through to the repository', async () => {
-    const { runner, findStaleInFlight } = make([]);
+    const { runner, findStaleUnresolved } = make([]);
     await runner.sweepStale(new Date(), ACTOR, { limit: 50 });
-    expect(findStaleInFlight).toHaveBeenCalledWith(expect.any(Date), 50);
+    expect(findStaleUnresolved).toHaveBeenCalledWith(expect.any(Date), 50);
   });
 });

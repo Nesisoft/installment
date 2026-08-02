@@ -308,7 +308,23 @@ export class PaymentService {
     if (data.status === 'pending' || data.status === 'ongoing') {
       const nextCount = attempt.verify_poll_count + 1;
       if (nextCount >= MAX_VERIFY_POLLS) {
-        return this.recordVerifyFailure(attempt, 'timeout_no_resolution', response, actor);
+        // Budget exhausted while the provider still says "pending". That is
+        // NOT a failure — we genuinely do not know whether money moved, and
+        // Paystack may yet resolve it. Recording it as `failed` would classify
+        // as retryable and issue a fresh charge on top of a possibly-live one.
+        // Park it in `unknown` for the reconciler and a human to resolve.
+        const parked = await this.attempts.update(attempt.id, {
+          status: 'unknown',
+          failureReason: 'timeout_no_resolution',
+          rawResponse: response,
+          lastVerifiedAt: new Date(),
+          verifyPollCount: nextCount,
+        });
+        return {
+          status: 'unknown',
+          attempt: parked,
+          providerReference: attempt.provider_reference,
+        };
       }
       const updated = await this.attempts.update(attempt.id, {
         lastVerifiedAt: new Date(),

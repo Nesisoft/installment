@@ -14,6 +14,7 @@ import { CustomerPlansService } from '../schedules/customer-plans.service';
 import { ScheduleStateService } from '../schedules/schedule-state.service';
 import { AttemptRepository } from './attempt-repository';
 import { PaymentService, type PaystackChargeClient } from './payment.service';
+import { MAX_VERIFY_POLLS } from './retry-policy';
 import type { RetryJob, RetryScheduler } from './retry-scheduler';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
@@ -319,7 +320,7 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
     expect((await plans.getInstallment(scheduleId)).status).toBe('failed');
   });
 
-  it('verify still-pending bumps the poll count and times out at MAX_VERIFY_POLLS', async () => {
+  it('verify still-pending bumps the poll count and parks as unknown at MAX_VERIFY_POLLS', async () => {
     const { scheduleId, attemptId, reference } = await inflightMomoAttempt();
     const svc = service(fakePaystack({ verify: { reference, status: 'pending' } }));
 
@@ -327,10 +328,21 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
     expect(first.status).toBe('pending');
     expect(first.attempt.verify_poll_count).toBe(1);
 
-    const second = await svc.verifyAttempt(attemptId, VERIFY_ACTOR);
-    expect(second.status).toBe('failed'); // MAX_VERIFY_POLLS=2 → timeout
-    expect(second.failureReason).toBe('timeout_no_resolution');
-    expect((await plans.getInstallment(scheduleId)).status).toBe('failed');
+    // Burn the rest of the budget.
+    let last = first;
+    for (let i = 1; i < MAX_VERIFY_POLLS; i += 1) {
+      last = await svc.verifyAttempt(attemptId, VERIFY_ACTOR);
+    }
+
+    // Exhausting the budget while Paystack still says "pending" is NOT a
+    // failure — we genuinely don't know whether money moved. Recording it as
+    // `failed` would classify as retryable and issue a fresh charge on top of
+    // a possibly-live one. It parks in `unknown` for the reconciler instead,
+    // and the schedule stays `processing` rather than being wrongly failed.
+    expect(last.status).toBe('unknown');
+    expect(last.attempt.status).toBe('unknown');
+    expect(last.attempt.failure_reason).toBe('timeout_no_resolution');
+    expect((await plans.getInstallment(scheduleId)).status).toBe('processing');
   });
 
   it('verify is a no-op for an already-resolved attempt (no Paystack call)', async () => {
