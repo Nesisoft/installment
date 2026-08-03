@@ -15,7 +15,6 @@ import { LedgerService } from '../../shared/ledger/ledger.service';
 import { PayoutRecorder } from './payout-recorder';
 import { ReserveReleaseService } from './reserve-release.service';
 import { DefaultService } from './default.service';
-import { SETTLEMENT_CASH_REF } from './settlement.service';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
@@ -121,7 +120,7 @@ describe.skipIf(!RUN_DB)('DefaultService (integration)', () => {
     return plans.activateFromApplication(app.id, ACTOR);
   }
 
-  it('BNPL default: platform absorbs the whole loss from the default pool', async () => {
+  it('BNPL default: the reserve absorbs first, the platform pool takes the rest', async () => {
     const merchantId = await freshMerchant();
     const customerId = await freshCustomer();
     const { plan, schedule } = await activate(bnplTemplateId, merchantId, customerId);
@@ -129,23 +128,28 @@ describe.skipIf(!RUN_DB)('DefaultService (integration)', () => {
     // Customer pays one installment, then defaults on the remaining 75k.
     await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
     const before = await ledger.balanceOf('merchant_payable', merchantId);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(5_000);
 
     const updated = await plans.markPlanDefaulted(plan.id, { reason: 'no contact 90d' }, ACTOR);
     expect(updated.status).toBe('defaulted');
     expect(updated.defaulted_at).not.toBeNull();
 
-    // Loss goes to the pool; merchant is untouched (BNPL doesn't share risk).
+    // The 5% withheld for default risk goes first; the platform pool covers the
+    // remaining 70k. The merchant's payable is still untouched — BNPL caps its
+    // exposure at the reserve rather than clawing back.
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(0);
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(before);
-    // default_pool debited 75k → balanceOf (credits − debits) = −75k.
-    expect(await ledger.balanceOf('default_pool', SETTLEMENT_CASH_REF)).toBeLessThanOrEqual(
-      -75_000,
-    );
-    // The default transaction is balanced (2 rows: pool debit + receivable credit).
+
+    // 3 rows: receivable credit 75k = reserve debit 5k + pool debit 70k.
     const rows = await db
       .select()
       .from(schema.ledger_entries)
       .where(eq(schema.ledger_entries.transaction_id, `default:${plan.id}`));
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
+    const find = (type: string) => rows.find((r) => r.account_type === type)?.amount_pesewas;
+    expect(find('receivable')).toBe(75_000);
+    expect(find('reserve_held')).toBe(5_000);
+    expect(find('default_pool')).toBe(70_000);
   });
 
   it('rent_to_own default: claws the reserve first, then the merchant payable', async () => {
@@ -205,12 +209,12 @@ describe.skipIf(!RUN_DB)('DefaultService (integration)', () => {
     await expect(plans.markPlanDefaulted(plan.id, {}, ACTOR)).rejects.toBeInstanceOf(
       PlanDefaultError,
     );
-    // Only one default transaction was ever booked.
+    // Only one default transaction was ever booked (receivable + reserve + pool).
     const rows = await db
       .select()
       .from(schema.ledger_entries)
       .where(eq(schema.ledger_entries.transaction_id, `default:${plan.id}`));
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
   });
 
   it('handleDefault is a no-op for a zero unrecovered amount', async () => {

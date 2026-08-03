@@ -3961,6 +3961,45 @@
         ]
       }
     },
+    "/admin/plans/{id}/delivery": {
+      "post": {
+        "operationId": "PlansController_delivery",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record that the merchant delivered the goods — starts the reserve release clock for delivery-gated models (layaway)",
+        "tags": [
+          "plans"
+        ]
+      }
+    },
     "/admin/plans/{id}/schedule": {
       "get": {
         "operationId": "PlansController_schedule",
@@ -6631,6 +6670,11 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "plan_defaulted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         },
         "required": [

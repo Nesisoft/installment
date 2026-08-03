@@ -14,6 +14,12 @@ export const PERMISSIONS = {
   COLLECTIONS_ACT: 'collections:act',
   PLANS_READ: 'plans:read',
   PLANS_WRITE: 'plans:write',
+  /**
+   * Record product delivery against a plan. Separate from PLANS_WRITE because
+   * delivery is what releases a layaway merchant's reserve — it moves money,
+   * while PLANS_WRITE means "create / update plan templates".
+   */
+  PLANS_DELIVER: 'plans:deliver',
   USERS_WRITE: 'users:write',
   AUDIT_READ: 'audit:read',
   /**
