@@ -27,6 +27,7 @@ import { TelcoHealthController } from './modules/telco-health.controller';
 import { InstallmentsController } from './modules/installments.controller';
 import { SettlementsController } from './modules/settlements.controller';
 import { LedgerController } from './modules/ledger.controller';
+import { RefundsController } from './modules/refunds.controller';
 import { CollectionsController } from './modules/collections.controller';
 import { MeController } from './modules/me.controller';
 import { MeCommerceController } from './modules/me-commerce.controller';
@@ -78,6 +79,7 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
     InstallmentsController,
     SettlementsController,
     LedgerController,
+    RefundsController,
     CollectionsController,
     MeController,
     MeCommerceController,

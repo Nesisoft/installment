@@ -29,6 +29,12 @@ export const PERMISSIONS = {
    * template could also fire a payout batch.
    */
   SETTLEMENTS_RUN: 'settlements:run',
+  /**
+   * Issue refunds and settle out-of-band refund returns. Separate from
+   * COLLECTIONS_ACT ("Take action on collections cases"), which the refund
+   * route rode on: a refund sends customer money out of the platform account.
+   */
+  REFUNDS_ACT: 'refunds:act',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

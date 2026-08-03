@@ -38,6 +38,23 @@ export interface PayoutConfirmer {
   ): Promise<void>;
 }
 
+/** The slice of RefundService this needs to apply a refund outcome. */
+export interface RefundConfirmer {
+  confirmRefund(
+    reference: string,
+    outcome: 'succeeded' | 'failed',
+    opts?: { providerRefundId?: string; error?: string },
+  ): Promise<unknown>;
+  /**
+   * Refund webhooks identify the *original transaction*, not the refund, and
+   * carry no reference of ours — so the link back to our row is the charge
+   * reference we recorded at intent time.
+   */
+  findByProviderTransactionReference(
+    transactionReference: string,
+  ): Promise<{ reference: string } | undefined>;
+}
+
 export interface PaystackWebhookEvent {
   event: string;
   data: { reference: string; status?: string; gateway_response?: string; [key: string]: unknown };
@@ -55,6 +72,18 @@ export interface WebhookIngestResult {
 }
 
 const WEBHOOK_ACTOR = { actorId: SYSTEM_ACTORS.WEBHOOK, actorType: 'webhook' as const };
+
+/**
+ * The original charge reference a refund event refers to. Paystack nests it
+ * differently depending on the endpoint that produced the payload, so check
+ * both shapes rather than trusting one.
+ */
+function transactionReferenceOf(event: PaystackWebhookEvent): string | undefined {
+  const flat = event.data?.transaction_reference;
+  if (typeof flat === 'string' && flat) return flat;
+  const nested = (event.data?.transaction as { reference?: unknown } | undefined)?.reference;
+  return typeof nested === 'string' && nested ? nested : undefined;
+}
 
 /**
  * Ingests Paystack webhooks. Rejects bad signatures, dedupes replays via
@@ -83,6 +112,12 @@ export class WebhookService {
      * cannot be acted on and is only alerted.
      */
     private readonly settlements?: PayoutConfirmer,
+    /**
+     * Applies customer refund outcomes. Paystack settles GHS refunds
+     * asynchronously, so without this a refund stays `pending_confirmation`
+     * until the slower reconciliation sweep notices.
+     */
+    private readonly refunds?: RefundConfirmer,
   ) {}
 
   /** Reports an unapplied outcome without ever failing the ingest. */
@@ -105,7 +140,11 @@ export class WebhookService {
     }
     const event = JSON.parse(rawBody) as PaystackWebhookEvent;
     const eventType = event.event;
-    const providerEventId = `${eventType}:${event.data?.reference ?? 'no-ref'}`;
+    // Refund events carry no `reference` — they identify the original
+    // transaction instead. Without this fallback every refund webhook would
+    // dedupe to `refund.processed:no-ref`, so the first one processed would
+    // silently swallow every later refund of the same type.
+    const providerEventId = `${eventType}:${event.data?.reference ?? transactionReferenceOf(event) ?? 'no-ref'}`;
 
     await this.db
       .insert(we)
@@ -149,6 +188,10 @@ export class WebhookService {
       await this.handleTransfer(event);
       return;
     }
+    if (event.event.startsWith('refund.')) {
+      await this.handleRefund(event);
+      return;
+    }
     if (event.event !== 'charge.success' && event.event !== 'charge.failed') return;
     const reference = event.data.reference;
     if (!reference) {
@@ -185,6 +228,66 @@ export class WebhookService {
    * stayed cleared, and the merchant was recorded as paid while holding
    * nothing. Nothing else in the system would ever have noticed.
    */
+  /**
+   * Customer refunds. Paystack settles GHS refunds asynchronously, so the
+   * submit call usually returns `pending` and the real outcome arrives here.
+   *
+   * Nothing about a refund event identifies our record directly — it names the
+   * original transaction — so the link is the charge reference stored at intent
+   * time. An event we cannot match is alerted rather than dropped: it means
+   * money moved on an account we believe we own and cannot account for.
+   */
+  private async handleRefund(event: PaystackWebhookEvent): Promise<void> {
+    const outcome =
+      event.event === 'refund.processed'
+        ? 'succeeded'
+        : event.event === 'refund.failed'
+          ? 'failed'
+          : undefined;
+    if (!outcome) return; // refund.pending / refund.processing — not terminal
+
+    const transactionReference = transactionReferenceOf(event);
+    if (!transactionReference) {
+      this.alert({
+        eventType: event.event,
+        reference: '(none)',
+        reason: 'refund event carried no transaction reference',
+      });
+      return;
+    }
+    if (!this.refunds) {
+      this.alert({
+        eventType: event.event,
+        reference: transactionReference,
+        reason: 'no refund service wired to apply the refund outcome',
+      });
+      return;
+    }
+
+    const refund = await this.refunds.findByProviderTransactionReference(transactionReference);
+    if (!refund) {
+      this.alert({
+        eventType: event.event,
+        reference: transactionReference,
+        reason: 'no refund record for transaction reference',
+      });
+      return;
+    }
+
+    try {
+      await this.refunds.confirmRefund(refund.reference, outcome, {
+        error: outcome === 'failed' ? (event.data.gateway_response ?? event.event) : undefined,
+      });
+    } catch (err) {
+      this.alert({
+        eventType: event.event,
+        reference: refund.reference,
+        reason: `could not apply refund outcome: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      throw err;
+    }
+  }
+
   private async handleTransfer(event: PaystackWebhookEvent): Promise<void> {
     const reference = event.data.reference;
     if (!reference) {

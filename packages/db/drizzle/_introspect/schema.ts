@@ -1062,6 +1062,44 @@ export const merchants = pgTable("merchants", {
 	check("merchants_status_check", sql`status = ANY (ARRAY['pending_kyc'::text, 'active'::text, 'suspended'::text, 'offboarded'::text])`),
 ]);
 
+export const refunds = pgTable("refunds", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	customer_plan_id: uuid().notNull(),
+	schedule_id: uuid().notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	amount_pesewas: bigint({ mode: "number" }).notNull(),
+	reference: text().notNull(),
+	method: text().notNull(),
+	provider_transaction_reference: text(),
+	paystack_refund_id: text(),
+	status: text().default('initiated').notNull(),
+	last_error: text(),
+	requested_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	submitted_at: timestamp({ withTimezone: true, mode: 'string' }),
+	succeeded_at: timestamp({ withTimezone: true, mode: 'string' }),
+	failed_at: timestamp({ withTimezone: true, mode: 'string' }),
+}, (table) => [
+	index("refunds_inflight_idx").using("btree", table.submitted_at.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = ANY (ARRAY['pending_confirmation'::text, 'unknown'::text]))`),
+	index("refunds_plan_idx").using("btree", table.customer_plan_id.asc().nullsLast().op("timestamptz_ops"), table.requested_at.desc().nullsFirst().op("timestamptz_ops")),
+	index("refunds_unsent_idx").using("btree", table.requested_at.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'initiated'::text) AND (method = 'paystack'::text))`),
+	foreignKey({
+			columns: [table.customer_plan_id],
+			foreignColumns: [customer_plans.id],
+			name: "refunds_customer_plan_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.schedule_id],
+			foreignColumns: [installment_schedule.id],
+			name: "refunds_schedule_id_fkey"
+		}),
+	unique("refunds_schedule_id_key").on(table.schedule_id),
+	unique("refunds_reference_key").on(table.reference),
+	check("refunds_amount_pesewas_check", sql`amount_pesewas > 0`),
+	check("refunds_check", sql`((method = 'paystack'::text) AND (provider_transaction_reference IS NOT NULL)) OR ((method = 'manual'::text) AND (provider_transaction_reference IS NULL))`),
+	check("refunds_method_check", sql`method = ANY (ARRAY['paystack'::text, 'manual'::text])`),
+	check("refunds_status_check", sql`status = ANY (ARRAY['initiated'::text, 'pending_confirmation'::text, 'succeeded'::text, 'failed'::text, 'unknown'::text])`),
+]);
+
 export const role_permissions = pgTable("role_permissions", {
 	role_id: uuid().notNull(),
 	permission_id: uuid().notNull(),

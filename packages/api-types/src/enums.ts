@@ -66,6 +66,14 @@ export type PayoutStatus =
   | 'unknown'
   | 'reversed';
 
+export type RefundStatus =
+  | 'initiated'
+  | 'pending_confirmation'
+  | 'succeeded'
+  | 'failed'
+  | 'unknown';
+export type RefundMethod = 'paystack' | 'manual';
+
 export type CollectionsStage =
   | 'soft_reminder'
   | 'firm_reminder'
@@ -108,7 +116,8 @@ export type LedgerAccountType =
   | 'default_pool'
   | 'revenue'
   | 'receivable'
-  | 'refund_payable';
+  | 'refund_payable'
+  | 'customer_float';
 
 export type TelcoHealthStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
 
@@ -151,6 +160,7 @@ export const PERMISSIONS = [
   'plans:write',
   'plans:deliver',
   'settlements:run',
+  'refunds:act',
   'users:write',
   'audit:read',
   'catalog:read',

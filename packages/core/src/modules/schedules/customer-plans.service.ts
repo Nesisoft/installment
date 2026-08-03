@@ -55,6 +55,18 @@ export interface ManualPaymentResult {
 }
 
 /**
+ * The only thing this service needs from the refund module, expressed as a port
+ * so refunds can depend on schedules without schedules depending back.
+ * Satisfied by `RefundService.recordIntent`.
+ */
+export interface RefundIntentRecorder {
+  recordIntent(
+    input: { customerPlanId: string; scheduleId: string; amountPesewas: number },
+    tx: TransactionalTx,
+  ): Promise<void>;
+}
+
+/**
  * Which settlement event to apply for the state the schedule is actually in
  * when confirmed money arrives. Anything not listed uses
  * `late_payment_received` (see the state machine's late-settlement edges).
@@ -96,6 +108,13 @@ export class CustomerPlansService {
      * provider.
      */
     private readonly cashLedger?: PlanCashLedger,
+    /**
+     * Records the obligation to return a refunded installment to the customer,
+     * inside the refund's own transaction. Optional for the same reason as the
+     * rest — but without it a refund updates the books and nothing ever sends
+     * the money.
+     */
+    private readonly refunds?: RefundIntentRecorder,
   ) {}
 
   /**
@@ -401,6 +420,13 @@ export class CustomerPlansService {
         .set({
           status: 'refunded',
           status_changed_at: nowIso,
+          // Nothing was net paid on this installment any more. Leaving the
+          // column intact double-counted the money: `buildStatement` sums
+          // `amount_paid_pesewas` across every row regardless of status, while
+          // the refund also adds the amount back to `outstanding_pesewas` — so
+          // a refunded customer saw the same cedis credited as paid *and* owed.
+          // The amount survives on the refunds row and in the audit event.
+          amount_paid_pesewas: 0,
           version: installment.version + 1,
         })
         .where(and(eq(sched.id, installment.id), eq(sched.version, installment.version)))
@@ -469,6 +495,19 @@ export class CustomerPlansService {
       // leaves (S7).
       await this.cashLedger?.reverseCollection(
         { scheduleId: installment.id, customerPlanId: plan.id, amountPesewas: refundAmount },
+        tx,
+      );
+
+      // The obligation now exists as a durable, chaseable record rather than a
+      // ledger balance nothing reads. It commits with the flip: there is no
+      // window in which the schedule says "refunded" and no one is on the hook
+      // for sending the money.
+      await this.refunds?.recordIntent(
+        {
+          customerPlanId: plan.id,
+          scheduleId: installment.id,
+          amountPesewas: refundAmount,
+        },
         tx,
       );
 

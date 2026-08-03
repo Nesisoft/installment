@@ -176,6 +176,45 @@ describe('PaystackClient HTTP methods', () => {
     expect(calls[1]!.method).toBe('GET');
   });
 
+  it('refund POSTs /refund against the original transaction, verifyRefund GETs /refund/:id', async () => {
+    const { fetchImpl, calls } = makeFetch({
+      status: true,
+      message: 'ok',
+      data: { id: 4567, status: 'pending' },
+    });
+    const client = new PaystackClient({ secretKey: SECRET, fetchImpl });
+
+    await client.refund({
+      transaction: 'INSTL-abc-1',
+      amount: 25_000,
+      currency: 'GHS',
+      merchant_note: 'returned goods',
+    });
+    expect(calls[0]!.url).toBe('https://api.paystack.co/refund');
+    expect(calls[0]!.method).toBe('POST');
+    // Keyed on the transaction — a refund carries no reference of its own, which
+    // is why callers must key idempotency on their own record.
+    expect(calls[0]!.body).toMatchObject({
+      transaction: 'INSTL-abc-1',
+      amount: 25_000,
+      currency: 'GHS',
+    });
+
+    // Verification is by Paystack's refund id, not by any reference of ours.
+    await client.verifyRefund('4567');
+    expect(calls[1]!.url).toBe('https://api.paystack.co/refund/4567');
+    expect(calls[1]!.method).toBe('GET');
+  });
+
+  it('rejects a refund whose transaction reference Paystack could not accept', () => {
+    const client = new PaystackClient({ secretKey: SECRET });
+    // The colon-bearing references S1 removed would fail at the API and park the
+    // refund in `unknown` — indistinguishable from a network fault, on the one
+    // operation where a customer is waiting for their money.
+    expect(() => client.refund({ transaction: 'INSTL:abc:1' })).toThrow(PaystackError);
+    expect(() => client.verifyRefund('')).toThrow(PaystackError);
+  });
+
   it('respects a custom baseUrl', async () => {
     const { fetchImpl, calls } = makeFetch({ status: true, message: 'ok', data: {} });
     const client = new PaystackClient({

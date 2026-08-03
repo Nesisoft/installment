@@ -4597,6 +4597,142 @@
         ]
       }
     },
+    "/admin/refunds/plan/{planId}": {
+      "get": {
+        "operationId": "RefundsController_listForPlan",
+        "parameters": [
+          {
+            "name": "planId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Refunds owed or returned for a plan — what we still owe the customer, and when",
+        "tags": [
+          "refunds"
+        ]
+      }
+    },
+    "/admin/refunds/{reference}": {
+      "get": {
+        "operationId": "RefundsController_get",
+        "parameters": [
+          {
+            "name": "reference",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One refund by reference",
+        "tags": [
+          "refunds"
+        ]
+      }
+    },
+    "/admin/refunds/{reference}/send": {
+      "post": {
+        "operationId": "RefundsController_send",
+        "parameters": [
+          {
+            "name": "reference",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Send a refund to the provider now instead of waiting for the worker (also retries one parked as unknown)",
+        "tags": [
+          "refunds"
+        ]
+      }
+    },
+    "/admin/refunds/{reference}/settle-manual": {
+      "post": {
+        "operationId": "RefundsController_settleManual",
+        "parameters": [
+          {
+            "name": "reference",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Unique key for this logical request. Reuse the same value when retrying so the operation is applied at most once; a retry returns the original response. Reusing a key with a different request body returns 409.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "The Idempotency-Key was reused with a different request body, or an earlier request with this key is still in progress."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record that an out-of-band refund was physically returned — the only way a manual refund reaches a terminal state",
+        "tags": [
+          "refunds"
+        ]
+      }
+    },
     "/admin/collections/cases": {
       "get": {
         "operationId": "CollectionsController_list",
