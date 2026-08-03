@@ -21,12 +21,32 @@ export interface PayoutBreakdown {
  * that trigger. All intermediate math is rounded to whole pesewas with
  * ROUND_HALF_UP (via Money / decimal.js).
  */
+export interface PayoutRateOverrides {
+  /** Merchant Discount Rate for this plan, basis points. */
+  mdrBps?: number;
+  /** Reserve withheld for this plan, basis points. */
+  reserveBps?: number;
+}
+
 export class PayoutCalculator {
+  /**
+   * `rates` are the per-plan rates snapshotted onto `customer_plans` at
+   * activation (`mdr_bps`, `reserve_bps`), which come from the merchant's
+   * negotiated terms. They were stored, surfaced in the admin console, and
+   * read by nothing — so a merchant onboarded at 2.5% MDR was silently charged
+   * the model default of 4%, and a merchant given a 0% reserve still had 5%
+   * withheld. MODEL_CONFIG remains the fallback for callers that have no plan
+   * in hand.
+   *
+   * The rates live on the plan rather than being re-read from the merchant so
+   * that changing a merchant's terms never retroactively alters accruals
+   * already booked against an append-only ledger.
+   */
   static calculate(
     orderAmountPesewas: number,
     model: BusinessModel,
     trigger: PayoutTrigger,
-    options?: { installmentNumber?: number },
+    options?: { installmentNumber?: number; rates?: PayoutRateOverrides },
   ): PayoutBreakdown | null {
     const config = MODEL_CONFIG[model];
     const split = config.payoutSplits.find(
@@ -36,11 +56,14 @@ export class PayoutCalculator {
     );
     if (!split) return null;
 
+    const mdrBps = options?.rates?.mdrBps ?? config.mdrBps;
+    const reserveBps = options?.rates?.reserveBps ?? config.reserveBps;
+
     // percentOfOrder → bps so the rounding uses the same ROUND_HALF_UP rule.
     const percentBps = Math.round(split.percentOfOrder * 10_000);
     const gross = Money.fromPesewas(orderAmountPesewas).multiplyBps(percentBps);
-    const mdr = gross.multiplyBps(config.mdrBps);
-    const reserve = gross.multiplyBps(config.reserveBps);
+    const mdr = gross.multiplyBps(mdrBps);
+    const reserve = gross.multiplyBps(reserveBps);
     const grossN = gross.toNumber();
     const mdrN = mdr.toNumber();
     const reserveN = reserve.toNumber();

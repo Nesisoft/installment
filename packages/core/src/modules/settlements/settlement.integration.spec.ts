@@ -118,7 +118,9 @@ describe.skipIf(!RUN_DB)('SettlementService (integration)', () => {
       .from(schema.ledger_entries)
       .where(
         and(
-          eq(schema.ledger_entries.transaction_id, `payout:${result.payoutId}`),
+          // Keyed on the attempt's reference, not the payout row id: a
+          // same-day retry reuses the row, so the id is not unique per attempt.
+          eq(schema.ledger_entries.transaction_id, result.reference!),
           eq(schema.ledger_entries.account_type, 'paystack_settlement'),
           eq(schema.ledger_entries.account_ref, SETTLEMENT_CASH_REF),
           eq(schema.ledger_entries.direction, 'credit'),

@@ -434,6 +434,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         plans: CustomerPlansService,
         scheduleState: ScheduleStateService,
         payments: PaymentService,
+        settlements: SettlementService,
       ) =>
         // Share PaymentService's failure pipeline so a webhook-delivered
         // decline runs the same retry ladder as a synchronous one.
@@ -445,6 +446,8 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
           scheduleState,
           payments.failureEscalator,
           { unhandled: (detail) => captureAlert('paystack webhook not applied', 'error', detail) },
+          // Lets transfer.* events settle or reverse the matching payout.
+          settlements,
         ),
       inject: [
         DRIZZLE,
@@ -453,6 +456,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         CustomerPlansService,
         ScheduleStateService,
         PaymentService,
+        SettlementService,
       ],
     },
     {

@@ -16,6 +16,13 @@ export const PERMISSIONS = {
   PLANS_WRITE: 'plans:write',
   USERS_WRITE: 'users:write',
   AUDIT_READ: 'audit:read',
+  /**
+   * Trigger settlement runs and payout reconciliation — moving real money to
+   * merchants. Previously these routes carried PLANS_WRITE, whose seeded
+   * meaning is "create / update plan templates", so anyone able to edit a
+   * template could also fire a payout batch.
+   */
+  SETTLEMENTS_RUN: 'settlements:run',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

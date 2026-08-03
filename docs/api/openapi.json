@@ -5839,6 +5839,17 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "min_payout_pesewas": {
+            "type": "integer"
+          },
+          "mdr_bps_override": {
+            "type": "integer",
+            "nullable": true
+          },
+          "reserve_bps_override": {
+            "type": "integer",
+            "nullable": true
           }
         },
         "required": [
@@ -5853,7 +5864,8 @@
           "status",
           "metadata",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "min_payout_pesewas"
         ]
       },
       "Customer": {

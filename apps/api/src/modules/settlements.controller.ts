@@ -19,7 +19,7 @@ export class SettlementsController {
 
   @Post('run')
   @Idempotent()
-  @RequirePermissions(PERMISSIONS.PLANS_WRITE)
+  @RequirePermissions(PERMISSIONS.SETTLEMENTS_RUN)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Run the daily merchant settlement batch (idempotent per merchant/day)',
@@ -31,7 +31,7 @@ export class SettlementsController {
 
   @Post('merchants/:merchantId/run')
   @Idempotent()
-  @RequirePermissions(PERMISSIONS.PLANS_WRITE)
+  @RequirePermissions(PERMISSIONS.SETTLEMENTS_RUN)
   @HttpCode(200)
   @ApiOperation({ summary: 'Settle a single merchant for the day (idempotent)' })
   runOne(@Param('merchantId') merchantId: string, @Body() body: { asOf?: string } | undefined) {
@@ -41,7 +41,7 @@ export class SettlementsController {
 
   @Post('reconcile')
   @Idempotent()
-  @RequirePermissions(PERMISSIONS.PLANS_WRITE)
+  @RequirePermissions(PERMISSIONS.SETTLEMENTS_RUN)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Verify in-flight payouts (pending/unknown) against Paystack and resolve them',
