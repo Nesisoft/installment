@@ -66,6 +66,29 @@ export class PlansController {
     );
   }
 
+  @Post(':id/delivery')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.PLANS_DELIVER)
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Record that the merchant delivered the goods — starts the reserve release clock for delivery-gated models (layaway)',
+  })
+  delivery(
+    @Param('id') id: string,
+    @Body() body: { deliveredAt?: string; reason?: string } | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.plans.markDelivered(
+      id,
+      {
+        deliveredAt: body?.deliveredAt ? new Date(body.deliveredAt) : undefined,
+        reason: body?.reason,
+      },
+      actorOf(user),
+    );
+  }
+
   @Get(':id/schedule')
   @ApiModel('InstallmentSchedule', { array: true })
   @RequirePermissions(PERMISSIONS.PLANS_READ)

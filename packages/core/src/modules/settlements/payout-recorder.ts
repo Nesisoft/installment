@@ -160,7 +160,9 @@ export class PayoutRecorder {
    * Books the proportional inverse of every accrual that has fired for the
    * plan, scaled by how much of the total accrued gross the refund represents.
    * Each per-trigger reversal is balanced by construction (gross → mdr →
-   * reserve → net = gross - mdr - reserve), mirroring the forward math.
+   * reserve → net = gross - mdr - reserve), mirroring the forward math — except
+   * that the reserve leg is capped at what the plan still holds, with the
+   * shortfall clawed from the merchant instead (see below).
    *
    * One refund transaction per source accrual: `refund:{scheduleId}:{trigger}`.
    * Replays are idempotent — already-booked reversals are skipped and replayed
@@ -208,6 +210,19 @@ export class PayoutRecorder {
     const reversals: RefundReversalSummary['reversals'] = [];
     let totalReversedGross = 0;
 
+    // How much reserve is still actually held for this plan. The proportional
+    // reversal below wants to debit `reserve_held` at the plan's rate, but the
+    // reserve may already be gone — released to the merchant once its policy
+    // matured, or consumed to cover a default. Debiting past it would drive
+    // reserve_held negative on an append-only ledger, which is unfixable.
+    // Whatever the reserve can no longer fund is clawed from the merchant
+    // instead: they were paid that reserve out, so it comes back off what we
+    // owe them.
+    let reserveAvailable = Math.max(
+      0,
+      await this.ledger.balanceOf('reserve_held', input.customerPlanId, tx),
+    );
+
     for (const [accrualTxId, rows] of byTransactionId) {
       const triggerSuffix = accrualTxId.slice(accrualPrefix.length);
       const refundTxId = `refund:${input.scheduleId}:${triggerSuffix}`;
@@ -226,72 +241,90 @@ export class PayoutRecorder {
       const reversalMdr = Money.fromPesewas(reversalGross)
         .multiplyBps(input.mdrBps ?? config.mdrBps)
         .toNumber();
-      const reversalReserve = Money.fromPesewas(reversalGross)
+      const reservedAtRate = Money.fromPesewas(reversalGross)
         .multiplyBps(input.reserveBps ?? config.reserveBps)
         .toNumber();
+      // Cap at what's left, and move the shortfall onto the merchant leg so the
+      // transaction still balances against the same gross.
+      const reversalReserve = Math.min(reservedAtRate, reserveAvailable);
       const reversalNet = reversalGross - reversalMdr - reversalReserve;
 
-      // Idempotency: a replay returns the same summary without re-booking.
-      const existing = await exec
-        .select({ transaction_id: ledger.transaction_id })
-        .from(ledger)
-        .where(eq(ledger.transaction_id, refundTxId))
-        .limit(1);
-      const alreadyBooked = Boolean(existing[0]);
+      // Idempotency: a replay reports what was booked without re-booking. It
+      // reads the rows back rather than trusting the recomputation — the
+      // reserve cap depends on a live balance the first run already changed, so
+      // recomputing on a replay can produce a split that never existed.
+      const booked = await exec.select().from(ledger).where(eq(ledger.transaction_id, refundTxId));
 
-      if (!alreadyBooked) {
-        const merchantPayableRow = rows.find((r) => r.account_type === 'merchant_payable');
-        if (!merchantPayableRow) {
-          throw new Error(
-            `Cannot reverse accrual ${accrualTxId}: no merchant_payable row to read merchantId from`,
-          );
-        }
-        const metadata = {
-          model: input.model,
-          trigger: triggerSuffix,
-          refund_of: accrualTxId,
-          schedule_id: input.scheduleId,
-        };
-        const entries = [
-          {
-            transactionId: refundTxId,
-            accountType: 'receivable' as const,
-            accountRef: input.customerPlanId,
-            direction: 'credit' as const,
-            amountPesewas: reversalGross,
-            description: `Refund reversal of ${triggerSuffix}`,
-            metadata,
-          },
-          {
-            transactionId: refundTxId,
-            accountType: 'merchant_payable' as const,
-            accountRef: merchantPayableRow.account_ref,
-            direction: 'debit' as const,
-            amountPesewas: reversalNet,
-            description: `Claw back merchant payable for refund`,
-            metadata,
-          },
-          {
-            transactionId: refundTxId,
-            accountType: 'revenue' as const,
-            accountRef: PLATFORM_ACCOUNT_REF,
-            direction: 'debit' as const,
-            amountPesewas: reversalMdr,
-            description: `Claw back MDR for refund`,
-            metadata,
-          },
-          {
-            transactionId: refundTxId,
-            accountType: 'reserve_held' as const,
-            accountRef: input.customerPlanId,
-            direction: 'debit' as const,
-            amountPesewas: reversalReserve,
-            description: `Release reserve for refund`,
-            metadata,
-          },
-        ].filter((e) => e.amountPesewas > 0);
-        await this.ledger.record(entries, tx);
+      if (booked.length > 0) {
+        const sumOf = (accountType: string, direction: string) =>
+          booked
+            .filter((r) => r.account_type === accountType && r.direction === direction)
+            .reduce((sum, r) => sum + Number(r.amount_pesewas), 0);
+        const bookedGross = sumOf('receivable', 'credit');
+        reversals.push({
+          accrualTransactionId: accrualTxId,
+          refundTransactionId: refundTxId,
+          grossPesewas: bookedGross,
+          netPesewas: sumOf('merchant_payable', 'debit'),
+          mdrPesewas: sumOf('revenue', 'debit'),
+          reservePesewas: sumOf('reserve_held', 'debit'),
+        });
+        totalReversedGross += bookedGross;
+        continue;
       }
+
+      const merchantPayableRow = rows.find((r) => r.account_type === 'merchant_payable');
+      if (!merchantPayableRow) {
+        throw new Error(
+          `Cannot reverse accrual ${accrualTxId}: no merchant_payable row to read merchantId from`,
+        );
+      }
+      const metadata = {
+        model: input.model,
+        trigger: triggerSuffix,
+        refund_of: accrualTxId,
+        schedule_id: input.scheduleId,
+      };
+      const entries = [
+        {
+          transactionId: refundTxId,
+          accountType: 'receivable' as const,
+          accountRef: input.customerPlanId,
+          direction: 'credit' as const,
+          amountPesewas: reversalGross,
+          description: `Refund reversal of ${triggerSuffix}`,
+          metadata,
+        },
+        {
+          transactionId: refundTxId,
+          accountType: 'merchant_payable' as const,
+          accountRef: merchantPayableRow.account_ref,
+          direction: 'debit' as const,
+          amountPesewas: reversalNet,
+          description: `Claw back merchant payable for refund`,
+          metadata,
+        },
+        {
+          transactionId: refundTxId,
+          accountType: 'revenue' as const,
+          accountRef: PLATFORM_ACCOUNT_REF,
+          direction: 'debit' as const,
+          amountPesewas: reversalMdr,
+          description: `Claw back MDR for refund`,
+          metadata,
+        },
+        {
+          transactionId: refundTxId,
+          accountType: 'reserve_held' as const,
+          accountRef: input.customerPlanId,
+          direction: 'debit' as const,
+          amountPesewas: reversalReserve,
+          description: `Release reserve for refund`,
+          metadata,
+        },
+      ].filter((e) => e.amountPesewas > 0);
+      await this.ledger.record(entries, tx);
+      reserveAvailable -= reversalReserve;
 
       reversals.push({
         accrualTransactionId: accrualTxId,

@@ -3,6 +3,7 @@ import { schema, type Database } from '@installment/db';
 import { runInTransaction } from '../../shared/event-bus/transaction';
 import { LedgerService } from '../../shared/ledger/ledger.service';
 import { MODEL_CONFIG, type BusinessModel } from './model-config';
+import { reserveReleaseDate } from './reserve-policy';
 
 const held = schema.held_reserves;
 
@@ -11,8 +12,6 @@ export type ReserveExecutor = Pick<Database, 'insert' | 'update' | 'select'>;
 
 const MS_PER_DAY = 86_400_000;
 const MS_PER_MONTH = 30 * MS_PER_DAY; // settlement "month" — 30 days, matches the design
-/** Sentinel "never matures" date (max safe JS timestamp). */
-const NEVER = new Date(8_640_000_000_000_000);
 
 export type HeldReserve = typeof schema.held_reserves.$inferSelect;
 
@@ -48,8 +47,9 @@ export interface ReserveSweepSummary {
 
 /**
  * Owns the `held_reserves` lifecycle: records a tracking row when an accrual
- * withholds reserve, stamps the policy triggers (plan completion / delivery),
- * and releases matured reserve back to the merchant's payable balance.
+ * withholds reserve, stamps the policy triggers (plan completion / delivery /
+ * default), and releases matured reserve back to the merchant's payable
+ * balance.
  *
  * Release is double-entry (ported from docs/design/settlement-engine.ts):
  *
@@ -126,6 +126,28 @@ export class ReserveReleaseService {
   }
 
   /**
+   * Stamps `plan_defaulted_at` on every still-open reserve for the plan.
+   *
+   * A defaulted plan will never complete and will never be delivered, so
+   * without this the buffer policies wait on a trigger that can no longer fire
+   * and the reserve left over after the default's loss allocation stays
+   * withheld forever. Idempotent — only unstamped rows are touched.
+   */
+  async markPlanDefaulted(customerPlanId: string, at: Date, tx?: ReserveExecutor): Promise<void> {
+    const exec: ReserveExecutor = tx ?? this.db;
+    await exec
+      .update(held)
+      .set({ plan_defaulted_at: at.toISOString() })
+      .where(
+        and(
+          eq(held.customer_plan_id, customerPlanId),
+          isNull(held.plan_defaulted_at),
+          isNull(held.fully_released_at),
+        ),
+      );
+  }
+
+  /**
    * Marks reserve consumed to cover a plan default — held_reserves bookkeeping
    * only; the matching `reserve_held` ledger debit is the caller's job (see
    * DefaultService). Consumes across the plan's open rows up to what each still
@@ -187,7 +209,10 @@ export class ReserveReleaseService {
     let totalReleased = 0;
 
     for (const row of openReserves) {
-      if (this.computeReleaseDate(row) > asOf) continue; // not matured yet
+      const releasableFrom = reserveReleaseDate(row);
+      // null = the policy's trigger has not fired yet (no completion, no
+      // delivery, no default), so there is nothing to mature.
+      if (!releasableFrom || releasableFrom > asOf) continue;
 
       const result = await this.releaseOne(row, asOf);
       if (result.releasedPesewas > 0 || result.fullyReleased) {
@@ -227,41 +252,69 @@ export class ReserveReleaseService {
     };
   }
 
-  /** Books one row's matured release + bookkeeping atomically. */
-  private async releaseOne(row: HeldReserve, asOf: Date): Promise<ReserveReleaseResult> {
-    const desired = this.computeReleaseAmount(row, asOf);
-    // Never release more reserve than the ledger still holds for the plan (a
-    // refund may have reversed part of it).
-    const ledgerBalance = await this.ledger.balanceOf('reserve_held', row.customer_plan_id);
-    const amount = Math.max(0, Math.min(desired, ledgerBalance));
-
-    const newReleased = row.released_amount_pesewas + amount;
-    // Done when the held_reserves accounting is exhausted, or the ledger has
-    // nothing left to give for this plan.
-    const fullyReleased =
-      newReleased + row.consumed_for_default_pesewas >= row.amount_pesewas ||
-      ledgerBalance - amount <= 0;
-
-    if (amount <= 0) {
-      // Nothing bookable. Close the row only if it can never release more.
-      if (fullyReleased) {
-        await this.db
-          .update(held)
-          .set({ fully_released_at: asOf.toISOString() })
-          .where(eq(held.id, row.id));
+  /**
+   * Books one row's matured release + bookkeeping atomically.
+   *
+   * Everything — the row read, the maturity maths, the ledger posting and the
+   * bookkeeping write — happens inside one transaction with the `held_reserves`
+   * row locked `FOR UPDATE`. The sweep's outer read is only a candidate list:
+   * by the time we get here another sweep (or a default consuming the reserve)
+   * may already have moved the row on, and releasing twice from a stale copy
+   * would credit the merchant money that is not theirs on a ledger that cannot
+   * be edited afterwards.
+   */
+  private async releaseOne(candidate: HeldReserve, asOf: Date): Promise<ReserveReleaseResult> {
+    return runInTransaction(this.db, async (tx) => {
+      const row = (
+        await tx.select().from(held).where(eq(held.id, candidate.id)).for('update').limit(1)
+      )[0];
+      // Closed while we queued behind the lock — nothing left to do.
+      if (!row || row.fully_released_at) {
+        return {
+          heldReserveId: candidate.id,
+          customerPlanId: candidate.customer_plan_id,
+          releasedPesewas: 0,
+          fullyReleased: true,
+        };
       }
-      return {
-        heldReserveId: row.id,
-        customerPlanId: row.customer_plan_id,
-        releasedPesewas: 0,
-        fullyReleased,
-      };
-    }
 
-    const transactionId = `release:${row.id}:${asOf.toISOString().slice(0, 10)}`;
-    const metadata = { held_reserve_id: row.id, model: row.business_model };
+      const desired = this.computeReleaseAmount(row, asOf);
+      // Never release more reserve than the ledger still holds for the plan (a
+      // refund or a default may have drawn part of it down).
+      const ledgerBalance = await this.ledger.balanceOf('reserve_held', row.customer_plan_id, tx);
+      const amount = Math.max(0, Math.min(desired, ledgerBalance));
 
-    await runInTransaction(this.db, async (tx) => {
+      const newReleased = row.released_amount_pesewas + amount;
+      // Done when the held_reserves accounting is exhausted, or the ledger has
+      // nothing left to give for this plan.
+      const fullyReleased =
+        newReleased + row.consumed_for_default_pesewas >= row.amount_pesewas ||
+        ledgerBalance - amount <= 0;
+
+      if (amount <= 0) {
+        // Nothing bookable. Close the row only if it can never release more.
+        if (fullyReleased) {
+          await tx
+            .update(held)
+            .set({ fully_released_at: asOf.toISOString() })
+            .where(eq(held.id, row.id));
+        }
+        return {
+          heldReserveId: row.id,
+          customerPlanId: row.customer_plan_id,
+          releasedPesewas: 0,
+          fullyReleased,
+        };
+      }
+
+      // Keyed on the cumulative released total rather than the calendar day:
+      // "this row has now released N in total" is unique for the row's whole
+      // life, so `ledger_posting_identity_uq` rejects a replay even across a
+      // day boundary, and a rolling_monthly row can release twice in one day
+      // without colliding with itself.
+      const transactionId = `release:${row.id}:${newReleased}`;
+      const metadata = { held_reserve_id: row.id, model: row.business_model };
+
       await this.ledger.record(
         [
           {
@@ -293,32 +346,14 @@ export class ReserveReleaseService {
           ...(fullyReleased ? { fully_released_at: asOf.toISOString() } : {}),
         })
         .where(eq(held.id, row.id));
+
+      return {
+        heldReserveId: row.id,
+        customerPlanId: row.customer_plan_id,
+        releasedPesewas: amount,
+        fullyReleased,
+      };
     });
-
-    return {
-      heldReserveId: row.id,
-      customerPlanId: row.customer_plan_id,
-      releasedPesewas: amount,
-      fullyReleased,
-    };
-  }
-
-  /** When the reserve first becomes releasable (the whole lot, for buffer policies). */
-  private computeReleaseDate(row: HeldReserve): Date {
-    const policy = MODEL_CONFIG[row.business_model as BusinessModel].reserveReleasePolicy;
-    switch (policy.type) {
-      case 'after_plan_completion':
-        return row.plan_completed_at
-          ? new Date(new Date(row.plan_completed_at).getTime() + policy.bufferDays * MS_PER_DAY)
-          : NEVER;
-      case 'after_delivery':
-        return row.delivered_at
-          ? new Date(new Date(row.delivered_at).getTime() + policy.bufferDays * MS_PER_DAY)
-          : NEVER;
-      case 'rolling_monthly':
-        // Starts maturing immediately; the amount is gated month-by-month.
-        return new Date(row.held_at);
-    }
   }
 
   /**

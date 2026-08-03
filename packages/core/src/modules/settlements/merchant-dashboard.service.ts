@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, isNotNull, isNull, lt, sql, sum } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { LedgerService } from '../../shared/ledger/ledger.service';
-import { MODEL_CONFIG, type BusinessModel } from './model-config';
+import { reserveReleaseDate } from './reserve-policy';
 import { buildMerchantStatement, type MerchantStatement } from './merchant-statement';
 
 const cp = schema.customer_plans;
@@ -54,6 +54,8 @@ export interface MerchantHeldReserveRow {
   heldAt: string;
   planCompletedAt: string | null;
   deliveredAt: string | null;
+  /** Set when the plan defaulted — the terminal trigger for a buffer policy. */
+  planDefaultedAt: string | null;
   /** Earliest date the policy allows release (null = waiting on a trigger). */
   releasableFrom: string | null;
   fullyReleasedAt: string | null;
@@ -76,8 +78,6 @@ export interface PlanSettlementView {
   /** Default loss absorbed by the reserve withheld for this plan. */
   defaultConsumedFromReservePesewas: number;
 }
-
-const DAY_MS = 86_400_000;
 
 /**
  * Read-only aggregations for the merchant dashboard. Reads cross multiple
@@ -205,6 +205,7 @@ export class MerchantDashboardService {
       heldAt: r.held_at,
       planCompletedAt: r.plan_completed_at,
       deliveredAt: r.delivered_at,
+      planDefaultedAt: r.plan_defaulted_at,
       releasableFrom: this.releasableFrom(r),
       fullyReleasedAt: r.fully_released_at,
     }));
@@ -323,26 +324,13 @@ export class MerchantDashboardService {
     });
   }
 
-  /** Earliest date the policy lets us release this row, given the stamped triggers. */
+  /**
+   * Earliest date the policy lets us release this row, given the stamped
+   * triggers — the same function the release sweep decides on, so the console
+   * can never promise a date the sweep disagrees with.
+   */
   private releasableFrom(row: typeof schema.held_reserves.$inferSelect): string | null {
-    const policy = MODEL_CONFIG[row.business_model as BusinessModel]?.reserveReleasePolicy;
-    if (!policy) return null;
-    switch (policy.type) {
-      case 'after_plan_completion':
-        return row.plan_completed_at
-          ? new Date(
-              new Date(row.plan_completed_at).getTime() + policy.bufferDays * DAY_MS,
-            ).toISOString()
-          : null;
-      case 'after_delivery':
-        return row.delivered_at
-          ? new Date(
-              new Date(row.delivered_at).getTime() + policy.bufferDays * DAY_MS,
-            ).toISOString()
-          : null;
-      case 'rolling_monthly':
-        return row.held_at;
-    }
+    return reserveReleaseDate(row)?.toISOString() ?? null;
   }
 
   /** Sums the matching debits or credits whose transaction_id starts with `prefix`. */

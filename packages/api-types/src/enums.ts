@@ -149,6 +149,8 @@ export const PERMISSIONS = [
   'collections:act',
   'plans:read',
   'plans:write',
+  'plans:deliver',
+  'settlements:run',
   'users:write',
   'audit:read',
   'catalog:read',

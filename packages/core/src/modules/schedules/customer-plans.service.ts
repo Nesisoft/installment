@@ -527,6 +527,59 @@ export class CustomerPlansService {
         );
       }
 
+      // Whatever reserve survives the loss allocation still belongs to the
+      // merchant. Default is the last event this plan will ever have — it can
+      // no longer complete or be delivered — so it starts the release clock the
+      // buffer policies would otherwise wait on forever.
+      await this.reserveRelease?.markPlanDefaulted(planId, now, tx);
+
+      return updated;
+    });
+  }
+
+  /**
+   * Records that the merchant delivered the goods for a plan.
+   *
+   * This is the trigger the `after_delivery` release policy waits on, and
+   * nothing used to fire it: a layaway merchant's 2% reserve was withheld at
+   * completion and then held for the life of the database. Stamps both the plan
+   * (the customer-facing fact) and every open held-reserve row (the release
+   * clock) in one transaction.
+   *
+   * Idempotent: re-recording delivery on an already-delivered plan returns the
+   * plan unchanged rather than moving the release date.
+   */
+  async markDelivered(
+    planId: string,
+    opts: { deliveredAt?: Date; reason?: string } = {},
+    actor: PlanActor,
+    now: Date = new Date(),
+  ): Promise<CustomerPlan> {
+    const deliveredAt = opts.deliveredAt ?? now;
+    return runInTransaction(this.db, async (tx) => {
+      const plan = (await tx.select().from(cp).where(eq(cp.id, planId)).for('update').limit(1))[0];
+      if (!plan) throw new CustomerPlanNotFoundError(planId);
+      if (plan.product_delivered_at) return plan;
+
+      const [updated] = await tx
+        .update(cp)
+        .set({ product_delivered_at: deliveredAt.toISOString() })
+        .where(eq(cp.id, planId))
+        .returning();
+      if (!updated) throw new Error('customer_plans update returned no row');
+
+      await this.audit.append(tx, {
+        entityType: 'customer_plan',
+        entityId: planId,
+        eventType: 'customer_plan.delivered',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reason: opts.reason,
+        metadata: { delivered_at: deliveredAt.toISOString() },
+      });
+
+      await this.reserveRelease?.markDelivered(planId, deliveredAt, tx);
+
       return updated;
     });
   }

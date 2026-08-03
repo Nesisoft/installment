@@ -29,12 +29,15 @@ export interface DefaultAllocation {
  * Allocates the loss when a plan defaults (ported from
  * docs/design/settlement-engine.ts, with the BNPL branch corrected to balance).
  *
- * Who eats the unrecovered amount depends on the model's risk split:
+ * Every model draws the plan's `reserve_held` first — that is the entire
+ * purpose of withholding it. What differs is who covers the remainder:
  *
- *   - bnpl:        platform absorbs fully from `default_pool`
- *   - hybrid/rto:  clawed from the plan's `reserve_held` first, then from the
- *                  merchant's `merchant_payable` (driving it negative — future
- *                  payouts shrink until it clears)
+ *   - bnpl:        the platform, from `default_pool`. The merchant's exposure
+ *                  is capped at the 5% reserve; the platform fronted the cash
+ *                  and carries the rest of the risk.
+ *   - hybrid/rto:  the merchant, from `merchant_payable` (driving it negative —
+ *                  future payouts shrink until it clears). These models share
+ *                  risk, which is why they withhold 7% and 12%.
  *   - layaway:     no accrual was ever booked (it pays out only at completion),
  *                  so there's nothing to write off at the settlement layer
  *
@@ -87,40 +90,46 @@ export class DefaultService {
       },
     ];
 
-    let fromReserve = 0;
     let fromMerchant = 0;
     let fromPool = 0;
 
-    if (model === 'bnpl') {
-      // Platform fronted the cash → it absorbs the whole loss.
-      fromPool = unrecoveredAmountPesewas;
+    // The reserve exists to absorb exactly this, so it goes first for every
+    // model. BNPL used to skip it entirely and bill the platform pool for the
+    // whole loss, which left the merchant's 5% withheld against a risk it was
+    // never actually asked to cover.
+    const reserveBalance = await this.ledger.balanceOf('reserve_held', customerPlanId, tx);
+    const fromReserve = Math.min(Math.max(0, reserveBalance), unrecoveredAmountPesewas);
+    const beyondReserve = unrecoveredAmountPesewas - fromReserve;
+
+    if (fromReserve > 0) {
       entries.push({
         transactionId,
-        accountType: 'default_pool',
-        accountRef: SETTLEMENT_CASH_REF,
+        accountType: 'reserve_held',
+        accountRef: customerPlanId,
         direction: 'debit',
-        amountPesewas: fromPool,
-        description: 'Default write-off absorbed by platform pool',
+        amountPesewas: fromReserve,
+        description: 'Reserve consumed for default',
         metadata,
       });
-    } else {
-      // hybrid / rent_to_own: reserve first, then claw from the merchant.
-      const reserveBalance = await this.ledger.balanceOf('reserve_held', customerPlanId, tx);
-      fromReserve = Math.min(Math.max(0, reserveBalance), unrecoveredAmountPesewas);
-      fromMerchant = unrecoveredAmountPesewas - fromReserve;
+    }
 
-      if (fromReserve > 0) {
+    if (beyondReserve > 0) {
+      if (model === 'bnpl') {
+        // Merchant exposure is capped at the reserve; the platform fronted the
+        // cash and carries everything past it.
+        fromPool = beyondReserve;
         entries.push({
           transactionId,
-          accountType: 'reserve_held',
-          accountRef: customerPlanId,
+          accountType: 'default_pool',
+          accountRef: SETTLEMENT_CASH_REF,
           direction: 'debit',
-          amountPesewas: fromReserve,
-          description: 'Reserve consumed for default',
+          amountPesewas: fromPool,
+          description: 'Default write-off absorbed by platform pool',
           metadata,
         });
-      }
-      if (fromMerchant > 0) {
+      } else {
+        // hybrid / rent_to_own share the risk — claw the rest from the merchant.
+        fromMerchant = beyondReserve;
         entries.push({
           transactionId,
           accountType: 'merchant_payable',

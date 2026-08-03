@@ -233,6 +233,7 @@ export {
   type ReserveSweepSummary,
   type ReserveExecutor,
 } from './modules/settlements/reserve-release.service';
+export { reserveReleaseDate, type ReserveTriggers } from './modules/settlements/reserve-policy';
 export {
   DefaultService,
   type HandleDefaultInput,
