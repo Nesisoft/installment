@@ -34,6 +34,7 @@ import {
   PayoutRecorder,
   ReminderRunner,
   ReconciliationService,
+  RefundService,
   ReserveReleaseService,
   SettlementService,
   PlanTemplatesService,
@@ -238,10 +239,24 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE, LedgerService, AuditLogger, PaystackClient],
     },
     {
+      provide: RefundService,
+      useFactory: (
+        db: Database,
+        ledger: LedgerService,
+        audit: AuditLogger,
+        paystack: PaystackClient,
+      ) => new RefundService(db, ledger, audit, paystack),
+      inject: [DRIZZLE, LedgerService, AuditLogger, PaystackClient],
+    },
+    {
       provide: ReconciliationService,
-      useFactory: (db: Database, settlement: SettlementService, paystack: PaystackClient) =>
-        new ReconciliationService(db, settlement, paystack),
-      inject: [DRIZZLE, SettlementService, PaystackClient],
+      useFactory: (
+        db: Database,
+        settlement: SettlementService,
+        paystack: PaystackClient,
+        refunds: RefundService,
+      ) => new ReconciliationService(db, settlement, paystack, refunds, paystack),
+      inject: [DRIZZLE, SettlementService, PaystackClient, RefundService],
     },
     {
       provide: MerchantDashboardService,
@@ -276,7 +291,18 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         reserves: ReserveReleaseService,
         defaults: DefaultService,
         cashLedger: PlanCashLedger,
-      ) => new CustomerPlansService(db, audit, undefined, payouts, reserves, defaults, cashLedger),
+        refunds: RefundService,
+      ) =>
+        new CustomerPlansService(
+          db,
+          audit,
+          undefined,
+          payouts,
+          reserves,
+          defaults,
+          cashLedger,
+          refunds,
+        ),
       inject: [
         DRIZZLE,
         AuditLogger,
@@ -284,6 +310,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         ReserveReleaseService,
         DefaultService,
         PlanCashLedger,
+        RefundService,
       ],
     },
     { provide: EventBus, useFactory: () => new EventBus() },
@@ -435,6 +462,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         scheduleState: ScheduleStateService,
         payments: PaymentService,
         settlements: SettlementService,
+        refunds: RefundService,
       ) =>
         // Share PaymentService's failure pipeline so a webhook-delivered
         // decline runs the same retry ladder as a synchronous one.
@@ -448,6 +476,8 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
           { unhandled: (detail) => captureAlert('paystack webhook not applied', 'error', detail) },
           // Lets transfer.* events settle or reverse the matching payout.
           settlements,
+          // ...and refund.* events discharge the customer's refund.
+          refunds,
         ),
       inject: [
         DRIZZLE,
@@ -457,6 +487,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         ScheduleStateService,
         PaymentService,
         SettlementService,
+        RefundService,
       ],
     },
     {
@@ -510,6 +541,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     DefaultService,
     SettlementService,
     ReconciliationService,
+    RefundService,
     MerchantDashboardService,
     CollectionsService,
     PaymentService,

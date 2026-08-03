@@ -70,6 +70,7 @@ export {
   type PlanActor,
   type ActivatedPlan,
   type ManualPaymentResult,
+  type RefundIntentRecorder,
 } from './modules/schedules/customer-plans.service';
 export {
   ScheduleStateService,
@@ -274,7 +275,25 @@ export {
   type ReconciliationOutcome,
   type ReconciliationResult,
   type ReconciliationSummary,
+  type RefundVerifyClient,
+  type RefundReconciliationResult,
+  type RefundReconciliationSummary,
 } from './modules/settlements/reconciliation.service';
+export {
+  RefundService,
+  RefundNotFoundError,
+  RefundNotSettleableError,
+  refundReference,
+  type Refund,
+  type RefundStatus,
+  type RefundMethod,
+  type RefundActor,
+  type RefundClient,
+  type RecordRefundIntentInput,
+  type DisburseOutcome,
+  type DisburseResult,
+  type RefundSweepSummary,
+} from './modules/refunds/refund.service';
 export * from './modules/payments/errors';
 export {
   WebhookService,
@@ -283,6 +302,7 @@ export {
   type WebhookIngestResult,
   type WebhookAlertSink,
   type PayoutConfirmer,
+  type RefundConfirmer,
 } from './modules/webhooks/webhook.service';
 export * from './modules/webhooks/errors';
 export * from './modules/applications/dto';

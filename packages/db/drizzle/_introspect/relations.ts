@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, stores, products, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, permissions, role_permissions, roles, user_roles } from "./schema";
+import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, stores, products, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, refunds, permissions, role_permissions, roles, user_roles } from "./schema";
 
 export const customersRelations = relations(customers, ({one, many}) => ({
 	user: one(users, {
@@ -119,6 +119,7 @@ export const customer_plansRelations = relations(customer_plans, ({one, many}) =
 	held_reserves: many(held_reserves),
 	collections_cases: many(collections_cases),
 	orders: many(orders),
+	refunds: many(refunds),
 }));
 
 export const installment_scheduleRelations = relations(installment_schedule, ({one, many}) => ({
@@ -128,6 +129,7 @@ export const installment_scheduleRelations = relations(installment_schedule, ({o
 	}),
 	payment_attempts: many(payment_attempts),
 	collections_cases: many(collections_cases),
+	refunds: many(refunds),
 }));
 
 export const payment_attemptsRelations = relations(payment_attempts, ({one}) => ({
@@ -339,6 +341,17 @@ export const order_itemsRelations = relations(order_items, ({one}) => ({
 	product_variant: one(product_variants, {
 		fields: [order_items.variant_id],
 		references: [product_variants.id]
+	}),
+}));
+
+export const refundsRelations = relations(refunds, ({one}) => ({
+	customer_plan: one(customer_plans, {
+		fields: [refunds.customer_plan_id],
+		references: [customer_plans.id]
+	}),
+	installment_schedule: one(installment_schedule, {
+		fields: [refunds.schedule_id],
+		references: [installment_schedule.id]
 	}),
 }));
 

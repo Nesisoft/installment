@@ -89,6 +89,33 @@ export interface TransferData {
   amount?: number;
 }
 
+export interface RefundRequest {
+  /**
+   * The transaction being refunded — Paystack accepts its reference or its
+   * numeric id. Note that a refund carries no client-supplied reference of its
+   * own, so a retry cannot be made idempotent by reference the way a transfer
+   * can: callers must key idempotency on their own record.
+   */
+  transaction: string;
+  /** Amount in pesewas (integer). Omit to refund the full transaction. */
+  amount?: number;
+  currency?: Currency;
+  /** Shown to the customer. */
+  customer_note?: string;
+  /** Internal note, visible on the Paystack dashboard. */
+  merchant_note?: string;
+}
+
+export interface RefundData {
+  /** Paystack's id for the refund itself, needed to verify it later. */
+  id: number | string;
+  /** pending | processing | processed | failed */
+  status: string;
+  amount?: number;
+  currency?: string;
+  transaction?: { reference?: string; id?: number | string };
+}
+
 export class PaystackError extends Error {
   constructor(
     message: string,
@@ -218,6 +245,31 @@ export class PaystackClient {
   verifyTransfer(reference: string): Promise<PaystackResponse<TransferData>> {
     if (!reference) throw new PaystackError('verifyTransfer: reference is required');
     return this.request<TransferData>('GET', `/transfer/verify/${encodeURIComponent(reference)}`);
+  }
+
+  /**
+   * Returns money to the customer on the original transaction.
+   *
+   * The `transaction` is validated against the reference charset for the same
+   * reason charges are: an unusable reference would surface as a generic
+   * failure and park the refund in `unknown`, indistinguishable from a network
+   * fault, on the one operation where the customer is waiting for their money.
+   */
+  refund(req: RefundRequest): Promise<PaystackResponse<RefundData>> {
+    assertValidReference('refund', req.transaction);
+    return this.request<RefundData>('POST', '/refund', {
+      transaction: req.transaction,
+      amount: req.amount,
+      currency: req.currency,
+      customer_note: req.customer_note,
+      merchant_note: req.merchant_note,
+    });
+  }
+
+  /** Fetches one refund by the id Paystack returned from {@link refund}. */
+  verifyRefund(refundId: string): Promise<PaystackResponse<RefundData>> {
+    if (!refundId) throw new PaystackError('verifyRefund: refundId is required');
+    return this.request<RefundData>('GET', `/refund/${encodeURIComponent(refundId)}`);
   }
 
   private async request<T>(

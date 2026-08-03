@@ -1,8 +1,10 @@
 import { asc, inArray } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { SettlementService, type PayoutStatus } from './settlement.service';
+import type { RefundService, RefundStatus } from '../refunds/refund.service';
 
 const payouts = schema.payouts;
+const refunds = schema.refunds;
 
 /** Statuses that are not yet terminal and need a verify sweep. */
 const RECONCILABLE_STATUSES = ['pending_confirmation', 'unknown'] as const;
@@ -10,6 +12,33 @@ const RECONCILABLE_STATUSES = ['pending_confirmation', 'unknown'] as const;
 /** The slice of the Paystack client the reconciler needs. */
 export interface TransferVerifyClient {
   verifyTransfer(reference: string): Promise<{ data: { status: string; transfer_code?: string } }>;
+}
+
+/**
+ * The refund side of the same job. Paystack refunds are verified by the id
+ * Paystack returned, not by a reference of ours — a refund we never got an id
+ * for cannot be verified at all, which is why an `unknown` refund without one
+ * stays `unresolved` rather than being assumed failed.
+ */
+export interface RefundVerifyClient {
+  verifyRefund(refundId: string): Promise<{ data: { status: string } }>;
+}
+
+export interface RefundReconciliationResult {
+  refundId: string;
+  reference: string;
+  from: RefundStatus;
+  outcome: ReconciliationOutcome;
+  reason?: string;
+}
+
+export interface RefundReconciliationSummary {
+  checked: number;
+  settled: number;
+  failed: number;
+  stillPending: number;
+  unresolved: number;
+  results: RefundReconciliationResult[];
 }
 
 export type ReconciliationOutcome = 'settled' | 'failed' | 'still_pending' | 'unresolved';
@@ -62,6 +91,9 @@ export class ReconciliationService {
     private readonly db: Database,
     private readonly settlement: SettlementService,
     private readonly verifier: TransferVerifyClient,
+    /** Wired together so one sweep resolves both directions of in-flight money. */
+    private readonly refundService?: RefundService,
+    private readonly refundVerifier?: RefundVerifyClient,
   ) {}
 
   async reconcilePendingPayouts(opts: { limit?: number } = {}): Promise<ReconciliationSummary> {
@@ -135,5 +167,86 @@ export class ReconciliationService {
     }
     // pending / otp / ongoing → not terminal yet.
     return { ...base, outcome: 'still_pending', reason: status || 'pending' };
+  }
+
+  /**
+   * Resolves refunds the disbursement worker left in-flight, the mirror of
+   * {@link reconcilePendingPayouts} for money going back to customers.
+   *
+   * A refund is verified by the id Paystack returned. An `unknown` refund with
+   * no id was never confirmed to have been created — it can neither be verified
+   * nor safely re-sent, because Paystack's refund API takes no client reference
+   * and would happily create a second one. Those stay `unresolved` and surface
+   * for a human, which is the honest outcome.
+   */
+  async reconcilePendingRefunds(
+    opts: { limit?: number } = {},
+  ): Promise<RefundReconciliationSummary> {
+    const summary: RefundReconciliationSummary = {
+      checked: 0,
+      settled: 0,
+      failed: 0,
+      stillPending: 0,
+      unresolved: 0,
+      results: [],
+    };
+    if (!this.refundService || !this.refundVerifier) return summary;
+
+    const stale = await this.db
+      .select()
+      .from(refunds)
+      .where(inArray(refunds.status, [...RECONCILABLE_STATUSES]))
+      .orderBy(asc(refunds.requested_at))
+      .limit(opts.limit ?? 100);
+
+    for (const row of stale) {
+      const base = {
+        refundId: row.id,
+        reference: row.reference,
+        from: row.status as RefundStatus,
+      };
+      summary.checked += 1;
+
+      if (!row.paystack_refund_id) {
+        summary.unresolved += 1;
+        summary.results.push({
+          ...base,
+          outcome: 'unresolved',
+          reason: 'no provider refund id — cannot verify or safely re-send',
+        });
+        continue;
+      }
+
+      let status: string;
+      try {
+        const res = await this.refundVerifier.verifyRefund(row.paystack_refund_id);
+        status = (res.data?.status ?? '').toLowerCase();
+      } catch (err) {
+        summary.unresolved += 1;
+        summary.results.push({
+          ...base,
+          outcome: 'unresolved',
+          reason: err instanceof Error ? err.message : String(err),
+        });
+        continue;
+      }
+
+      if (status === 'processed' || status === 'success') {
+        await this.refundService.confirmRefund(row.reference, 'succeeded');
+        summary.settled += 1;
+        summary.results.push({ ...base, outcome: 'settled' });
+      } else if (status === 'failed') {
+        await this.refundService.confirmRefund(row.reference, 'failed', {
+          error: 'provider reported the refund failed',
+        });
+        summary.failed += 1;
+        summary.results.push({ ...base, outcome: 'failed', reason: 'refund failed' });
+      } else {
+        summary.stillPending += 1;
+        summary.results.push({ ...base, outcome: 'still_pending', reason: status || 'pending' });
+      }
+    }
+
+    return summary;
   }
 }

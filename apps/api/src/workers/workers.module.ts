@@ -3,6 +3,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { SettlementCron } from './settlement.cron';
 import { ReserveReleaseCron } from './reserve-release.cron';
 import { ReconciliationCron } from './reconciliation.cron';
+import { RefundCron } from './refund.cron';
 import { DebitSchedulerCron } from './debit-scheduler.cron';
 import { VerifyPollCron } from './verify-poll.cron';
 import { CollectionsCron } from './collections.cron';
@@ -29,6 +30,7 @@ import { RetryWorker } from './retry.worker';
     SettlementCron,
     ReserveReleaseCron,
     ReconciliationCron,
+    RefundCron,
     DebitSchedulerCron,
     VerifyPollCron,
     CollectionsCron,
