@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createDb, schema } from '@installment/db';
+import { createTestDb, schema } from '@installment/db';
 import { RulesetLoader } from './ruleset-loader';
 import { DEFAULT_RULESET } from './ruleset';
 import type { FeatureVector } from './types';
@@ -13,7 +13,7 @@ const velocity = (count: number): FeatureVector =>
   ({ exposure: { applicationsLast24h: count } }) as unknown as FeatureVector;
 
 describe.skipIf(!RUN_DB)('RulesetLoader (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const loader = new RulesetLoader(db);
   const rd = schema.rule_definitions;
 

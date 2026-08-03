@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { createDb } from '@installment/db';
+import { createTestDb } from '@installment/db';
 import { DrizzleIdempotencyStore } from './drizzle-store';
 import {
   IdempotencyConflictError,
@@ -12,7 +12,7 @@ import {
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('IdempotencyService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const store = new DrizzleIdempotencyStore(db);
   const svc = new IdempotencyService(store);
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createDb, schema } from '@installment/db';
+import { createTestDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { EventBus } from '../../shared/event-bus/event-bus';
 import { RedisLock } from '../../shared/lock/redis-lock';
@@ -36,7 +36,7 @@ const ALWAYS_OPEN = { set: async () => 'OK' as const, eval: async () => 1 };
  * the customer never received — with no record anywhere to chase it by.
  */
 describe.skipIf(!RUN_DB)('Refund lifecycle (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const ledger = new LedgerService(db);
   const payouts = new PayoutRecorder(db, ledger);

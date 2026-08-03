@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createDb } from '@installment/db';
+import { createTestDb } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { PasswordService } from '../../shared/auth/password.service';
 import { JwtService } from '../../shared/auth/jwt.service';
@@ -41,7 +41,7 @@ class CapturingSms implements SmsSender {
 }
 
 describe.skipIf(!RUN_DB)('AuthService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const passwords = new PasswordService(4);
   const users = new UsersService(db, new AuditLogger(), passwords);
   const jwt = new JwtService({ accessSecret: 'access-test', refreshSecret: 'refresh-test' });

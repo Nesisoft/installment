@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createDb } from '@installment/db';
+import { createTestDb } from '@installment/db';
 import { AuditLogger, SYSTEM_ACTORS, MerchantsService } from '@installment/core';
 import { StoresService } from './stores.service';
 import { StoreConflictError, StoreNotFoundError, StoreTransitionError } from './errors';
@@ -8,7 +8,7 @@ import { StoreConflictError, StoreNotFoundError, StoreTransitionError } from './
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('StoresService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const stores = new StoresService(db, audit);
   const merchants = new MerchantsService(db, audit);

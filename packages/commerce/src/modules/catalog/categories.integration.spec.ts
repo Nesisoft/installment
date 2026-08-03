@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createDb } from '@installment/db';
+import { createTestDb } from '@installment/db';
 import { AuditLogger, SYSTEM_ACTORS } from '@installment/core';
 import { CategoriesService } from './categories.service';
 import { CategoryConflictError, CategoryNotFoundError, CategoryValidationError } from './errors';
@@ -8,7 +8,7 @@ import { CategoryConflictError, CategoryNotFoundError, CategoryValidationError }
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('CategoriesService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const categories = new CategoriesService(db, new AuditLogger());
   const SYSTEM_ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 

@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createDb, schema } from '@installment/db';
+import { createTestDb, schema } from '@installment/db';
 import { LedgerService } from '../../shared/ledger/ledger.service';
 import { PLATFORM_ACCOUNT_REF, PayoutRecorder } from './payout-recorder';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('PayoutRecorder (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const ledger = new LedgerService(db);
   const recorder = new PayoutRecorder(db, ledger);
 

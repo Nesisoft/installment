@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createDb, schema } from '@installment/db';
+import { createTestDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { EventBus } from '../../shared/event-bus/event-bus';
 import { RedisLock } from '../../shared/lock/redis-lock';
@@ -42,7 +42,7 @@ function recordingScheduler(): RetryScheduler & { jobs: RetryJob[] } {
  * swallowed anything it could not apply.
  */
 describe.skipIf(!RUN_DB)('Async settlement via webhook (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const merchants = new MerchantsService(db, audit);
   const customers = new CustomersService(db, audit, new MockGhanaCardVerifier());

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { createDb, schema } from '@installment/db';
+import { createTestDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 import { MerchantsService } from '../merchants/merchants.service';
@@ -18,7 +18,7 @@ const RUN_DB = Boolean(process.env.DATABASE_URL);
 const DAY_MS = 86_400_000;
 
 describe.skipIf(!RUN_DB)('ReserveReleaseService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const ledger = new LedgerService(db);
   const payouts = new PayoutRecorder(db, ledger);

@@ -109,15 +109,22 @@ export type NotificationChannel = 'sms' | 'email' | 'push' | 'in_app';
 export type NotificationStatus = 'queued' | 'sent' | 'delivered' | 'failed' | 'bounced';
 
 export type LedgerDirection = 'debit' | 'credit';
-export type LedgerAccountType =
-  | 'paystack_settlement'
-  | 'merchant_payable'
-  | 'reserve_held'
-  | 'default_pool'
-  | 'revenue'
-  | 'receivable'
-  | 'refund_payable'
-  | 'customer_float';
+
+// An array, not a bare union, so the mirror can be compared to the engine's
+// LEDGER_ACCOUNT_TYPES at runtime — a type alone has nothing to assert against,
+// which is how `customer_float` stayed missing here for two slices.
+export const LEDGER_ACCOUNT_TYPES = [
+  'paystack_settlement',
+  'merchant_payable',
+  'reserve_held',
+  'default_pool',
+  'revenue',
+  'receivable',
+  'refund_payable',
+  'customer_float',
+] as const;
+
+export type LedgerAccountType = (typeof LEDGER_ACCOUNT_TYPES)[number];
 
 export type TelcoHealthStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
 
