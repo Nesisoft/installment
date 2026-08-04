@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createDb } from '@installment/db';
+import { createTestDb } from '@installment/db';
 import { LedgerService } from './ledger.service';
 
 /**
@@ -10,7 +10,7 @@ import { LedgerService } from './ledger.service';
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('LedgerService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const ledger = new LedgerService(db);
 
   afterAll(async () => {

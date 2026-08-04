@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { inArray } from 'drizzle-orm';
-import { createDb, schema } from '@installment/db';
+import { createTestDb, schema } from '@installment/db';
 import { SYSTEM_ACTORS } from './system-actors';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
@@ -11,7 +11,7 @@ const RUN_DB = Boolean(process.env.DATABASE_URL);
  * user_type='system' and is_active=true.
  */
 describe.skipIf(!RUN_DB)('SYSTEM_ACTORS ↔ users seed (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
 
   afterAll(async () => {
     await pool.end();

@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { createDb } from '@installment/db';
+import { createTestDb } from '@installment/db';
 import { LedgerService } from './ledger.service';
 import { LedgerIntegrityService } from './ledger-integrity.service';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('LedgerIntegrityService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const ledger = new LedgerService(db);
   const integrity = new LedgerIntegrityService(db);
 

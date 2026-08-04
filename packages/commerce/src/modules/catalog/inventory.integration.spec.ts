@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createDb } from '@installment/db';
+import { createTestDb } from '@installment/db';
 import { AuditLogger, MerchantsService, SYSTEM_ACTORS } from '@installment/core';
 import { StoresService } from '../stores/stores.service';
 import { ProductsService } from './products.service';
@@ -10,7 +10,7 @@ import { InsufficientStockError, VariantNotFoundError } from './errors';
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('InventoryService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const products = new ProductsService(db, audit);
   const stores = new StoresService(db, audit);

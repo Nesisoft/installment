@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createDb, schema } from '@installment/db';
+import { createTestDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { LedgerService } from '../../shared/ledger/ledger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
@@ -55,7 +55,7 @@ describe('PayoutCalculator honours per-plan rates', () => {
 });
 
 describe.skipIf(!RUN_DB)('Settlement terms (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const ledger = new LedgerService(db);
   const payouts = new PayoutRecorder(db, ledger);

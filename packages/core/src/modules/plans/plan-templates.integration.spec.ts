@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { desc, eq } from 'drizzle-orm';
-import { createDb, schema } from '@installment/db';
+import { createTestDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 import { PlanTemplatesService } from './plan-templates.service';
@@ -10,7 +10,7 @@ import { PlanTemplateNotFoundError } from './errors';
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('PlanTemplatesService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const service = new PlanTemplatesService(db, audit);
   const SYSTEM_ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };

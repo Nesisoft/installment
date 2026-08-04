@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { and, desc, eq } from 'drizzle-orm';
-import { createDb, schema } from '@installment/db';
+import { createTestDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 import { CustomersService } from '../customers/customers.service';
@@ -14,7 +14,7 @@ import { IllegalEmployerTransitionError, IllegalEmploymentTransitionError } from
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('Employers + CustomerEmployment (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const employers = new EmployersService(db, audit);
   const employment = new CustomerEmploymentService(db, audit);

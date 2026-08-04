@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createDb, schema } from '@installment/db';
+import { createTestDb, schema } from '@installment/db';
 import {
   ApplicationsService,
   AuditLogger,
@@ -21,7 +21,7 @@ import { EmptyCartError, OrderNotActivatableError, OrderNotPayableError } from '
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const ledger = new LedgerService(db);
   const merchants = new MerchantsService(db, audit);

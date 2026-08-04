@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createDb } from '@installment/db';
+import { createTestDb } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { PasswordService } from '../../shared/auth/password.service';
 import { PERMISSIONS } from '../../shared/auth/permissions';
@@ -11,7 +11,7 @@ import { RoleNotFoundError, UserConflictError, UserNotFoundError } from './error
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!RUN_DB)('UsersService (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const users = new UsersService(db, new AuditLogger(), new PasswordService(4));
   const SYSTEM_ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 

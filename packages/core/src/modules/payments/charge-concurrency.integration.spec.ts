@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createDb } from '@installment/db';
+import { createTestDb } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { EventBus } from '../../shared/event-bus/event-bus';
 import { RedisLock, type RedisLockClient } from '../../shared/lock/redis-lock';
@@ -67,7 +67,7 @@ function countingPaystack(status: string): PaystackChargeClient & { momoCalls: s
 }
 
 describe.skipIf(!RUN_DB)('Charge concurrency (integration)', () => {
-  const { db, pool } = createDb({ connectionString: process.env.DATABASE_URL! });
+  const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const merchants = new MerchantsService(db, audit);
   const customers = new CustomersService(db, audit, new MockGhanaCardVerifier());
