@@ -17,22 +17,28 @@ describe.skipIf(!RUN_DB)('NotificationService (integration)', () => {
     return db.select().from(schema.notifications).where(eq(schema.notifications.id, id));
   }
 
-  it('records a sent notification (queued → sent) with the provider message id', async () => {
-    const sms: NotificationSmsSender = { send: vi.fn(async () => ({ id: 'hubtel-123' })) };
+  const REMINDER = {
+    templateId: 'pre_debit_reminder' as const,
+    variables: {
+      name: 'Ama',
+      amount: '250.00',
+      date: '2026-06-20',
+      provider: 'mtn',
+      phone: '0244000000',
+    },
+  };
+
+  it('records a notification the provider says it sent', async () => {
+    const sms: NotificationSmsSender = {
+      send: vi.fn(async () => ({ id: 'hubtel-123', status: 'sent' })),
+    };
     const notifier = new NotificationService(db, sms, 'Installmt');
     const customerId = randomUUID();
 
     const { notification, status } = await notifier.sendToCustomer({
       customerId,
       toAddress: '+233244000000',
-      templateId: 'pre_debit_reminder',
-      variables: {
-        name: 'Ama',
-        amount: '250.00',
-        date: '2026-06-20',
-        provider: 'mtn',
-        phone: '0244000000',
-      },
+      ...REMINDER,
     });
 
     expect(status).toBe('sent');
@@ -48,6 +54,26 @@ describe.skipIf(!RUN_DB)('NotificationService (integration)', () => {
 
     const [persisted] = await load(notification.id);
     expect(persisted!.status).toBe('sent');
+  });
+
+  it('leaves a notification queued when the provider only accepted it', async () => {
+    // Ghanaian aggregators accept and queue; delivery comes later or not at
+    // all. Stamping `sent` on acceptance made the table assert a delivery
+    // nobody had confirmed — and made the console sender, which delivers
+    // nothing at all, indistinguishable from a real one.
+    const sms: NotificationSmsSender = { send: vi.fn(async () => ({ id: 'arkesel-9' })) };
+    const notifier = new NotificationService(db, sms, 'Installmt');
+
+    const { notification, status } = await notifier.sendToCustomer({
+      customerId: randomUUID(),
+      toAddress: '+233244000001',
+      ...REMINDER,
+    });
+
+    expect(status).toBe('queued');
+    expect(notification.status).toBe('queued');
+    expect(notification.provider_message_id).toBe('arkesel-9'); // still traceable
+    expect(notification.sent_at).toBeNull(); // nothing to timestamp yet
   });
 
   it('records a failed notification when the provider throws (never bubbles)', async () => {

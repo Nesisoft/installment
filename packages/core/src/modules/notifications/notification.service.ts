@@ -13,7 +13,7 @@ export interface NotificationSmsSender {
     to: string;
     sender: string;
     message: string;
-  }): Promise<{ id?: string } | unknown>;
+  }): Promise<{ id?: string; status?: string } | unknown>;
 }
 
 export interface SendNotificationInput {
@@ -27,7 +27,26 @@ export interface SendNotificationInput {
 
 export interface NotificationResult {
   notification: Notification;
-  status: 'sent' | 'failed';
+  /**
+   * `queued` means the provider accepted it but has not reported delivery —
+   * which is the honest answer for most Ghanaian aggregators, and the only
+   * answer the console sender can give.
+   */
+  status: 'queued' | 'sent' | 'failed';
+}
+
+/**
+ * What the provider told us, mapped onto `notifications.status`.
+ *
+ * The service used to write `sent` whenever the call resolved, so the table
+ * asserted delivery for every message — including the console sender's, which
+ * delivers nothing. A row claiming `sent` for a message that never left the
+ * process is worse than no row: it is the record you would reach for to prove
+ * a dunning notice was served.
+ */
+function reportedStatus(result: unknown): 'queued' | 'sent' {
+  const status = (result as { status?: unknown } | undefined)?.status;
+  return status === 'sent' ? 'sent' : 'queued';
 }
 
 /**
@@ -67,17 +86,19 @@ export class NotificationService {
         to: input.toAddress,
         sender: this.senderId,
         message,
-      })) as { id?: string };
+      })) as { id?: string; status?: string };
+      const status = reportedStatus(result);
       const [sent] = await this.db
         .update(notifications)
         .set({
-          status: 'sent',
-          sent_at: nowIso,
+          status,
+          // Only stamp a send time for something the provider says it sent.
+          ...(status === 'sent' ? { sent_at: nowIso } : {}),
           provider_message_id: result?.id ?? null,
         })
         .where(eq(notifications.id, row.id))
         .returning();
-      return { notification: sent!, status: 'sent' };
+      return { notification: sent!, status };
     } catch (err) {
       const [failed] = await this.db
         .update(notifications)

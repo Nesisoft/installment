@@ -67,7 +67,7 @@ import { REDIS } from '../redis/redis.module';
 import { RedisTelcoHealthStore } from './redis-telco-store';
 import type { Env } from '../config/env.validation';
 import { RedisOtpStore } from './redis-otp-store';
-import { ConsoleSmsSender } from './console-sms-sender';
+import { createSmsSender } from './sms-sender.factory';
 import { BullMqRetryScheduler } from '../workers/bullmq-retry-scheduler';
 
 export const SMS_SENDER = Symbol('SMS_SENDER');
@@ -98,7 +98,11 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       useFactory: (redis: Redis) => new OtpService(new RedisOtpStore(redis)),
       inject: [REDIS],
     },
-    { provide: SMS_SENDER, useClass: ConsoleSmsSender },
+    {
+      provide: SMS_SENDER,
+      useFactory: (config: ConfigService<Env, true>) => createSmsSender(config),
+      inject: [ConfigService],
+    },
     {
       provide: UsersService,
       useFactory: (db: Database, audit: AuditLogger, passwords: PasswordService) =>
