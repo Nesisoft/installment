@@ -9,15 +9,15 @@
 **Foundation: complete and verified** (`pnpm typecheck`, `pnpm lint`, per-app
 `vite build`, and `prettier --check` on new files all pass).
 
-| Piece                    | What landed                                                                                                                                                                                |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| API CORS                 | `apps/api/src/main.ts` — env-driven `CORS_ORIGINS` (defaults to the three Vite dev ports).                                                                                                 |
-| `@installment/api-types` | Browser-safe contracts: enums, `formatGhs`/`bpsToPercent` money helpers, auth + form Zod schemas, domain row + view-model types.                                                           |
-| `@installment/ui`        | shadcn-style components (Button, Card, Input, Label, Badge, Spinner, Skeleton, StatusBadge) + brand Tailwind preset + `globals.css`. Brand green `#0F6B4F`, cream accent, mist background. |
-| `@installment/web-kit`   | Axios client with single-flight token refresh, `AuthProvider`/`useAuth`, React Query client, localStorage session store.                                                                   |
-| `apps/customer-web`      | Vite+React+Router+Query app. Phone-OTP login, mobile-style shell, dashboard placeholder. Port 5173.                                                                                        |
-| `apps/merchant-web`      | **Responsive** (sidebar desktop / bottom tabs mobile). Email/password login; live Dashboard, Orders, Settlements, Statements, Plan templates wired to `/merchant/*`. Port 5174.            |
-| `apps/admin-web`         | Staff login, ops sidebar (8 sections), dashboard + placeholders. Port 5175.                                                                                                                |
+| Piece                    | What landed                                                                                                                                                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API CORS                 | `apps/api/src/main.ts` — env-driven `CORS_ORIGINS` (defaults to the three Vite dev ports).                                                                                                                       |
+| `@installment/api-types` | Browser-safe contracts: enums, `formatGhs`/`bpsToPercent` money helpers, auth + form Zod schemas, domain row + view-model types.                                                                                 |
+| `@installment/ui`        | shadcn-style components (Button, Card, Input, Label, Badge, Spinner, Skeleton, StatusBadge) + brand Tailwind preset + `globals.css`. Brand green `#0F6B4F`, cream accent, mist background.                       |
+| `@installment/web-kit`   | Axios client with single-flight token refresh, `AuthProvider`/`useAuth`, React Query client, localStorage session store.                                                                                         |
+| `apps/customer-web`      | **Mobile-first shopping app**: public storefront (search + categories), product detail with instalment estimate, cart, checkout (address + full/instalment + plan pick), orders, plans with MoMo pay. Port 5173. |
+| `apps/merchant-web`      | **Responsive** (sidebar desktop / bottom tabs mobile). Email/password login; live Dashboard, Orders, Settlements, Statements, Plan templates wired to `/merchant/*`. Port 5174.                                  |
+| `apps/admin-web`         | Staff login, ops sidebar (8 sections), dashboard + placeholders. Port 5175.                                                                                                                                      |
 
 Each app authenticates against the real backend today; feature screens are the
 next iterations.
@@ -38,6 +38,17 @@ next iterations.
 **Admin is feature-complete** — only an optional standalone scoring playground (arbitrary feature vector) remains.
 
 **merchant-web live screens (done):** responsive shell (sidebar on desktop, bottom tab bar on mobile); Dashboard (balances + recent orders), Orders (list + read-only detail with schedule / settlement footprint / statement view+CSV), Settlements (balances + payouts + reserves), Statements (monthly + print/CSV), Plan templates (read-only). All scoped to the caller's merchant via `/merchant/*` (`MerchantScopeGuard`). Dev login: `merchant@demo.local` / `password123`.
+
+**customer-web live screens (done):**
+
+- Shop — public search + category browse (browsing needs no account).
+- Product detail — variants, stock, and an **instalment estimate** ("from GHS X / week") from the product's own `plan_template_ids`, clearly labelled an estimate.
+- Cart — quantity +/-, remove, subtotal (`/me/cart*`).
+- Checkout — delivery address pick/create, **pay in full or in instalments**, plan selection, place order (`POST /me/checkout`).
+- Orders — list + detail, with financing status ("under review" → link to the plan once approved).
+- Plans — list + detail with outstanding balance, next due, full schedule, **Pay now by Mobile Money** (sends a per-attempt `Idempotency-Key`, reused on retry so a double-tap cannot double-charge) and printable receipts.
+
+**New backend endpoint for it:** `GET /storefront/plan-templates` (public, active + currently-effective). Required because `POST /me/checkout` demands a `plan_template_id` and no customer-reachable plan-template read existed — only admin-permissioned and merchant-scoped ones.
 
 ## Architecture decisions
 
@@ -111,6 +122,13 @@ pnpm dev:web                    # all three frontends together
 ```
 
 ## Known issues
+
+**Customer-app API gaps worth closing**
+
+- **No public customer signup.** OTP login only authenticates a pre-provisioned `users` row, so a brand-new shopper cannot self-register — customers must be created in the admin console first.
+- **Browsing is search-only.** `GET /storefront/search` requires a non-empty `q`; there is no public "list products in category", so the home screen searches by category name instead of listing.
+- **Cart lines carry no product title** (`variant_id` + price only) and there is no public variant→product lookup. The app caches labels locally when an item is added (`lib/variant-cache.ts`) and degrades to "Item" for carts built elsewhere. Denormalising a title/image onto the cart line, or adding a variant lookup, would fix it properly.
+- **Local `.env` blocks API boot after the engine work.** The new validation refuses `SMS_PROVIDER=hubtel` with blank credentials; set `SMS_PROVIDER=console` for dev (as `.env.example` does).
 
 - **CRLF drift:** the repo has no `.gitattributes`, so a Windows checkout gets
   CRLF and `pnpm format:check` flags pre-existing files locally (CI on Linux is
