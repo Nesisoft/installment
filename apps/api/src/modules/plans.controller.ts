@@ -15,6 +15,7 @@ import {
   renderStatementCsv,
   renderStatementHtml,
 } from '@installment/core';
+import { OrdersService } from '@installment/commerce';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
@@ -28,15 +29,39 @@ export class PlansController {
   constructor(
     private readonly plans: CustomerPlansService,
     private readonly dashboard: MerchantDashboardService,
+    private readonly orders: OrdersService,
   ) {}
 
   @Post('from-application/:applicationId')
   @Idempotent()
   @RequirePermissions(PERMISSIONS.APPLICATIONS_REVIEW)
   @HttpCode(201)
-  @ApiOperation({ summary: 'Activate an approved application into a plan + installment schedule' })
-  activate(@Param('applicationId') applicationId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.plans.activateFromApplication(applicationId, actorOf(user));
+  @ApiOperation({
+    summary: 'Activate an approved application into a plan + installment schedule',
+    description:
+      'Order-aware. When the application came from a commerce checkout, this routes through ' +
+      'OrdersService.activateFinancing so the order advances to financing_active and carries ' +
+      'its customer_plan_id — activating the plan alone would leave the order stranded in ' +
+      'pending_approval and the customer stuck on "financing under review". Applications with ' +
+      'no order (direct engine use) activate through the engine as before.',
+  })
+  async activate(
+    @Param('applicationId') applicationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const actor = actorOf(user);
+    const order = await this.orders.findByApplication(applicationId);
+    if (order) {
+      // activateFinancing owns the whole hand-off: it activates the plan via the
+      // engine and links the order in one idempotent operation.
+      const activated = await this.orders.activateFinancing(order.id, actor);
+      if (!activated.customer_plan_id) {
+        throw new NotFoundException(`Order ${order.id} activated without a plan`);
+      }
+      const plan = await this.plans.get(activated.customer_plan_id);
+      return { plan, schedule: await this.plans.getSchedule(plan.id) };
+    }
+    return this.plans.activateFromApplication(applicationId, actor);
   }
 
   @Get(':id')

@@ -481,6 +481,20 @@ export class OrdersService {
     return row;
   }
 
+  /**
+   * The order a given engine application belongs to, or null when the
+   * application did not originate from a commerce checkout. Lets the admin
+   * activation path route through {@link activateFinancing} (which links the
+   * order) instead of activating the plan alone and leaving the order stranded
+   * in `pending_approval`.
+   */
+  async findByApplication(applicationId: string): Promise<Order | null> {
+    const row = (
+      await this.db.select().from(o).where(eq(o.application_id, applicationId)).limit(1)
+    )[0];
+    return row ?? null;
+  }
+
   private async getOrderRow(orderId: string): Promise<Order> {
     const row = (await this.db.select().from(o).where(eq(o.id, orderId)).limit(1))[0];
     if (!row) throw new OrderNotFoundError(orderId);
