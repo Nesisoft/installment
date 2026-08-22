@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApi } from '@installment/web-kit';
+import { newIdempotencyKey, useApi } from '@installment/web-kit';
 import type {
   Address,
   CartWithItems,
@@ -14,7 +14,6 @@ import type {
   ProductDetails,
   Statement,
 } from '@installment/api-types';
-import { newIdempotencyKey } from './format';
 
 // --- Public storefront ------------------------------------------------------
 

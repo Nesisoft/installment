@@ -28,12 +28,3 @@ export function relativeDay(iso: string | null | undefined): string {
   if (days === -1) return 'yesterday';
   return days > 0 ? `in ${days} days` : `${Math.abs(days)} days overdue`;
 }
-
-/** A stable idempotency key for a money-moving request. */
-export function newIdempotencyKey(prefix: string): string {
-  const rand =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${prefix}-${rand}`;
-}

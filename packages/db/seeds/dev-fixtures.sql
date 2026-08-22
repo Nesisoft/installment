@@ -90,3 +90,127 @@ INSERT INTO user_roles (user_id, role_id)
   FROM users u CROSS JOIN roles r
   WHERE u.id = 'bbbbbbbb-bbbb-bbbb-bbbb-0000000000a1' AND r.name = 'merchant_owner'
 ON CONFLICT DO NOTHING;
+
+-- ============================================================================
+-- Sample customer + linked login for the /me customer app (dev).
+-- Sign in to customer-web with phone 024 000 0002 — SMS_PROVIDER=console prints
+-- the OTP to the API log. A `customers` row AND users.phone are both required:
+-- OTP login resolves the user by phone, and /me/* resolves the domain customer
+-- via customers.user_id.
+-- ============================================================================
+INSERT INTO customers (
+  id, first_name, last_name, email, phone, date_of_birth, momo_phone, momo_provider,
+  kyc_tier, ghana_card_verified, user_id,
+  data_processing_consent_at, credit_scoring_consent_at
+) VALUES (
+  'cccccccc-cccc-cccc-cccc-000000000001',
+  'Ama', 'Mensah',
+  'ama.shopper@demo.local',
+  '+233240000002',
+  '1995-06-15',
+  '+233240000002',
+  'mtn',
+  1, TRUE,
+  'aaaaaaaa-aaaa-aaaa-aaaa-000000000003',
+  NOW(), NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Backdate the phone so the scoring engine's `gate.phone_age` hard gate passes.
+-- A number first seen "just now" is a fraud signal, so a freshly-seeded customer
+-- is declined outright — which makes the demo look broken rather than strict.
+UPDATE customers
+   SET phone_first_seen_at = NOW() - INTERVAL '400 days'
+ WHERE id = 'cccccccc-cccc-cccc-cccc-000000000001'
+   AND phone_first_seen_at > NOW() - INTERVAL '30 days';
+
+-- `gate.age_range` declines an unknown age, so the demo customer needs a DOB.
+UPDATE customers
+   SET date_of_birth = '1995-06-15'
+ WHERE id = 'cccccccc-cccc-cccc-cccc-000000000001'
+   AND date_of_birth IS NULL;
+
+-- The OTP login path looks the user up by phone, so the login row needs one.
+UPDATE users
+   SET phone = '+233240000002'
+ WHERE id = 'aaaaaaaa-aaaa-aaaa-aaaa-000000000003'
+   AND phone IS NULL;
+
+-- Re-link if an earlier seed created the customer without the login link.
+UPDATE customers
+   SET user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-000000000003'
+ WHERE id = 'cccccccc-cccc-cccc-cccc-000000000001'
+   AND user_id IS NULL;
+
+-- ============================================================================
+-- Demo catalogue for the customer shopping app (dev): a plan offer, a category,
+-- Demo Electronics' storefront, and one purchasable product with stock. Enough
+-- to walk browse → cart → instalment checkout end to end.
+-- ============================================================================
+INSERT INTO plan_templates (
+  id, name, description, business_model, number_of_installments,
+  installment_frequency_days, down_payment_bps, interest_rate_bps,
+  service_fee_flat_pesewas, late_fee_pesewas, grace_period_days,
+  min_amount_pesewas, max_amount_pesewas, is_active
+) VALUES (
+  'dddddddd-dddd-dddd-dddd-000000000001',
+  'Pay in 4 (weekly)',
+  'Four weekly payments, no interest.',
+  'bnpl', 4, 7,
+  0, 0, 0, 500, 3,
+  10000, 5000000,
+  TRUE
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO categories (id, name, slug, position, is_active) VALUES
+  ('dddddddd-dddd-dddd-dddd-00000000c001', 'Phones', 'phones', 1, TRUE),
+  ('dddddddd-dddd-dddd-dddd-00000000c002', 'Laptops', 'laptops', 2, TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO stores (id, merchant_id, slug, display_name, about, status) VALUES (
+  'dddddddd-dddd-dddd-dddd-00000000a001',
+  'bbbbbbbb-bbbb-bbbb-bbbb-000000000001',
+  'demo-electronics',
+  'Demo Electronics',
+  'Phones and laptops on flexible payment plans.',
+  'active'
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO products (
+  id, store_id, merchant_id, category_id, title, description, status, base_price_pesewas
+) VALUES (
+  'dddddddd-dddd-dddd-dddd-00000000b001',
+  'dddddddd-dddd-dddd-dddd-00000000a001',
+  'bbbbbbbb-bbbb-bbbb-bbbb-000000000001',
+  'dddddddd-dddd-dddd-dddd-00000000c001',
+  'Demo Smartphone X',
+  'A demo phone for testing the installment checkout flow.',
+  'active',
+  120000
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO product_variants (id, product_id, sku, option_values, price_pesewas, is_active) VALUES
+  (
+    'dddddddd-dddd-dddd-dddd-00000000e001',
+    'dddddddd-dddd-dddd-dddd-00000000b001',
+    'DEMO-PHONE-X-128',
+    '{"storage":"128GB"}'::jsonb,
+    120000,
+    TRUE
+  )
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO inventory (variant_id, quantity_available, quantity_reserved, restock_threshold) VALUES
+  ('dddddddd-dddd-dddd-dddd-00000000e001', 25, 0, 5)
+ON CONFLICT (variant_id) DO NOTHING;
+
+INSERT INTO product_plan_offers (product_id, plan_template_id, is_active) VALUES
+  (
+    'dddddddd-dddd-dddd-dddd-00000000b001',
+    'dddddddd-dddd-dddd-dddd-000000000001',
+    TRUE
+  )
+ON CONFLICT DO NOTHING;

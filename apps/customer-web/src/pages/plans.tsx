@@ -11,10 +11,10 @@ import {
   cn,
 } from '@installment/ui';
 import { formatGhs, type InstallmentScheduleRow } from '@installment/api-types';
-import { apiErrorMessage, useApi } from '@installment/web-kit';
+import { apiErrorMessage, newIdempotencyKey, useApi } from '@installment/web-kit';
 import { ArrowLeft, CalendarClock, ExternalLink, Smartphone } from 'lucide-react';
 import { usePayMomo, usePlanSchedule, usePlans } from '../lib/shop-api';
-import { formatDate, newIdempotencyKey, relativeDay } from '../lib/format';
+import { formatDate, relativeDay } from '../lib/format';
 import { EmptyState, ErrorState, LoadingState } from '../components/data-states';
 
 const PAYABLE_EXCLUDED = new Set(['paid', 'refunded', 'waived', 'defaulted', 'restructured']);
