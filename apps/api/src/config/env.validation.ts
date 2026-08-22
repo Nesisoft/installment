@@ -11,6 +11,18 @@ export const envSchema = z.object({
   CORS_ORIGINS: z
     .string()
     .default('http://localhost:5173,http://localhost:5174,http://localhost:5175'),
+  // Rate limiting (Phase 10). Defaults are generous enough that normal use never
+  // notices; per-route overrides tighten the endpoints worth abusing.
+  RATE_LIMIT_ENABLED: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => v !== false && v !== 'false' && v !== '0')
+    .default(true),
+  RATE_LIMIT_LIMIT: z.coerce.number().int().positive().default(300),
+  RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
+  // Behind a proxy/load balancer the client IP arrives in X-Forwarded-For. Set
+  // this to the hop count (or 'true') so the limiter buckets real clients rather
+  // than lumping the whole estate into the proxy's single address.
+  TRUST_PROXY: z.string().default(''),
   // Auth — dev defaults keep `pnpm dev` friction-free; production MUST override
   // these with secrets from a real secret store (see DEVELOPMENT-PLAN.md §5).
   JWT_ACCESS_SECRET: z.string().min(16).default('dev-access-secret-change-me!!'),

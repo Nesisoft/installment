@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import * as Sentry from '@sentry/node';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule } from '@nestjs/swagger';
@@ -26,7 +27,10 @@ async function bootstrap(): Promise<void> {
   }
 
   // rawBody: keep the exact bytes for Paystack webhook signature verification.
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+  });
   app.useLogger(app.get(Logger));
   app.enableShutdownHooks();
   setupOpenApi(app);
@@ -47,6 +51,15 @@ async function bootstrap(): Promise<void> {
     allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key'],
     maxAge: 86_400,
   });
+
+  // Behind a proxy the client address is in X-Forwarded-For. Without this every
+  // request looks like it came from the load balancer, which would put the whole
+  // estate in one rate-limit bucket and lock everyone out together.
+  const trustProxy = process.env.TRUST_PROXY;
+  if (trustProxy) {
+    const hops = Number(trustProxy);
+    app.set('trust proxy', Number.isFinite(hops) ? hops : trustProxy);
+  }
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, '0.0.0.0');

@@ -3,9 +3,11 @@ import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { Public } from '../auth/decorators';
 import { HealthService } from './health.service';
+import { SkipRateLimit } from '../common/rate-limit.decorator';
 
 @ApiTags('health')
 @Controller('health')
+@SkipRateLimit()
 export class HealthController {
   constructor(private readonly health: HealthService) {}
 
