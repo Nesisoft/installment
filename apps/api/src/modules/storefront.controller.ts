@@ -41,6 +41,25 @@ export class StorefrontController {
     });
   }
 
+  /**
+   * Browse the catalogue. Search needs a term, so without this a shopper has no
+   * way to see what a category contains — the app could only guess by searching
+   * the category's name. Always forced to active products: `status` is not a
+   * caller-supplied filter here, or the storefront would happily list drafts.
+   */
+  @Public()
+  @Get('products')
+  @ApiModel('Product', { array: true })
+  productList(@Query() query: Record<string, string>) {
+    return this.products.list({
+      category_id: query.category_id,
+      store_id: query.store_id,
+      status: 'active',
+      limit: numOrUndefined(query.limit),
+      offset: numOrUndefined(query.offset),
+    });
+  }
+
   @Public()
   @Get('products/:id')
   @ApiModel('ProductDetails')

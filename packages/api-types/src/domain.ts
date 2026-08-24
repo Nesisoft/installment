@@ -624,9 +624,21 @@ export interface CartItem {
   created_at: string;
 }
 
+/**
+ * A cart line with the product details needed to render it. Read live from the
+ * catalog rather than snapshotted: a cart is a current intention, so a renamed
+ * product shows its new name. (Orders are the opposite — `OrderItem` snapshots
+ * title and sku, because a purchase is a historical record.)
+ */
+export interface CartLine extends CartItem {
+  title: string;
+  sku: string;
+  product_id: string | null;
+}
+
 /** Returned by GET /me/cart and the cart mutation endpoints. */
 export interface CartWithItems extends Cart {
-  items: CartItem[];
+  items: CartLine[];
   subtotal_pesewas: number;
 }
 

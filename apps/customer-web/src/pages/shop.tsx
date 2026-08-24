@@ -1,16 +1,60 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Badge, Card, CardContent, Input, Skeleton } from '@installment/ui';
-import { formatGhs } from '@installment/api-types';
-import { Search } from 'lucide-react';
-import { useCategories, useProductSearch } from '../lib/shop-api';
+import { Badge, Card, CardContent, Input, Skeleton, cn } from '@installment/ui';
+import { formatGhs, type Product } from '@installment/api-types';
+import { Search, X } from 'lucide-react';
+import { useCategories, useProductSearch, useProducts } from '../lib/shop-api';
 import { EmptyState, ErrorState } from '../components/data-states';
+
+function ProductList({ products }: { products: Product[] }) {
+  return (
+    <ul className="space-y-3">
+      {products.map((p) => (
+        <li key={p.id}>
+          <Link to={`/products/${p.id}`}>
+            <Card className="transition-colors hover:border-primary/40">
+              <CardContent className="flex items-center justify-between gap-3 p-4">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{p.title}</p>
+                  {p.description ? (
+                    <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                      {p.description}
+                    </p>
+                  ) : null}
+                </div>
+                <Badge variant="default" className="shrink-0">
+                  {formatGhs(p.base_price_pesewas)}
+                </Badge>
+              </CardContent>
+            </Card>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <div className="space-y-3">
+      {[0, 1, 2].map((i) => (
+        <Skeleton key={i} className="h-20" />
+      ))}
+    </div>
+  );
+}
 
 export function ShopPage() {
   const [term, setTerm] = useState('');
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+
   const categories = useCategories(true);
   const results = useProductSearch(term);
+  // Browsing is the default view; searching takes over while there is a term.
+  const browse = useProducts(categoryId ? { category_id: categoryId } : {});
+
   const searching = term.trim().length > 0;
+  const activeCategory = (categories.data ?? []).find((c) => c.id === categoryId) ?? null;
 
   return (
     <div className="space-y-5">
@@ -33,78 +77,77 @@ export function ShopPage() {
         />
       </div>
 
-      {!searching ? (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground">Browse categories</h2>
-          {categories.isPending ? (
-            <div className="grid grid-cols-2 gap-3">
-              {[0, 1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-16" />
-              ))}
-            </div>
-          ) : categories.isError ? (
-            <ErrorState error={categories.error} onRetry={() => void categories.refetch()} />
-          ) : (categories.data ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">No categories yet.</p>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                {(categories.data ?? []).map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setTerm(c.name)}
-                    className="rounded-lg border border-border bg-card p-4 text-left text-sm font-medium transition-colors hover:border-primary/40"
-                  >
-                    {c.name}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Tap a category to search it, or type what you are looking for.
-              </p>
-            </>
-          )}
-        </section>
-      ) : (
+      {searching ? (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground">Results for “{term.trim()}”</h2>
           {results.isPending ? (
-            <div className="space-y-3">
-              {[0, 1, 2].map((i) => (
-                <Skeleton key={i} className="h-20" />
-              ))}
-            </div>
+            <ListSkeleton />
           ) : results.isError ? (
             <ErrorState error={results.error} onRetry={() => void results.refetch()} />
           ) : (results.data ?? []).length === 0 ? (
             <EmptyState message="Nothing matched that search." />
           ) : (
-            <ul className="space-y-3">
-              {(results.data ?? []).map((p) => (
-                <li key={p.id}>
-                  <Link to={`/products/${p.id}`}>
-                    <Card className="transition-colors hover:border-primary/40">
-                      <CardContent className="flex items-center justify-between gap-3 p-4">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{p.title}</p>
-                          {p.description ? (
-                            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                              {p.description}
-                            </p>
-                          ) : null}
-                        </div>
-                        <Badge variant="default" className="shrink-0">
-                          {formatGhs(p.base_price_pesewas)}
-                        </Badge>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <ProductList products={results.data ?? []} />
           )}
         </section>
+      ) : (
+        <>
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground">Categories</h2>
+            {categories.isPending ? (
+              <div className="flex gap-2">
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-9 w-24" />
+                ))}
+              </div>
+            ) : categories.isError ? (
+              <ErrorState error={categories.error} onRetry={() => void categories.refetch()} />
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {(categories.data ?? []).map((c) => {
+                  const active = categoryId === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setCategoryId(active ? null : c.id)}
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-sm transition-colors',
+                        active
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-input bg-card text-foreground hover:border-primary/40',
+                      )}
+                    >
+                      {c.name}
+                      {active ? <X className="size-3.5" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground">
+              {activeCategory ? activeCategory.name : 'All products'}
+            </h2>
+            {browse.isPending ? (
+              <ListSkeleton />
+            ) : browse.isError ? (
+              <ErrorState error={browse.error} onRetry={() => void browse.refetch()} />
+            ) : (browse.data ?? []).length === 0 ? (
+              <EmptyState
+                message={
+                  activeCategory
+                    ? `Nothing in ${activeCategory.name} yet.`
+                    : 'No products available yet.'
+                }
+              />
+            ) : (
+              <ProductList products={browse.data ?? []} />
+            )}
+          </section>
+        </>
       )}
     </div>
   );

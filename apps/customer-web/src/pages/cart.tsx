@@ -4,7 +4,6 @@ import { formatGhs } from '@installment/api-types';
 import { apiErrorMessage } from '@installment/web-kit';
 import { Minus, Plus, Trash2 } from 'lucide-react';
 import { useCart, useRemoveCartItem, useSetCartQuantity } from '../lib/shop-api';
-import { variantLabel } from '../lib/variant-cache';
 import { EmptyState, ErrorState, LoadingState } from '../components/data-states';
 
 export function CartPage() {
@@ -45,82 +44,79 @@ export function CartPage() {
       ) : null}
 
       <ul className="space-y-3">
-        {items.map((item) => {
-          const label = variantLabel(item.variant_id);
-          return (
-            <li key={item.id}>
-              <Card>
-                <CardContent className="space-y-3 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      {label ? (
-                        <Link
-                          to={`/products/${label.productId}`}
-                          className="truncate text-sm font-medium hover:underline"
-                        >
-                          {label.title}
-                        </Link>
-                      ) : (
-                        <p className="truncate text-sm font-medium">Item</p>
-                      )}
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {formatGhs(item.unit_price_pesewas)} each
-                      </p>
-                    </div>
-                    <p className="shrink-0 text-sm font-semibold">
-                      {formatGhs(item.unit_price_pesewas * item.quantity)}
+        {items.map((item) => (
+          <li key={item.id}>
+            <Card>
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    {item.product_id ? (
+                      <Link
+                        to={`/products/${item.product_id}`}
+                        className="truncate text-sm font-medium hover:underline"
+                      >
+                        {item.title}
+                      </Link>
+                    ) : (
+                      <p className="truncate text-sm font-medium">{item.title}</p>
+                    )}
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {formatGhs(item.unit_price_pesewas)} each
                     </p>
                   </div>
+                  <p className="shrink-0 text-sm font-semibold">
+                    {formatGhs(item.unit_price_pesewas * item.quantity)}
+                  </p>
+                </div>
 
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="size-8"
-                        aria-label="Decrease quantity"
-                        disabled={busy}
-                        onClick={() =>
-                          setQty.mutate({
-                            variantId: item.variant_id,
-                            quantity: item.quantity - 1,
-                          })
-                        }
-                      >
-                        <Minus />
-                      </Button>
-                      <span className="w-6 text-center text-sm font-medium">{item.quantity}</span>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="size-8"
-                        aria-label="Increase quantity"
-                        disabled={busy}
-                        onClick={() =>
-                          setQty.mutate({
-                            variantId: item.variant_id,
-                            quantity: item.quantity + 1,
-                          })
-                        }
-                      >
-                        <Plus />
-                      </Button>
-                    </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
                     <Button
-                      variant="ghost"
-                      size="sm"
+                      variant="outline"
+                      size="icon"
+                      className="size-8"
+                      aria-label="Decrease quantity"
                       disabled={busy}
-                      onClick={() => removeItem.mutate(item.variant_id)}
+                      onClick={() =>
+                        setQty.mutate({
+                          variantId: item.variant_id,
+                          quantity: item.quantity - 1,
+                        })
+                      }
                     >
-                      <Trash2 />
-                      Remove
+                      <Minus />
+                    </Button>
+                    <span className="w-6 text-center text-sm font-medium">{item.quantity}</span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="size-8"
+                      aria-label="Increase quantity"
+                      disabled={busy}
+                      onClick={() =>
+                        setQty.mutate({
+                          variantId: item.variant_id,
+                          quantity: item.quantity + 1,
+                        })
+                      }
+                    >
+                      <Plus />
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
-            </li>
-          );
-        })}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => removeItem.mutate(item.variant_id)}
+                  >
+                    <Trash2 />
+                    Remove
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </li>
+        ))}
       </ul>
 
       <Card>

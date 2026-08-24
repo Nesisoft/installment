@@ -41,6 +41,20 @@ export function useProductSearch(q: string) {
   });
 }
 
+/**
+ * Products in a category (or across the storefront). Search needs a term, so
+ * this is what makes "tap a category, see what's in it" possible.
+ */
+export function useProducts(params: { category_id?: string; limit?: number }) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['products', params],
+    queryFn: async () =>
+      (await api.get<Product[]>('/storefront/products', { params: { limit: 50, ...params } })).data,
+    placeholderData: (prev) => prev,
+  });
+}
+
 export function useProduct(id: string) {
   const api = useApi();
   return useQuery({

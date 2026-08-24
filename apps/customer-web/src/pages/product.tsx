@@ -15,7 +15,6 @@ import { apiErrorMessage, useAuth } from '@installment/web-kit';
 import { ArrowLeft, ShoppingCart } from 'lucide-react';
 import { useAddToCart, usePlanTemplates, useProduct } from '../lib/shop-api';
 import { cadenceLabel, isEligible, previewPlan } from '../lib/installment-preview';
-import { rememberVariant } from '../lib/variant-cache';
 import { ErrorState, LoadingState } from '../components/data-states';
 
 export function ProductPage() {
@@ -56,7 +55,6 @@ export function ProductPage() {
       navigate('/login');
       return;
     }
-    rememberVariant(selected.id, { title: p.title, productId: p.id });
     addToCart.mutate(
       { variant_id: selected.id, quantity: 1 },
       { onSuccess: () => navigate('/cart') },
