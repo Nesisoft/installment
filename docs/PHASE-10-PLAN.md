@@ -126,8 +126,8 @@ pnpm dev:web                    # all three frontends together
 **Customer-app API gaps worth closing**
 
 - **No public customer signup.** OTP login only authenticates a pre-provisioned `users` row, so a brand-new shopper cannot self-register — customers must be created in the admin console first.
-- **Browsing is search-only.** `GET /storefront/search` requires a non-empty `q`; there is no public "list products in category", so the home screen searches by category name instead of listing.
-- **Cart lines carry no product title** (`variant_id` + price only) and there is no public variant→product lookup. The app caches labels locally when an item is added (`lib/variant-cache.ts`) and degrades to "Item" for carts built elsewhere. Denormalising a title/image onto the cart line, or adding a variant lookup, would fix it properly.
+- ✅ **Browse by category** — `GET /storefront/products?category_id=` (public, forced to active). The shop screen browses by default and only searches while there is a term.
+- ✅ **Cart line titles** — `CartService.getCart` LEFT-joins variants→products, so every cart endpoint returns `title`/`sku`/`product_id`. Read live (a cart is a current intention) rather than snapshotted, which is what orders do. The localStorage workaround is gone.
 - **Local `.env` blocks API boot after the engine work.** The new validation refuses `SMS_PROVIDER=hubtel` with blank credentials; set `SMS_PROVIDER=console` for dev (as `.env.example` does).
 
 - **CRLF drift:** the repo has no `.gitattributes`, so a Windows checkout gets
