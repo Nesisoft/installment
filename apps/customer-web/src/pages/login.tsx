@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@installment/web-kit';
 import { apiErrorMessage } from '@installment/web-kit';
 import { otpStartSchema, otpVerifySchema } from '@installment/api-types';
@@ -100,6 +101,12 @@ export function LoginPage() {
                 <Button type="submit" className="w-full" disabled={busy}>
                   {busy ? 'Sending…' : 'Send code'}
                 </Button>
+                <p className="text-center text-sm text-muted-foreground">
+                  New here?{' '}
+                  <Link to="/signup" className="text-primary underline-offset-4 hover:underline">
+                    Create an account
+                  </Link>
+                </p>
               </form>
             ) : (
               <form onSubmit={onVerify} className="space-y-4">

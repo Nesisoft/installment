@@ -5,6 +5,7 @@ import type {
   LoginInput,
   OtpStartResult,
   Permission,
+  SignupVerifyInput,
   UserType,
 } from '@installment/api-types';
 import { createApiClient } from './api-client';
@@ -21,6 +22,10 @@ export interface AuthContextValue {
   loginWithPassword: (input: LoginInput) => Promise<AuthResult>;
   startOtp: (phone: string) => Promise<OtpStartResult>;
   verifyOtp: (phone: string, code: string) => Promise<AuthResult>;
+  /** Self-signup step 1: sends a code without creating anything. */
+  startSignup: (phone: string) => Promise<OtpStartResult>;
+  /** Self-signup step 2: creates the account and signs in. */
+  completeSignup: (input: SignupVerifyInput) => Promise<AuthResult>;
   logout: () => void;
 }
 
@@ -72,6 +77,15 @@ export function AuthProvider({ baseURL, storageKey, children }: AuthProviderProp
       },
       async verifyOtp(phone, code) {
         const { data } = await api.post<AuthResult>('/auth/customer/otp/verify', { phone, code });
+        store.set(toSession(data));
+        return data;
+      },
+      async startSignup(phone) {
+        const { data } = await api.post<OtpStartResult>('/auth/customer/signup/start', { phone });
+        return data;
+      },
+      async completeSignup(input) {
+        const { data } = await api.post<AuthResult>('/auth/customer/signup/verify', input);
         store.set(toSession(data));
         return data;
       },

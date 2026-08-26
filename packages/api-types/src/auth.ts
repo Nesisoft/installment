@@ -28,6 +28,35 @@ export const otpVerifySchema = z.object({
 });
 export type OtpVerifyInput = z.infer<typeof otpVerifySchema>;
 
+export const signupStartSchema = z.object({ phone: phoneSchema });
+export type SignupStartInput = z.infer<typeof signupStartSchema>;
+
+/**
+ * Consent is captured at signup, per purpose. Processing and credit scoring are
+ * required — a BNPL account cannot exist without them — while marketing is
+ * genuinely optional and must be opted into rather than out of.
+ */
+export const signupVerifySchema = z.object({
+  phone: phoneSchema,
+  code: z
+    .string()
+    .length(6, 'Enter the 6-digit code')
+    .regex(/^\d{6}$/, 'Code must be 6 digits'),
+  first_name: z.string().trim().min(1, 'Enter your first name').max(80),
+  last_name: z.string().trim().min(1, 'Enter your last name').max(80),
+  email: z.string().email('Enter a valid email').optional(),
+  consents: z.object({
+    data_processing: z.literal(true, {
+      errorMap: () => ({ message: 'Please agree to how we use your data' }),
+    }),
+    credit_scoring: z.literal(true, {
+      errorMap: () => ({ message: 'Please agree to the credit check' }),
+    }),
+    marketing: z.boolean().default(false),
+  }),
+});
+export type SignupVerifyInput = z.infer<typeof signupVerifySchema>;
+
 export const refreshSchema = z.object({ refreshToken: z.string().min(1) });
 export type RefreshInput = z.infer<typeof refreshSchema>;
 

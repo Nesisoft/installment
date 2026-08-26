@@ -2,7 +2,14 @@ import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthService } from '@installment/core';
 import { CurrentUser, Public, type AuthenticatedUser } from './decorators';
-import { loginSchema, otpStartSchema, otpVerifySchema, refreshSchema } from '@installment/core';
+import {
+  loginSchema,
+  otpStartSchema,
+  otpVerifySchema,
+  refreshSchema,
+  signupStartSchema,
+  signupVerifySchema,
+} from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
 import { RateLimit } from '../common/rate-limit.decorator';
 
@@ -50,6 +57,45 @@ export class AuthController {
   @ApiBody({ schema: { example: { phone: '0244123456', code: '123456' } } })
   otpVerify(@Body() body: unknown) {
     return this.auth.customerOtpVerify(body);
+  }
+
+  /**
+   * Self-signup, step 1. Verify-then-create: this sends a code and writes
+   * nothing, so an abandoned or automated attempt leaves no customer record
+   * behind and cannot squat a phone number.
+   */
+  @Public()
+  @Post('customer/signup/start')
+  @ApiZodBody(signupStartSchema)
+  @HttpCode(202)
+  @RateLimit({ limit: 5, windowSeconds: 300, bucket: 'auth' })
+  @ApiOperation({ summary: 'Begin customer self-signup (sends a code)' })
+  @ApiBody({ schema: { example: { phone: '0244123456' } } })
+  signupStart(@Body() body: unknown) {
+    return this.auth.customerSignupStart(body);
+  }
+
+  /** Self-signup, step 2: the code plus the profile and consents to create. */
+  @Public()
+  @Post('customer/signup/verify')
+  @ApiZodBody(signupVerifySchema)
+  @HttpCode(201)
+  @RateLimit({ limit: 10, windowSeconds: 300, bucket: 'auth' })
+  @ApiOperation({ summary: 'Complete customer self-signup, returns tokens' })
+  @ApiBody({
+    schema: {
+      example: {
+        phone: '0244123456',
+        code: '123456',
+        first_name: 'Ama',
+        last_name: 'Mensah',
+        email: 'ama@example.com',
+        consents: { data_processing: true, credit_scoring: true, marketing: false },
+      },
+    },
+  })
+  signupVerify(@Body() body: unknown) {
+    return this.auth.customerSignupVerify(body);
   }
 
   @Public()

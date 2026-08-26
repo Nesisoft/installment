@@ -26,3 +26,18 @@ export class InvalidTokenError extends Error {
     this.name = 'InvalidTokenError';
   }
 }
+
+/**
+ * Signup was attempted for a phone that already has a login.
+ *
+ * This does confirm to an unauthenticated caller that a number is registered.
+ * The alternative — a silent success that sends a code which then fails — is
+ * worse: it strands a real customer who simply forgot they had an account, and
+ * it still burns an SMS. Rate limiting is what makes enumeration expensive.
+ */
+export class PhoneAlreadyRegisteredError extends Error {
+  constructor() {
+    super('That number already has an account. Sign in instead.');
+    this.name = 'PhoneAlreadyRegisteredError';
+  }
+}

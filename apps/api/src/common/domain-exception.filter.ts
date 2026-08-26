@@ -56,6 +56,7 @@ const NAME_STATUS: Record<string, number> = {
   ReceiptNotAvailableError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
   CaseAlreadyClosedError: HttpStatus.CONFLICT,
+  PhoneAlreadyRegisteredError: HttpStatus.CONFLICT,
   // 422
   GhanaCardNotAttachedError: HttpStatus.UNPROCESSABLE_ENTITY,
   GhanaCardVerificationFailedError: HttpStatus.UNPROCESSABLE_ENTITY,

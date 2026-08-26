@@ -503,6 +503,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         otp: OtpService,
         sms: SmsSender,
         config: ConfigService<Env, true>,
+        customers: CustomersService,
       ) =>
         new AuthService({
           users,
@@ -511,8 +512,18 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
           otp,
           sms,
           smsSenderId: config.get('SMS_SENDER_ID', { infer: true }),
+          // Customer self-signup creates the domain record alongside the login.
+          customers,
         }),
-      inject: [UsersService, PasswordService, JwtService, OtpService, SMS_SENDER, ConfigService],
+      inject: [
+        UsersService,
+        PasswordService,
+        JwtService,
+        OtpService,
+        SMS_SENDER,
+        ConfigService,
+        CustomersService,
+      ],
     },
   ],
   exports: [
