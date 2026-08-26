@@ -125,7 +125,7 @@ pnpm dev:web                    # all three frontends together
 
 **Customer-app API gaps worth closing**
 
-- **No public customer signup.** OTP login only authenticates a pre-provisioned `users` row, so a brand-new shopper cannot self-register — customers must be created in the admin console first.
+- ✅ **Public customer signup** — verify-then-create (`/auth/customer/signup/start` writes nothing; `/verify` creates the account and signs in). Signup OTPs are namespaced so they cannot be replayed at the login endpoint. Consent is per purpose: data processing + credit scoring required, marketing opt-in. **The consent wording is a placeholder and needs legal review before pilot.**
 - ✅ **Browse by category** — `GET /storefront/products?category_id=` (public, forced to active). The shop screen browses by default and only searches while there is a term.
 - ✅ **Cart line titles** — `CartService.getCart` LEFT-joins variants→products, so every cart endpoint returns `title`/`sku`/`product_id`. Read live (a cart is a current intention) rather than snapshotted, which is what orders do. The localStorage workaround is gone.
 - **Local `.env` blocks API boot after the engine work.** The new validation refuses `SMS_PROVIDER=hubtel` with blank credentials; set `SMS_PROVIDER=console` for dev (as `.env.example` does).
