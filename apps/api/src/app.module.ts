@@ -27,6 +27,7 @@ import { PlansController } from './modules/plans.controller';
 import { ApplicationsController } from './modules/applications.controller';
 import { TelcoHealthController } from './modules/telco-health.controller';
 import { InstallmentsController } from './modules/installments.controller';
+import { OrdersController } from './modules/orders.controller';
 import { SettlementsController } from './modules/settlements.controller';
 import { LedgerController } from './modules/ledger.controller';
 import { RefundsController } from './modules/refunds.controller';
@@ -80,6 +81,7 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
     ApplicationsController,
     TelcoHealthController,
     InstallmentsController,
+    OrdersController,
     SettlementsController,
     LedgerController,
     RefundsController,
