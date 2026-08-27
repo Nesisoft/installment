@@ -1,6 +1,10 @@
 import { and, eq } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
+import {
+  CardAuthorizationService,
+  type ProviderAuthorization,
+} from '../payments/card-authorization.service';
 import type { AuditActorType } from '../audit/audit-logger.service';
 import { AttemptRepository, type PaymentAttempt } from '../payments/attempt-repository';
 import type { ChargeFailureEscalator } from '../payments/charge-failure-escalator';
@@ -58,7 +62,18 @@ export interface RefundConfirmer {
 
 export interface PaystackWebhookEvent {
   event: string;
-  data: { reference: string; status?: string; gateway_response?: string; [key: string]: unknown };
+  data: {
+    reference: string;
+    status?: string;
+    gateway_response?: string;
+    /**
+     * Present on a successful card charge. This is the only place a card paid
+     * through a hosted Paystack page ever surfaces — the synchronous path never
+     * sees it — so a webhook that ignores it throws the saved card away.
+     */
+    authorization?: ProviderAuthorization;
+    [key: string]: unknown;
+  };
 }
 
 /** Just enough of the Paystack client to verify a raw webhook body. */
@@ -143,6 +158,12 @@ export class WebhookService {
      * the money arrives and the goods never ship.
      */
     private readonly orderPayments?: OrderPaymentSettler,
+    /**
+     * Keeps the reusable card authorization that arrives with a successful
+     * charge. Without it, a customer who pays by card on a hosted page settles
+     * their instalment and is asked for the card again next month.
+     */
+    private readonly cards?: CardAuthorizationService,
   ) {}
 
   /** Reports an unapplied outcome without ever failing the ingest. */
@@ -245,7 +266,7 @@ export class WebhookService {
     }
 
     if (event.event === 'charge.success') {
-      await this.handleSuccess(attempt, reference);
+      await this.handleSuccess(attempt, reference, event.data.authorization);
     } else {
       await this.handleFailure(attempt, reference, event.data.gateway_response ?? 'charge_failed');
     }
@@ -365,7 +386,33 @@ export class WebhookService {
     }
   }
 
-  private async handleSuccess(attempt: PaymentAttempt, reference: string): Promise<void> {
+  /**
+   * Saves a reusable card that arrived with a webhook-delivered success.
+   *
+   * Best effort on purpose: the money has moved and the schedule is about to be
+   * settled. Failing to keep the card costs the customer one prompt next month;
+   * throwing here would leave a real payment unrecorded.
+   */
+  private async rememberCard(
+    attempt: PaymentAttempt,
+    authorization?: ProviderAuthorization,
+  ): Promise<void> {
+    if (!this.cards || !authorization?.reusable) return;
+    try {
+      const plan = await this.plans.get(attempt.customer_plan_id);
+      await this.cards.record(plan.customer_id, authorization);
+      await this.cards.markUsed(authorization.authorization_code);
+    } catch {
+      /* best effort — see the doc above */
+    }
+  }
+
+  private async handleSuccess(
+    attempt: PaymentAttempt,
+    reference: string,
+    authorization?: ProviderAuthorization,
+  ): Promise<void> {
+    await this.rememberCard(attempt, authorization);
     if (attempt.status !== 'succeeded') {
       await this.attempts.update(attempt.id, {
         status: 'succeeded',

@@ -12,8 +12,8 @@ import {
 } from '@installment/ui';
 import { formatGhs, type InstallmentScheduleRow } from '@installment/api-types';
 import { apiErrorMessage, newIdempotencyKey, useApi } from '@installment/web-kit';
-import { ArrowLeft, CalendarClock, ExternalLink, Smartphone } from 'lucide-react';
-import { usePayMomo, usePlanSchedule, usePlans } from '../lib/shop-api';
+import { ArrowLeft, CalendarClock, ExternalLink, Smartphone, CreditCard } from 'lucide-react';
+import { usePayMomo, usePlanSchedule, usePlans, usePayByCardLink } from '../lib/shop-api';
 import { formatDate, relativeDay } from '../lib/format';
 import { EmptyState, ErrorState, LoadingState } from '../components/data-states';
 
@@ -82,6 +82,7 @@ export function PlanDetailPage() {
   const plans = usePlans();
   const schedule = usePlanSchedule(id);
   const payMomo = usePayMomo(id);
+  const cardLink = usePayByCardLink(id);
 
   /**
    * One idempotency key per instalment, retired only once that instalment is
@@ -112,6 +113,15 @@ export function PlanDetailPage() {
     });
     const url = URL.createObjectURL(new Blob([data], { type: 'text/html' }));
     window.open(url, '_blank', 'noopener');
+  }
+
+  function onPayByCard(scheduleId: string) {
+    cardLink.mutate(scheduleId, {
+      onSuccess: ({ url }) => {
+        // Paystack's own page: card entry and 3-D Secure never touch this app.
+        window.location.assign(url);
+      },
+    });
   }
 
   function onPay(scheduleId: string) {
@@ -205,6 +215,30 @@ export function PlanDetailPage() {
                 ? 'Starting…'
                 : `Pay ${formatGhs(next.amount_due_pesewas)} now`}
             </Button>
+
+            <div className="flex items-center gap-3 pt-1">
+              <span className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground">or</span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+
+            {cardLink.isError ? (
+              <p className="text-sm text-destructive">{apiErrorMessage(cardLink.error)}</p>
+            ) : null}
+            <Button
+              variant="outline"
+              className="w-full"
+              size="lg"
+              disabled={cardLink.isPending}
+              onClick={() => onPayByCard(next.id)}
+            >
+              <CreditCard className="size-4" />
+              {cardLink.isPending ? 'Opening…' : 'Pay by card'}
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              Paying by card once lets us collect the rest automatically, so you will not be asked
+              again.
+            </p>
           </CardContent>
         </Card>
       ) : null}

@@ -485,6 +485,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         settlements: SettlementService,
         refunds: RefundService,
         orderPayments: OrderPaymentService,
+        cards: CardAuthorizationService,
       ) =>
         // Share PaymentService's failure pipeline so a webhook-delivered
         // decline runs the same retry ladder as a synchronous one.
@@ -503,6 +504,9 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
           // A charge.success matching no installment attempt may be a customer
           // paying for an order; those carry their reference on the order row.
           orderPayments,
+          // A card paid on a hosted page only ever surfaces here, so this is
+          // where the reusable authorization is kept.
+          cards,
         ),
       inject: [
         DRIZZLE,
@@ -514,6 +518,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         SettlementService,
         RefundService,
         OrderPaymentService,
+        CardAuthorizationService,
       ],
     },
     {

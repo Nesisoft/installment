@@ -3,6 +3,7 @@ import type { CustomerPlansService } from '../schedules/customer-plans.service';
 import type { CustomersService } from '../customers/customers.service';
 import type { AttemptRepository } from './attempt-repository';
 import type { NotificationService } from '../notifications/notification.service';
+import { ChargeAlreadyInFlightError } from './errors';
 
 /** The slice of the Paystack client the dispatcher needs (hosted checkout link). */
 export interface PaymentLinkClient {
@@ -37,6 +38,66 @@ export class PaymentLinkDispatcher {
     private readonly notifications: NotificationService,
     private readonly paystack: PaymentLinkClient,
   ) {}
+
+  /**
+   * A payment link the customer asked for, rather than one we pushed at them
+   * after auto-debit gave up.
+   *
+   * This is how a card gets on file at all. Nothing in the system could
+   * previously produce a card payment: auto-debit only tried Mobile Money, and
+   * the one card endpoint demanded an authorization code no client ever had. A
+   * hosted Paystack page is also the only sane way to take card details —
+   * entry, 3-D Secure and PCI scope all stay with Paystack, and the reusable
+   * authorization comes back on the webhook.
+   *
+   * Idempotent by reuse: an outstanding link for this instalment is handed back
+   * rather than replaced, so tapping twice does not scatter live links for the
+   * same debt. An unresolved attempt that is NOT a link means a charge is
+   * already moving, and stacking a link on top of it is how a customer pays
+   * twice — so that refuses instead.
+   */
+  async createSelfServiceLink(scheduleId: string): Promise<{ url: string; reference: string }> {
+    const installment = await this.plans.getInstallment(scheduleId);
+    const plan = await this.plans.get(installment.customer_plan_id);
+    const customer = await this.customers.get(plan.customer_id);
+
+    const unresolved = await this.attempts.findUnresolvedForSchedule(scheduleId);
+    if (unresolved?.payment_link_url) {
+      return { url: unresolved.payment_link_url, reference: unresolved.provider_reference ?? '' };
+    }
+    if (unresolved) {
+      throw new ChargeAlreadyInFlightError(
+        scheduleId,
+        `attempt ${unresolved.id} is ${unresolved.status}`,
+      );
+    }
+
+    const amount = installment.amount_due_pesewas + installment.late_fee_pesewas;
+    const reference = `LINK-${scheduleId}-self-${installment.attempt_count + 1}`;
+    const res = await this.paystack.createPaymentLink({
+      email: customer.email,
+      amount,
+      currency: 'GHS',
+      reference,
+      metadata: { schedule_id: scheduleId, kind: 'self_service_link' },
+    });
+    const url = res.data.authorization_url;
+
+    // No state-machine transition: the customer pays out of band and the
+    // webhook settles the schedule, exactly as for a pushed link.
+    await this.attempts.create({
+      scheduleId,
+      customerPlanId: installment.customer_plan_id,
+      channel: 'payment_link',
+      paymentMethod: 'card',
+      amountPesewas: amount,
+      idempotencyKey: reference,
+      providerReference: reference,
+      paymentLinkUrl: url,
+    });
+
+    return { url, reference };
+  }
 
   async dispatch(scheduleId: string, attempt: number): Promise<PaymentLinkOutcome> {
     let email: string;
