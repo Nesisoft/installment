@@ -13,7 +13,14 @@ import {
 import { formatGhs, type InstallmentScheduleRow } from '@installment/api-types';
 import { apiErrorMessage, newIdempotencyKey, useApi } from '@installment/web-kit';
 import { ArrowLeft, CalendarClock, ExternalLink, Smartphone, CreditCard } from 'lucide-react';
-import { usePayMomo, usePlanSchedule, usePlans, usePayByCardLink } from '../lib/shop-api';
+import {
+  usePayMomo,
+  usePlanSchedule,
+  usePlans,
+  usePayByCardLink,
+  useSavedCards,
+  useRemoveCard,
+} from '../lib/shop-api';
 import { formatDate, relativeDay } from '../lib/format';
 import { EmptyState, ErrorState, LoadingState } from '../components/data-states';
 
@@ -27,6 +34,68 @@ function nextDue(rows: InstallmentScheduleRow[]): InstallmentScheduleRow | null 
   return open[0] ?? null;
 }
 
+/**
+ * What is on file, and how to take it off.
+ *
+ * Shown wherever a customer looks at money they owe. Storing someone's card and
+ * giving them no way to see or remove it is not a thing to defer: the point of
+ * saving it is that we charge it without asking, which only works as a bargain
+ * if they can end it.
+ */
+function SavedCards() {
+  const cards = useSavedCards();
+  const remove = useRemoveCard();
+
+  const rows = cards.data ?? [];
+  if (cards.isPending || rows.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <CreditCard className="size-4 text-primary" />
+          Saved cards
+        </CardTitle>
+        <CardDescription>
+          We charge these automatically when an instalment is due. Remove one any time.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {remove.isError ? (
+          <p className="text-sm text-destructive">{apiErrorMessage(remove.error)}</p>
+        ) : null}
+        {rows.map((card) => (
+          <div
+            key={card.id}
+            className="flex items-center justify-between gap-3 border-b border-border pb-3 last:border-0 last:pb-0"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium">
+                {card.brand ? card.brand.toUpperCase() : 'Card'} ···· {card.last4 ?? '????'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {card.exp_month && card.exp_year
+                  ? `Expires ${String(card.exp_month).padStart(2, '0')}/${card.exp_year}`
+                  : 'Expiry unknown'}
+                {card.is_usable ? ' · used for automatic payments' : null}
+                {card.status === 'revoked' ? ' · your bank declined this card' : null}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate(card.id)}
+            >
+              Remove
+            </Button>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function PlansPage() {
   const plans = usePlans();
 
@@ -38,6 +107,7 @@ export function PlansPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold tracking-tight">Your plans</h1>
+      <SavedCards />
       {rows.length === 0 ? (
         <EmptyState message="You have no instalment plans yet." />
       ) : (

@@ -594,6 +594,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     VerifyRunner,
     NotificationService,
     PaymentLinkDispatcher,
+    CardAuthorizationService,
     ReminderRunner,
     TelcoHealthMonitor,
     WebhookService,

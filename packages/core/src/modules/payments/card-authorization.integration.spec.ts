@@ -127,6 +127,73 @@ describe('CardAuthorizationService (integration)', () => {
     expect(await cards.findUsable(customerId)).not.toBeNull();
   });
 
+  it('shows the customer their cards without ever exposing the credential', async () => {
+    const customerId = await freshCustomer();
+    const a = auth({ last4: '9999', brand: 'mastercard' });
+    await cards.record(customerId, a);
+
+    const view = await cards.listViewForCustomer(customerId);
+
+    expect(view).toHaveLength(1);
+    expect(view[0]!.last4).toBe('9999');
+    expect(view[0]!.brand).toBe('mastercard');
+    expect(view[0]!.is_usable).toBe(true);
+    // The authorization code can charge the card. It must not appear in
+    // anything handed to a client.
+    expect(JSON.stringify(view)).not.toContain(a.authorization_code);
+    expect(Object.keys(view[0]!)).not.toContain('authorization_code');
+  });
+
+  it('removes a card, drops its credential, and stops offering it', async () => {
+    const customerId = await freshCustomer();
+    const a = auth();
+    const saved = await cards.record(customerId, a);
+
+    expect(await cards.removeForCustomer(customerId, saved!.id)).toBe(true);
+
+    expect(await cards.findUsable(customerId)).toBeNull();
+    // The row survives so a person can see what they removed; the part that
+    // could charge them does not.
+    const [row] = await cards.listForCustomer(customerId);
+    expect(row!.status).toBe('removed');
+    expect(row!.authorization_code).toBeNull();
+    expect(row!.last4).toBe('4081');
+    // And it is gone from what the customer is shown.
+    expect(await cards.listViewForCustomer(customerId)).toHaveLength(0);
+  });
+
+  it('will not remove a card belonging to someone else', async () => {
+    const mine = await freshCustomer();
+    const theirs = await freshCustomer();
+    const saved = await cards.record(mine, auth());
+
+    expect(await cards.removeForCustomer(theirs, saved!.id)).toBe(false);
+
+    // Still mine, still chargeable.
+    expect(await cards.findUsable(mine)).not.toBeNull();
+  });
+
+  /**
+   * The guard that makes removal mean something. record() deliberately brings a
+   * PROVIDER-revoked card back when it works again; applying that to a card the
+   * customer deleted would put a credential they removed back on file behind
+   * their back.
+   */
+  it('never resurrects a card the customer removed', async () => {
+    const customerId = await freshCustomer();
+    const a = auth();
+    const saved = await cards.record(customerId, a);
+    await cards.removeForCustomer(customerId, saved!.id);
+
+    // A late webhook for a charge started before the removal.
+    await cards.record(customerId, a);
+
+    const rows = await cards.listForCustomer(customerId);
+    const removed = rows.find((r) => r.id === saved!.id);
+    expect(removed!.status).toBe('removed');
+    expect(removed!.authorization_code).toBeNull();
+  });
+
   it('never offers one customer a card saved by another', async () => {
     const mine = await freshCustomer();
     const theirs = await freshCustomer();
