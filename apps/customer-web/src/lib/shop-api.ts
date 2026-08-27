@@ -278,6 +278,39 @@ export function usePlanStatement(id: string) {
  * page, and the reusable authorization comes back on the webhook, which is what
  * lets the next instalment collect without asking the customer at all.
  */
+export interface SavedCard {
+  id: string;
+  last4: string | null;
+  brand: string | null;
+  bank: string | null;
+  exp_month: number | null;
+  exp_year: number | null;
+  status: string;
+  is_usable: boolean;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+/** The cards on file. The API never returns the chargeable credential itself. */
+export function useSavedCards() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['saved-cards'],
+    queryFn: async () => (await api.get<SavedCard[]>('/me/cards')).data,
+  });
+}
+
+export function useRemoveCard() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (cardId: string) => {
+      await api.delete(`/me/cards/${cardId}`);
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['saved-cards'] }),
+  });
+}
+
 export function usePayByCardLink(planId: string) {
   const api = useApi();
   const qc = useQueryClient();

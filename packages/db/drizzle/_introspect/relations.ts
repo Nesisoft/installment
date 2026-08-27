@@ -1,13 +1,13 @@
 import { relations } from "drizzle-orm/relations";
-import { users, customers, customer_card_authorizations, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, held_reserves, payouts, collections_cases, collections_actions, rule_definitions, categories, stores, products, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, refunds, permissions, role_permissions, roles, user_roles } from "./schema";
+import { users, customers, customer_employment, employers, customer_card_authorizations, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, held_reserves, payouts, collections_cases, collections_actions, rule_definitions, categories, stores, products, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, refunds, permissions, role_permissions, roles, user_roles } from "./schema";
 
 export const customersRelations = relations(customers, ({one, many}) => ({
 	user: one(users, {
 		fields: [customers.user_id],
 		references: [users.id]
 	}),
-	customer_card_authorizations: many(customer_card_authorizations),
 	customer_employments: many(customer_employment),
+	customer_card_authorizations: many(customer_card_authorizations),
 	applications: many(applications),
 	credit_profiles: many(credit_profiles),
 	customer_plans: many(customer_plans),
@@ -29,13 +29,6 @@ export const usersRelations = relations(users, ({many}) => ({
 	}),
 }));
 
-export const customer_card_authorizationsRelations = relations(customer_card_authorizations, ({one}) => ({
-	customer: one(customers, {
-		fields: [customer_card_authorizations.customer_id],
-		references: [customers.id]
-	}),
-}));
-
 export const customer_employmentRelations = relations(customer_employment, ({one}) => ({
 	customer: one(customers, {
 		fields: [customer_employment.customer_id],
@@ -49,6 +42,13 @@ export const customer_employmentRelations = relations(customer_employment, ({one
 
 export const employersRelations = relations(employers, ({many}) => ({
 	customer_employments: many(customer_employment),
+}));
+
+export const customer_card_authorizationsRelations = relations(customer_card_authorizations, ({one}) => ({
+	customer: one(customers, {
+		fields: [customer_card_authorizations.customer_id],
+		references: [customers.id]
+	}),
 }));
 
 export const applicationsRelations = relations(applications, ({one, many}) => ({

@@ -2,9 +2,11 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   HttpCode,
+  NotFoundException,
   Param,
   Post,
 } from '@nestjs/common';
@@ -18,6 +20,7 @@ import {
   renderStatementCsv,
   type Customer,
   PaymentLinkDispatcher,
+  CardAuthorizationService,
 } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators';
@@ -37,6 +40,7 @@ export class MeController {
     private readonly plans: CustomerPlansService,
     private readonly payments: PaymentService,
     private readonly paymentLinks: PaymentLinkDispatcher,
+    private readonly cards: CardAuthorizationService,
   ) {}
 
   @Get('plans')
@@ -112,6 +116,38 @@ export class MeController {
       { scheduleId, authorizationCode, email: customer.email },
       actorOf(user),
     );
+  }
+
+  /**
+   * The cards this customer has on file.
+   *
+   * Returns a view, never the rows: `authorization_code` is the credential —
+   * anything holding it can charge the card — so it never leaves the service.
+   * What comes back is last4, brand and expiry, which is what a person needs to
+   * recognise their own card.
+   */
+  @Get('cards')
+  @ApiOperation({ summary: 'The cards saved on my account' })
+  async listCards(@CurrentUser() user: AuthenticatedUser) {
+    const customer = await this.resolveCustomer(user);
+    return this.cards.listViewForCustomer(customer.id);
+  }
+
+  /**
+   * Takes a card off file.
+   *
+   * Drops the authorization code rather than only flagging the row: a customer
+   * asking us to remove their card is asking us to stop holding the thing that
+   * can charge it. Scoped to the owner, and a card that is not theirs answers
+   * 404 rather than confirming it exists.
+   */
+  @Delete('cards/:cardId')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Remove a saved card' })
+  async removeCard(@Param('cardId') cardId: string, @CurrentUser() user: AuthenticatedUser) {
+    const customer = await this.resolveCustomer(user);
+    const removed = await this.cards.removeForCustomer(customer.id, cardId);
+    if (!removed) throw new NotFoundException('Card not found');
   }
 
   /**
