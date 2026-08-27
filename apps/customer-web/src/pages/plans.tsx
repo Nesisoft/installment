@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Button,
@@ -83,8 +83,20 @@ export function PlanDetailPage() {
   const schedule = usePlanSchedule(id);
   const payMomo = usePayMomo(id);
 
-  // One key per payment attempt: retries of the same attempt must not double-charge.
-  const [payKey, setPayKey] = useState(() => newIdempotencyKey('pay'));
+  /**
+   * One idempotency key per instalment, retired only once that instalment is
+   * actually paid.
+   *
+   * A failed attempt must KEEP its key. The case that matters is a charge that
+   * succeeded on the server while the response was lost — routine on a mobile
+   * connection. The customer sees an error and taps Pay again; reusing the key
+   * replays the original charge instead of debiting them a second time.
+   *
+   * Keyed per instalment rather than one key for the plan, because the server
+   * binds a key to a hash of the request path. Reusing one key across two
+   * instalments would make the second payment a 409 conflict.
+   */
+  const payKeys = useRef<Record<string, string>>({});
   const [paying, setPaying] = useState<string | null>(null);
 
   const plan = (plans.data ?? []).find((p) => p.id === id) ?? null;
@@ -104,15 +116,17 @@ export function PlanDetailPage() {
 
   function onPay(scheduleId: string) {
     setPaying(scheduleId);
+    const key = payKeys.current[scheduleId] ?? newIdempotencyKey(`pay-${scheduleId}`);
+    payKeys.current[scheduleId] = key;
     payMomo.mutate(
-      { scheduleId, idempotencyKey: payKey },
+      { scheduleId, idempotencyKey: key },
       {
-        // A fresh key only after a settled attempt, so a retry of a failed
-        // request reuses the key and cannot be charged twice.
-        onSettled: () => {
-          setPayKey(newIdempotencyKey('pay'));
-          setPaying(null);
+        // Only a charge that came back successful retires its key. Anything
+        // else keeps it, so the next tap is deduplicated rather than charged.
+        onSuccess: () => {
+          delete payKeys.current[scheduleId];
         },
+        onSettled: () => setPaying(null),
       },
     );
   }
