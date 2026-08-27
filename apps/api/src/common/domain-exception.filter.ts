@@ -208,9 +208,60 @@ export class DomainExceptionFilter implements ExceptionFilter {
       };
     }
 
+    // A malformed identifier — `/me/orders/not-a-uuid` — reached Postgres and
+    // came back as invalid_text_representation. Every route in the API answered
+    // 500 to it: a client error reported as a server fault, and a Sentry alert
+    // each time.
+    //
+    // The honest fix is to reject the value at the route boundary, but that
+    // means a pipe on every :id in ~30 controllers, and the ones that are NOT
+    // uuids (store slugs, references) make a blanket global pipe wrong. This
+    // catches what gets through.
+    //
+    // The trade-off is worth stating: an invalid value we generated ourselves
+    // is a bug and now answers 400 rather than alarming. That is the cost of
+    // one line versus thirty pipes, and the message below is deliberately
+    // generic — the driver's text carries the offending value and the whole
+    // SQL statement, which must not go to a client.
+    if (isInvalidTextRepresentation(exception)) {
+      return {
+        status: HttpStatus.BAD_REQUEST,
+        body: {
+          error: 'InvalidIdentifier',
+          message: 'A value in the request is not a valid identifier',
+        },
+      };
+    }
+
     return {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       body: { error: 'InternalServerError', message: 'Internal server error' },
     };
   }
+}
+
+/** Postgres: the text could not be parsed as the column's type. */
+const PG_INVALID_TEXT_REPRESENTATION = '22P02';
+
+/**
+ * Walks the cause chain looking for that code.
+ *
+ * Drizzle wraps driver errors — what reaches the filter is a `Failed query:
+ * select ...` Error with the pg error underneath — so checking only the top
+ * level finds nothing.
+ */
+function isInvalidTextRepresentation(exception: unknown): boolean {
+  let current: unknown = exception;
+  // Bounded: a cause chain should never be deep, and a cycle must not hang the
+  // error handler.
+  for (let depth = 0; current && depth < 5; depth++) {
+    if (
+      typeof current === 'object' &&
+      (current as { code?: unknown }).code === PG_INVALID_TEXT_REPRESENTATION
+    ) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
