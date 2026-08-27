@@ -408,10 +408,7 @@ export class OrdersService {
 
       // Hand every reserved unit back before the status flips, so a failure
       // anywhere here rolls the whole thing back rather than losing the stock.
-      const items = await this.loadItems(tx, order.id);
-      for (const item of items) {
-        if (item.variant_id) await this.inventory.release(item.variant_id, item.quantity, tx);
-      }
+      const items = await this.releaseItems(tx, order.id);
 
       const [updated] = await tx
         .update(o)
@@ -525,6 +522,61 @@ export class OrdersService {
     }
 
     return { checked: candidates.length, cancelled, releasedUnits, failed };
+  }
+
+  /**
+   * Closes an installment order whose credit application was declined, and
+   * releases the stock it was holding.
+   *
+   * The mirror of {@link activateFinancing}. That one was wired from the
+   * activation endpoint and this one never existed, so ORDER_TRANSITIONS
+   * permitted `pending_approval -> declined` while nothing in the codebase ever
+   * set an order to `declined`. A refused application left its order sitting in
+   * `pending_approval` holding stock, and the customer looking at "financing
+   * under review" for an answer that had already been given.
+   *
+   * Idempotent: an order already declined is returned as-is, so a retried
+   * decision cannot try to release the same units twice.
+   */
+  async declineFinancing(
+    orderId: string,
+    actor: PlanActor,
+    now: Date = new Date(),
+  ): Promise<OrderWithItems> {
+    return runInTransaction(this.db, async (tx) => {
+      const order = await this.lockOrder(tx, orderId);
+      if (order.status === 'declined') {
+        return { ...order, items: await this.loadItems(tx, order.id) };
+      }
+      if (order.payment_type !== 'installment' || order.status !== 'pending_approval') {
+        throw new OrderNotCancellableError(orderId, order.status);
+      }
+      assertOrderTransition('pending_approval', 'declined');
+
+      const items = await this.releaseItems(tx, order.id);
+
+      const [updated] = await tx
+        .update(o)
+        .set({ status: 'declined', updated_at: now.toISOString() })
+        .where(and(eq(o.id, order.id), eq(o.status, 'pending_approval')))
+        .returning();
+      if (!updated) throw new OrderNotCancellableError(orderId, order.status);
+
+      await this.audit.append(tx, {
+        entityType: 'order',
+        entityId: order.id,
+        eventType: 'order.declined',
+        fromState: 'pending_approval',
+        toState: 'declined',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        metadata: {
+          released_units: items.reduce((n, i) => n + (i.variant_id ? i.quantity : 0), 0),
+        },
+      });
+
+      return { ...updated, items };
+    });
   }
 
   /**
@@ -684,6 +736,15 @@ export class OrdersService {
 
   private async loadItems(tx: TransactionalTx, orderId: string): Promise<OrderItem[]> {
     return tx.select().from(oi).where(eq(oi.order_id, orderId)).orderBy(oi.created_at);
+  }
+
+  /** Loads the order's items and hands each reservation back to available stock. */
+  private async releaseItems(tx: TransactionalTx, orderId: string): Promise<OrderItem[]> {
+    const items = await this.loadItems(tx, orderId);
+    for (const item of items) {
+      if (item.variant_id) await this.inventory.release(item.variant_id, item.quantity, tx);
+    }
+    return items;
   }
 
   /** Loads the order's items and finalises each reservation as sold. */
