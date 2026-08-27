@@ -149,8 +149,15 @@ export function useCheckout() {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: CheckoutInput) =>
-      (await api.post<OrderWithItems[]>('/me/checkout', input)).data,
+    // The key is supplied by the caller so a retry of the SAME attempt reuses
+    // it; minting one here would mint a fresh key per retry and defeat the
+    // protection entirely.
+    mutationFn: async ({ idempotencyKey, ...input }: CheckoutInput & { idempotencyKey?: string }) =>
+      (
+        await api.post<OrderWithItems[]>('/me/checkout', input, {
+          headers: { 'Idempotency-Key': idempotencyKey ?? newIdempotencyKey('checkout') },
+        })
+      ).data,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: CART_KEY });
       void qc.invalidateQueries({ queryKey: ['orders'] });

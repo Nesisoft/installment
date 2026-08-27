@@ -13,6 +13,7 @@ import { CustomerNotFoundError, CustomersService } from '@installment/core';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators';
 import { ApiModel } from '../common/api-model';
+import { Idempotent } from '../common/idempotent.decorator';
 import { ApiZodBody } from '../common/api-zod';
 
 /**
@@ -88,6 +89,10 @@ export class MeCommerceController {
 
   @Post('checkout')
   @HttpCode(201)
+  // Instalment checkout opens a credit line and reserves stock, so it is a
+  // financial commitment: a retry on a dropped mobile connection must not
+  // become a second order and a second credit application.
+  @Idempotent()
   @ApiZodBody(checkoutSchema)
   @ApiModel('OrderWithItems', { array: true, created: true })
   async checkout(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {

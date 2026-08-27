@@ -11,7 +11,7 @@ import {
   cn,
 } from '@installment/ui';
 import { checkoutSchema, createAddressSchema, formatGhs } from '@installment/api-types';
-import { apiErrorMessage } from '@installment/web-kit';
+import { apiErrorMessage, newIdempotencyKey } from '@installment/web-kit';
 import { Check, MapPin, Plus } from 'lucide-react';
 import {
   useAddresses,
@@ -46,6 +46,11 @@ export function CheckoutPage() {
     landmark: '',
   });
   const [formError, setFormError] = useState<string | null>(null);
+  // One key per checkout attempt. It is rotated only after a SUCCESSFUL order,
+  // so retrying a failed or timed-out attempt reuses it: if the first request
+  // did reach the server, the retry replays that order instead of opening a
+  // second one.
+  const [checkoutKey, setCheckoutKey] = useState(() => newIdempotencyKey('checkout'));
 
   const subtotal = cart.data?.subtotal_pesewas ?? 0;
   const addressList = addresses.data ?? [];
@@ -118,12 +123,16 @@ export function CheckoutPage() {
       setFormError(parsed.error.issues[0]?.message ?? 'Check your selections');
       return;
     }
-    checkout.mutate(parsed.data, {
-      onSuccess: (orders) => {
-        const first = orders[0];
-        navigate(first ? `/orders/${first.id}` : '/orders');
+    checkout.mutate(
+      { ...parsed.data, idempotencyKey: checkoutKey },
+      {
+        onSuccess: (orders) => {
+          setCheckoutKey(newIdempotencyKey('checkout'));
+          const first = orders[0];
+          navigate(first ? `/orders/${first.id}` : '/orders');
+        },
       },
-    });
+    );
   }
 
   return (
