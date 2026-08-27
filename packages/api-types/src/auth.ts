@@ -57,6 +57,37 @@ export const signupVerifySchema = z.object({
 });
 export type SignupVerifyInput = z.infer<typeof signupVerifySchema>;
 
+/** Step 2: prove the code. Returns a ticket; creates nothing. */
+export const signupVerifyCodeSchema = z.object({
+  phone: phoneSchema,
+  code: z
+    .string()
+    .length(6, 'Enter the 6-digit code')
+    .regex(/^\d{6}$/, 'Code must be 6 digits'),
+});
+export type SignupVerifyCodeInput = z.infer<typeof signupVerifyCodeSchema>;
+
+/**
+ * Step 3: the ticket plus the profile. No phone here — it travels inside the
+ * ticket, so the number that was verified is the number that gets registered.
+ */
+export const signupCompleteSchema = z.object({
+  signupToken: z.string().min(1),
+  first_name: z.string().trim().min(1, 'Enter your first name').max(80),
+  last_name: z.string().trim().min(1, 'Enter your last name').max(80),
+  email: z.string().email('Enter a valid email').optional(),
+  consents: z.object({
+    data_processing: z.literal(true, {
+      errorMap: () => ({ message: 'Please agree to how we use your data' }),
+    }),
+    credit_scoring: z.literal(true, {
+      errorMap: () => ({ message: 'Please agree to the credit check' }),
+    }),
+    marketing: z.boolean().default(false),
+  }),
+});
+export type SignupCompleteInput = z.infer<typeof signupCompleteSchema>;
+
 export const refreshSchema = z.object({ refreshToken: z.string().min(1) });
 export type RefreshInput = z.infer<typeof refreshSchema>;
 

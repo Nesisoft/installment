@@ -12,6 +12,8 @@ import {
   refreshSchema,
   signupStartSchema,
   signupVerifySchema,
+  signupVerifyCodeSchema,
+  signupCompleteSchema,
 } from './dto';
 import {
   AccountInactiveError,
@@ -140,15 +142,80 @@ export class AuthService {
    * customer rather than a broken account, and the reuse branch below adopts it
    * on the next attempt instead of colliding with the unique phone.
    */
-  async customerSignupVerify(rawInput: unknown): Promise<AuthResult> {
-    const input = signupVerifySchema.parse(rawInput);
-    const customers = this.deps.customers;
-    if (!customers) throw new Error('AuthService: customers dependency is required for signup');
+  /**
+   * Step 2: prove the code before the registration form is shown.
+   *
+   * The code is burned here, and a short-lived ticket takes its place. Doing it
+   * this way means someone cannot be asked to fill in a whole form only to be
+   * told at the end that the code was wrong or had expired — and because the
+   * OTP itself lives five minutes, the ticket is what gives them time to type.
+   *
+   * Still creates nothing: the ticket is a claim about a phone, not an account.
+   */
+  async customerSignupVerifyCode(rawInput: unknown): Promise<{ signupToken: string }> {
+    const input = signupVerifyCodeSchema.parse(rawInput);
+
+    if (await this.deps.users.findByPhone(input.phone)) throw new PhoneAlreadyRegisteredError();
 
     const ok = await this.deps.otp.verify(signupTarget(input.phone), input.code);
     if (!ok) throw new InvalidOtpError();
 
-    // Re-check under the verified code: another signup may have won the race.
+    return { signupToken: this.deps.jwt.signSignup(input.phone) };
+  }
+
+  /**
+   * Step 3: the ticket plus the profile — the call that actually creates the
+   * account. The phone comes from the ticket, never from the request body, so a
+   * caller cannot verify one number and register a different one.
+   */
+  async customerSignupComplete(rawInput: unknown): Promise<AuthResult> {
+    const input = signupCompleteSchema.parse(rawInput);
+
+    let phone: string;
+    try {
+      phone = this.deps.jwt.verifySignup(input.signupToken);
+    } catch {
+      throw new InvalidTokenError();
+    }
+
+    return this.createVerifiedCustomer({
+      phone,
+      first_name: input.first_name,
+      last_name: input.last_name,
+      ...(input.email ? { email: input.email } : {}),
+      consents: input.consents,
+    });
+  }
+
+  /**
+   * Single-call signup: code and profile together. Kept for callers that submit
+   * both at once; the three-step flow (start -> verify-code -> complete) is what
+   * the customer app uses, so a bad code is caught before the form is filled.
+   */
+  async customerSignupVerify(rawInput: unknown): Promise<AuthResult> {
+    const input = signupVerifySchema.parse(rawInput);
+
+    const ok = await this.deps.otp.verify(signupTarget(input.phone), input.code);
+    if (!ok) throw new InvalidOtpError();
+
+    return this.createVerifiedCustomer(input);
+  }
+
+  /**
+   * Creates the account for a phone whose ownership has already been proven —
+   * by a burned OTP or by a signup ticket. Never call this without one.
+   */
+  private async createVerifiedCustomer(input: {
+    phone: string;
+    first_name: string;
+    last_name: string;
+    email?: string;
+    consents: { marketing?: boolean };
+  }): Promise<AuthResult> {
+    const customers = this.deps.customers;
+    if (!customers) throw new Error('AuthService: customers dependency is required for signup');
+
+    // Re-check under the proven phone: another signup may have won the race.
     if (await this.deps.users.findByPhone(input.phone)) throw new PhoneAlreadyRegisteredError();
 
     const systemActor = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };

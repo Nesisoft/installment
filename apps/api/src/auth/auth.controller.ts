@@ -9,6 +9,8 @@ import {
   refreshSchema,
   signupStartSchema,
   signupVerifySchema,
+  signupVerifyCodeSchema,
+  signupCompleteSchema,
 } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
 import { RateLimit } from '../common/rate-limit.decorator';
@@ -73,6 +75,49 @@ export class AuthController {
   @ApiBody({ schema: { example: { phone: '0244123456' } } })
   signupStart(@Body() body: unknown) {
     return this.auth.customerSignupStart(body);
+  }
+
+  /**
+   * Self-signup, step 2. Proves the code and hands back a short-lived ticket,
+   * so the app can show the registration form only once the phone is confirmed
+   * — rather than making someone fill it in and then telling them the code was
+   * wrong. Still creates nothing.
+   */
+  @Public()
+  @Post('customer/signup/verify-code')
+  @ApiZodBody(signupVerifyCodeSchema)
+  @HttpCode(200)
+  @RateLimit({ limit: 10, windowSeconds: 300, bucket: 'auth' })
+  @ApiOperation({ summary: 'Verify a signup code, returns a short-lived signup ticket' })
+  @ApiBody({ schema: { example: { phone: '0244123456', code: '123456' } } })
+  signupVerifyCode(@Body() body: unknown) {
+    return this.auth.customerSignupVerifyCode(body);
+  }
+
+  /**
+   * Self-signup, step 3: the ticket from step 2 plus the profile. The phone
+   * comes from the ticket, never the body, so a caller cannot verify one number
+   * and register another.
+   */
+  @Public()
+  @Post('customer/signup/complete')
+  @ApiZodBody(signupCompleteSchema)
+  @HttpCode(201)
+  @RateLimit({ limit: 10, windowSeconds: 300, bucket: 'auth' })
+  @ApiOperation({ summary: 'Create the account from a signup ticket, returns tokens' })
+  @ApiBody({
+    schema: {
+      example: {
+        signupToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        first_name: 'Ama',
+        last_name: 'Mensah',
+        email: 'ama@example.com',
+        consents: { data_processing: true, credit_scoring: true, marketing: false },
+      },
+    },
+  })
+  signupComplete(@Body() body: unknown) {
+    return this.auth.customerSignupComplete(body);
   }
 
   /** Self-signup, step 2: the code plus the profile and consents to create. */

@@ -1,6 +1,11 @@
 import jwt from 'jsonwebtoken';
 
-export type TokenType = 'access' | 'refresh';
+/**
+ * `signup` is not a session token. It proves one thing — that this phone
+ * answered an OTP — so the registration form can be shown before the account
+ * exists. It carries no user id, because there is no user yet.
+ */
+export type TokenType = 'access' | 'refresh' | 'signup';
 
 export interface JwtClaims {
   /** Subject — the user id. */
@@ -25,6 +30,12 @@ export interface JwtOptions {
   accessTtlSeconds?: number;
   /** Refresh token lifetime in seconds. Default 30 days. */
   refreshTtlSeconds?: number;
+  /**
+   * Signup-ticket lifetime in seconds. Default 15 min — long enough to fill in
+   * a registration form without rushing, short enough that a leaked ticket is
+   * not a standing right to claim the number.
+   */
+  signupTtlSeconds?: number;
   issuer?: string;
   audience?: string;
 }
@@ -45,11 +56,13 @@ export class JwtExpiredError extends Error {
 
 const DEFAULT_ACCESS_TTL = 15 * 60;
 const DEFAULT_REFRESH_TTL = 30 * 24 * 60 * 60;
+const DEFAULT_SIGNUP_TTL = 15 * 60;
 
 /** HS256 access/refresh token signer & verifier. */
 export class JwtService {
   private readonly accessTtl: number;
   private readonly refreshTtl: number;
+  private readonly signupTtl: number;
 
   constructor(private readonly opts: JwtOptions) {
     if (!opts.accessSecret || !opts.refreshSecret) {
@@ -57,6 +70,7 @@ export class JwtService {
     }
     this.accessTtl = opts.accessTtlSeconds ?? DEFAULT_ACCESS_TTL;
     this.refreshTtl = opts.refreshTtlSeconds ?? DEFAULT_REFRESH_TTL;
+    this.signupTtl = opts.signupTtlSeconds ?? DEFAULT_SIGNUP_TTL;
   }
 
   signAccess(claims: SignClaims): string {
@@ -65,6 +79,20 @@ export class JwtService {
 
   signRefresh(claims: SignClaims): string {
     return this.sign({ ...claims, type: 'refresh' }, this.opts.refreshSecret, this.refreshTtl);
+  }
+
+  /**
+   * Ticket proving a phone passed OTP verification. `sub` is the phone, not a
+   * user id. Signed with the ACCESS secret but stamped `type: 'signup'`, so
+   * verifyAccess rejects it — it can never be presented as a session.
+   */
+  signSignup(phone: string): string {
+    return this.sign({ sub: phone, type: 'signup' }, this.opts.accessSecret, this.signupTtl);
+  }
+
+  /** Returns the verified phone, or throws. */
+  verifySignup(token: string): string {
+    return this.verify(token, this.opts.accessSecret, 'signup').sub;
   }
 
   verifyAccess<T extends JwtClaims = JwtClaims>(token: string): T {
