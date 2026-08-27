@@ -22,5 +22,6 @@ export * from './modules/orders/dto';
 export * from './modules/orders/errors';
 export * from './modules/orders/order-state';
 export * from './modules/orders/addresses.service';
+export * from './modules/orders/order-payment.service';
 export * from './modules/orders/cart.service';
 export * from './modules/orders/orders.service';
