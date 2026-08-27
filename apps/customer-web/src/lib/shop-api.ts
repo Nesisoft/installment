@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { newIdempotencyKey, useApi } from '@installment/web-kit';
+import { useApi } from '@installment/web-kit';
 import type {
   Address,
   CartWithItems,
@@ -149,13 +149,14 @@ export function useCheckout() {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    // The key is supplied by the caller so a retry of the SAME attempt reuses
-    // it; minting one here would mint a fresh key per retry and defeat the
-    // protection entirely.
-    mutationFn: async ({ idempotencyKey, ...input }: CheckoutInput & { idempotencyKey?: string }) =>
+    // The key is supplied by the caller, and required: minting one here would
+    // mint a fresh key per retry and defeat the protection entirely. Making it
+    // required means a caller that forgets is a type error rather than a
+    // silently unprotected checkout.
+    mutationFn: async ({ idempotencyKey, ...input }: CheckoutInput & { idempotencyKey: string }) =>
       (
         await api.post<OrderWithItems[]>('/me/checkout', input, {
-          headers: { 'Idempotency-Key': idempotencyKey ?? newIdempotencyKey('checkout') },
+          headers: { 'Idempotency-Key': idempotencyKey },
         })
       ).data,
     onSuccess: () => {
@@ -212,9 +213,14 @@ export function usePlanStatement(id: string) {
 }
 
 /**
- * Pay an installment by Mobile Money. The endpoint is idempotent-guarded, so we
- * mint one Idempotency-Key per attempt and reuse it on retry — a double-tap or a
- * flaky-network retry must never become a second charge.
+ * Pay an installment by Mobile Money.
+ *
+ * `idempotencyKey` is required and supplied by the caller. Minting one here
+ * would produce a fresh key on every attempt, which reads as protection and
+ * provides none: the whole point is that a retry of a failed or timed-out
+ * charge carries the SAME key, so the server replays the original debit rather
+ * than making a second one. The caller owns the attempt, so the caller owns
+ * the key.
  */
 export function usePayMomo(planId: string) {
   const api = useApi();
@@ -224,16 +230,14 @@ export function usePayMomo(planId: string) {
       scheduleId: string;
       phone?: string;
       provider?: 'mtn' | 'tgo' | 'vod';
-      idempotencyKey?: string;
+      idempotencyKey: string;
     }) => {
       const body = {
         ...(args.phone ? { phone: args.phone } : {}),
         ...(args.provider ? { provider: args.provider } : {}),
       };
       const { data } = await api.post(`/me/installments/${args.scheduleId}/pay-momo`, body, {
-        headers: {
-          'Idempotency-Key': args.idempotencyKey ?? newIdempotencyKey(`pay-${args.scheduleId}`),
-        },
+        headers: { 'Idempotency-Key': args.idempotencyKey },
       });
       return data;
     },
