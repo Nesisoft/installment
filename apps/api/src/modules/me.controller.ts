@@ -17,6 +17,7 @@ import {
   renderReceiptHtml,
   renderStatementCsv,
   type Customer,
+  PaymentLinkDispatcher,
 } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators';
@@ -35,6 +36,7 @@ export class MeController {
     private readonly customers: CustomersService,
     private readonly plans: CustomerPlansService,
     private readonly payments: PaymentService,
+    private readonly paymentLinks: PaymentLinkDispatcher,
   ) {}
 
   @Get('plans')
@@ -110,6 +112,29 @@ export class MeController {
       { scheduleId, authorizationCode, email: customer.email },
       actorOf(user),
     );
+  }
+
+  /**
+   * A hosted Paystack page for paying this instalment by card.
+   *
+   * This is how a card ends up on file. Card details never touch us — entry,
+   * 3-D Secure and PCI scope stay with Paystack — and the reusable
+   * authorization comes back on the webhook, which saves it so the next
+   * instalment collects without asking the customer anything.
+   */
+  @Post('installments/:scheduleId/pay-link')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Get a hosted page to pay one of my installments by card' })
+  async payByCardLink(
+    @Param('scheduleId') scheduleId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const customer = await this.resolveCustomer(user);
+    const installment = await this.plans.getInstallment(scheduleId);
+    const plan = await this.plans.get(installment.customer_plan_id);
+    if (plan.customer_id !== customer.id) throw new CustomerPlanNotFoundError(scheduleId);
+
+    return this.paymentLinks.createSelfServiceLink(scheduleId);
   }
 
   @Post('installments/:scheduleId/pay-momo')

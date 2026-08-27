@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createTestDb, schema } from '@installment/db';
+import { CardAuthorizationService } from '../payments/card-authorization.service';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { EventBus } from '../../shared/event-bus/event-bus';
 import { RedisLock } from '../../shared/lock/redis-lock';
@@ -105,7 +106,13 @@ describe.skipIf(!RUN_DB)('Async settlement via webhook (integration)', () => {
     await pool.end();
   });
 
-  function service(opts: { escalator?: ChargeFailureEscalator; alerts?: WebhookAlertSink } = {}) {
+  function service(
+    opts: {
+      escalator?: ChargeFailureEscalator;
+      alerts?: WebhookAlertSink;
+      cards?: CardAuthorizationService;
+    } = {},
+  ) {
     return new WebhookService(
       db,
       ACCEPT,
@@ -114,6 +121,10 @@ describe.skipIf(!RUN_DB)('Async settlement via webhook (integration)', () => {
       scheduleState,
       opts.escalator,
       opts.alerts,
+      undefined,
+      undefined,
+      undefined,
+      opts.cards,
     );
   }
 
@@ -232,6 +243,107 @@ describe.skipIf(!RUN_DB)('Async settlement via webhook (integration)', () => {
     expect(await statusOf(scheduleId)).toBe('retry_scheduled');
     expect(scheduler.jobs).toHaveLength(1);
     expect(scheduler.jobs[0]!.scheduleId).toBe(scheduleId);
+  });
+
+  /**
+   * A card paid on a hosted Paystack page never touches the synchronous charge
+   * path, so this webhook is the only place its reusable authorization ever
+   * appears. Dropping it here is what made every instalment ask the customer
+   * again next month.
+   */
+  it('keeps the reusable card that arrives with a webhook-delivered success', async () => {
+    const cards = new CardAuthorizationService(db);
+    const { scheduleId, planId } = await freshSchedule();
+    const attempt = await attempts.create({
+      scheduleId,
+      customerPlanId: planId,
+      channel: 'payment_link',
+      paymentMethod: 'card',
+      amountPesewas: 5000,
+      idempotencyKey: `LINK-${scheduleId}-self-1`,
+      providerReference: `LINK-${scheduleId}-self-1`,
+    });
+
+    const plan = await plans.get(planId);
+
+    await service({ cards }).ingest(
+      JSON.stringify({
+        event: 'charge.success',
+        data: {
+          reference: attempt.provider_reference,
+          authorization: {
+            authorization_code: 'AUTH_saved_1',
+            reusable: true,
+            last4: '4081',
+            brand: 'visa',
+            exp_month: '12',
+            exp_year: String(new Date().getUTCFullYear() + 3),
+          },
+        },
+      }),
+      'sig',
+    );
+
+    const saved = await cards.findUsable(plan.customer_id);
+    expect(saved?.authorization_code).toBe('AUTH_saved_1');
+    expect(saved?.last4).toBe('4081');
+  });
+
+  it('does not keep a single-use authorization delivered by webhook', async () => {
+    // Storing one means the collector picks it and the next debit fails.
+    const cards = new CardAuthorizationService(db);
+    const { scheduleId, planId } = await freshSchedule();
+    const attempt = await attempts.create({
+      scheduleId,
+      customerPlanId: planId,
+      channel: 'payment_link',
+      paymentMethod: 'card',
+      amountPesewas: 5000,
+      idempotencyKey: `LINK-${scheduleId}-self-2`,
+      providerReference: `LINK-${scheduleId}-self-2`,
+    });
+
+    await service({ cards }).ingest(
+      JSON.stringify({
+        event: 'charge.success',
+        data: {
+          reference: attempt.provider_reference,
+          authorization: { authorization_code: 'AUTH_once', reusable: false },
+        },
+      }),
+      'sig',
+    );
+
+    // Asserted on the specific code, not on "no cards at all": this suite shares
+    // one customer, so an earlier test's saved card is legitimately still there.
+    const plan = await plans.get(planId);
+    const saved = await cards.listForCustomer(plan.customer_id);
+    expect(saved.map((c) => c.authorization_code)).not.toContain('AUTH_once');
+  });
+
+  it('still settles the schedule when there is no card to keep', async () => {
+    // The settlement is the part that must never depend on card capture.
+    const cards = new CardAuthorizationService(db);
+    const { scheduleId, planId } = await freshSchedule();
+    const attempt = await attempts.create({
+      scheduleId,
+      customerPlanId: planId,
+      channel: 'auto_debit',
+      paymentMethod: 'momo',
+      amountPesewas: 5000,
+      idempotencyKey: `MOMO-${scheduleId}-1`,
+      providerReference: `MOMO-${scheduleId}-1`,
+    });
+
+    await service({ cards }).ingest(
+      JSON.stringify({
+        event: 'charge.success',
+        data: { reference: attempt.provider_reference },
+      }),
+      'sig',
+    );
+
+    expect(await statusOf(scheduleId)).toBe('paid');
   });
 
   it('alerts instead of silently dropping a webhook for an untracked reference', async () => {

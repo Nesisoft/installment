@@ -271,6 +271,30 @@ export function usePlanStatement(id: string) {
  * than making a second one. The caller owns the attempt, so the caller owns
  * the key.
  */
+/**
+ * Asks for a hosted Paystack page to pay an instalment by card.
+ *
+ * Card details never reach this app — entry and 3-D Secure happen on Paystack's
+ * page, and the reusable authorization comes back on the webhook, which is what
+ * lets the next instalment collect without asking the customer at all.
+ */
+export function usePayByCardLink(planId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (scheduleId: string) => {
+      const { data } = await api.post<{ url: string; reference: string }>(
+        `/me/installments/${scheduleId}/pay-link`,
+        {},
+      );
+      return data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['plan-schedule', planId] });
+    },
+  });
+}
+
 export function usePayMomo(planId: string) {
   const api = useApi();
   const qc = useQueryClient();
