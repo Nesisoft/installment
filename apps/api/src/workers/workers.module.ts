@@ -11,6 +11,7 @@ import { ReminderCron } from './reminder.cron';
 import { TelcoAlertCron } from './telco-alert.cron';
 import { StuckScheduleCron } from './stuck-schedule.cron';
 import { ApplicationExpiryCron } from './application-expiry.cron';
+import { OrderExpiryCron } from './order-expiry.cron';
 import { IdempotencyReaperCron } from './idempotency-reaper.cron';
 import { LedgerIntegrityCron } from './ledger-integrity.cron';
 import { RetryWorker } from './retry.worker';
@@ -38,6 +39,7 @@ import { RetryWorker } from './retry.worker';
     TelcoAlertCron,
     StuckScheduleCron,
     ApplicationExpiryCron,
+    OrderExpiryCron,
     IdempotencyReaperCron,
     LedgerIntegrityCron,
     RetryWorker,

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { createTestDb, schema } from '@installment/db';
 import {
   ApplicationsService,
@@ -234,6 +235,77 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
     // And the units are still held for the real owner.
     const inv = await inventory.getByVariant(v);
     expect(inv.quantity_reserved).toBe(1);
+  });
+
+  /**
+   * The sweep is what actually closes abandonment: `cancel` only helps when
+   * somebody asks, and the shopper who never paid is by definition not coming
+   * back to tidy up.
+   */
+  it('sweeps unpaid orders past the TTL and leaves fresh ones alone', async () => {
+    const { storeId } = await merchantWithStore();
+
+    const stale = await freshCustomer();
+    const staleVariant = await variant(storeId, 2000);
+    await cart.addItem(stale, { variant_id: staleVariant, quantity: 4 });
+    const [staleOrder] = await orders.checkout(stale, { payment_type: 'full' }, ACTOR);
+
+    const fresh = await freshCustomer();
+    const freshVariant = await variant(storeId, 2000);
+    await cart.addItem(fresh, { variant_id: freshVariant, quantity: 2 });
+    await orders.checkout(fresh, { payment_type: 'full' }, ACTOR);
+
+    // Backdate only the first order. Both were created in the same instant, so
+    // without this a cutoff far enough in the future catches them both and the
+    // test proves nothing about the boundary.
+    await db
+      .update(schema.orders)
+      .set({ created_at: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString() })
+      .where(eq(schema.orders.id, staleOrder!.id));
+
+    const summary = await orders.sweepAbandoned(new Date(), { paymentTtlHours: 24 });
+    expect(summary.cancelled).toBeGreaterThanOrEqual(1);
+    expect(summary.failed).toBe(0);
+
+    // The backdated order is cancelled and its four units are back.
+    const staleInv = await inventory.getByVariant(staleVariant);
+    expect(staleInv.quantity_available).toBe(100);
+    expect(staleInv.quantity_reserved).toBe(0);
+
+    // The one still inside its window is untouched, units still held.
+    const freshInv = await inventory.getByVariant(freshVariant);
+    expect(freshInv.quantity_available).toBe(98);
+    expect(freshInv.quantity_reserved).toBe(2);
+
+    // Sweeping again has nothing left to do — it does not re-release.
+    const second = await orders.sweepAbandoned(new Date(), { paymentTtlHours: 24 });
+    expect(second.checked).toBe(0);
+  });
+
+  it('sweeps an order whose credit application went terminal', async () => {
+    const customerId = await freshCustomer();
+    const { storeId } = await merchantWithStore();
+    const v = await variant(storeId, 50_000);
+    const templateId = await bnplTemplate();
+    await cart.addItem(customerId, { variant_id: v, quantity: 3 });
+    const [order] = await orders.checkout(
+      customerId,
+      { payment_type: 'installment', plan_template_id: templateId },
+      ACTOR,
+    );
+    expect(order!.status).toBe('pending_approval');
+
+    // ApplicationExpiryCron expires stale applications, and an admin can decline
+    // one, but neither touches the order — it would hold its stock forever with
+    // nothing left that could approve it.
+    await applications.cancel(order!.application_id!, ACTOR);
+
+    const summary = await orders.sweepAbandoned(new Date(), { paymentTtlHours: 24 });
+    expect(summary.cancelled).toBeGreaterThanOrEqual(1);
+
+    const inv = await inventory.getByVariant(v);
+    expect(inv.quantity_available).toBe(100);
+    expect(inv.quantity_reserved).toBe(0);
   });
 
   it('checks out an installment cart: hands the order to the engine as an application', async () => {
