@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/com
 import { ApplicationsService, PERMISSIONS } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
-import { actorOf } from '../auth/current-actor';
+import { actorOf, numOrUndefined } from '../auth/current-actor';
 import { submitApplicationSchema, recordDecisionSchema } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
 import { ApiModel } from '../common/api-model';
@@ -27,7 +27,14 @@ export class ApplicationsController {
   @ApiModel('Application', { array: true })
   @RequirePermissions(PERMISSIONS.APPLICATIONS_REVIEW)
   list(@Query() query: Record<string, string>) {
-    return this.applications.list(query);
+    // Query params arrive as strings; the service's schema wants numbers.
+    return this.applications.list({
+      customer_id: query.customer_id,
+      merchant_id: query.merchant_id,
+      status: query.status,
+      limit: numOrUndefined(query.limit),
+      offset: numOrUndefined(query.offset),
+    });
   }
 
   @Get(':id')
