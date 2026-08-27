@@ -12,6 +12,14 @@ export interface HubtelSmsOptions extends SmsClientBaseOptions {
   clientId: string;
   clientSecret: string;
   baseUrl?: string;
+  /** Full send endpoint. Wins over baseUrl when set. */
+  sendUrl?: string;
+  /**
+   * Sender ID registered with this Hubtel account. Overrides the per-message
+   * sender, because Hubtel approves sender IDs per account and rejects any
+   * other with "Invalid Source address".
+   */
+  senderId?: string;
 }
 
 const HUBTEL_DEFAULT_BASE_URL = 'https://sms.hubtel.com';
@@ -22,7 +30,8 @@ const HUBTEL_DEFAULT_BASE_URL = 'https://sms.hubtel.com';
  */
 export class HubtelSmsClient implements SmsClient {
   private readonly auth: string;
-  private readonly baseUrl: string;
+  private readonly sendUrl: string;
+  private readonly senderId?: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
@@ -31,7 +40,11 @@ export class HubtelSmsClient implements SmsClient {
       throw new Error('HubtelSmsClient: clientId and clientSecret are required');
     }
     this.auth = `Basic ${Buffer.from(`${opts.clientId}:${opts.clientSecret}`).toString('base64')}`;
-    this.baseUrl = opts.baseUrl ?? HUBTEL_DEFAULT_BASE_URL;
+    this.sendUrl =
+      opts.sendUrl && opts.sendUrl.trim()
+        ? opts.sendUrl.trim()
+        : `${opts.baseUrl ?? HUBTEL_DEFAULT_BASE_URL}/v1/messages/send`;
+    this.senderId = opts.senderId?.trim() || undefined;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -42,7 +55,7 @@ export class HubtelSmsClient implements SmsClient {
 
     let res: Response;
     try {
-      res = await this.fetchImpl(`${this.baseUrl}/v1/messages/send`, {
+      res = await this.fetchImpl(this.sendUrl, {
         method: 'POST',
         headers: {
           Authorization: this.auth,
@@ -50,8 +63,10 @@ export class HubtelSmsClient implements SmsClient {
           Accept: 'application/json',
         },
         body: JSON.stringify({
-          From: message.sender,
-          To: message.to,
+          From: this.senderId ?? message.sender,
+          // Hubtel documents recipients as 233XXXXXXXXX. Our numbers are E.164
+          // (+233...), and the leading + is not part of the documented format.
+          To: message.to.replace(/^\+/, ''),
           Content: message.message,
         }),
         signal: controller.signal,

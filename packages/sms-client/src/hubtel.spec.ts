@@ -63,7 +63,8 @@ describe('HubtelSmsClient', () => {
     expect(call.method).toBe('POST');
     expect(call.url).toBe('https://sms.hubtel.com/v1/messages/send');
     expect(call.headers.Authorization).toBe(`Basic ${Buffer.from('cid:csec').toString('base64')}`);
-    expect(call.body).toEqual({ From: 'INSTL', To: '+233244123456', Content: 'Hello' });
+    // `To` carries no leading + — Hubtel documents 233XXXXXXXXX.
+    expect(call.body).toEqual({ From: 'INSTL', To: '233244123456', Content: 'Hello' });
   });
 
   it('respects a custom baseUrl', async () => {
@@ -118,6 +119,61 @@ describe('HubtelSmsClient', () => {
     const result = await client.send(message);
     expect(result.status).toBe('queued');
     expect(result.id).toBe('hub-9');
+  });
+
+  it('uses sendUrl verbatim in preference to baseUrl', async () => {
+    const { fetchImpl, calls } = makeFetch({ messageId: 'x', status: 0 });
+    const client = new HubtelSmsClient({
+      clientId: 'cid',
+      clientSecret: 'csec',
+      fetchImpl,
+      baseUrl: 'https://ignored.local',
+      sendUrl: 'https://sms.hubtel.com/v1/messages/send',
+    });
+    await client.send(message);
+    expect(calls[0]!.url).toBe('https://sms.hubtel.com/v1/messages/send');
+  });
+
+  it('falls back to baseUrl when sendUrl is blank', async () => {
+    const { fetchImpl, calls } = makeFetch({ messageId: 'x', status: 0 });
+    const client = new HubtelSmsClient({
+      clientId: 'cid',
+      clientSecret: 'csec',
+      fetchImpl,
+      sendUrl: '   ',
+      baseUrl: 'https://stub.local',
+    });
+    await client.send(message);
+    expect(calls[0]!.url).toBe('https://stub.local/v1/messages/send');
+  });
+
+  // Sender IDs are approved per Hubtel account, so the account's own registered
+  // value has to beat the generic one the caller passes.
+  it('sends the account senderId instead of the per-message sender', async () => {
+    const { fetchImpl, calls } = makeFetch({ messageId: 'x', status: 0 });
+    const client = new HubtelSmsClient({
+      clientId: 'cid',
+      clientSecret: 'csec',
+      fetchImpl,
+      senderId: 'Jua',
+    });
+    await client.send(message);
+    expect((calls[0]!.body as { From: string }).From).toBe('Jua');
+  });
+
+  it('keeps the per-message sender when no senderId is configured', async () => {
+    const { fetchImpl, calls } = makeFetch({ messageId: 'x', status: 0 });
+    const client = new HubtelSmsClient({ clientId: 'cid', clientSecret: 'csec', fetchImpl });
+    await client.send(message);
+    expect((calls[0]!.body as { From: string }).From).toBe('INSTL');
+  });
+
+  // Our numbers are E.164; Hubtel documents recipients as 233XXXXXXXXX.
+  it('strips the leading + from the recipient', async () => {
+    const { fetchImpl, calls } = makeFetch({ messageId: 'x', status: 0 });
+    const client = new HubtelSmsClient({ clientId: 'cid', clientSecret: 'csec', fetchImpl });
+    await client.send({ ...message, to: '+233555351068' });
+    expect((calls[0]!.body as { To: string }).To).toBe('233555351068');
   });
 
   it('throws SmsError carrying status and parsed message on non-2xx', async () => {

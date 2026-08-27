@@ -10,6 +10,8 @@ import {
 
 export interface ArkeselSmsOptions extends SmsClientBaseOptions {
   apiKey: string;
+  /** Sender ID registered with this Arkesel account; overrides the per-message sender. */
+  senderId?: string;
   baseUrl?: string;
 }
 
@@ -22,6 +24,7 @@ const ARKESEL_DEFAULT_BASE_URL = 'https://sms.arkesel.com';
 export class ArkeselSmsClient implements SmsClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
+  private readonly senderId?: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
@@ -31,6 +34,7 @@ export class ArkeselSmsClient implements SmsClient {
     }
     this.apiKey = opts.apiKey;
     this.baseUrl = opts.baseUrl ?? ARKESEL_DEFAULT_BASE_URL;
+    this.senderId = opts.senderId?.trim() || undefined;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -49,7 +53,7 @@ export class ArkeselSmsClient implements SmsClient {
           Accept: 'application/json',
         },
         body: JSON.stringify({
-          sender: message.sender,
+          sender: this.senderId ?? message.sender,
           recipients: [message.to],
           message: message.message,
         }),
