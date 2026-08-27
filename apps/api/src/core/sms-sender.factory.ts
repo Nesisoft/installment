@@ -28,12 +28,15 @@ export function createSmsSender(config: ConfigService<Env, true>): SmsSender {
         clientId: config.get('HUBTEL_CLIENT_ID', { infer: true }),
         clientSecret: config.get('HUBTEL_CLIENT_SECRET', { infer: true }),
         baseUrl: config.get('HUBTEL_BASE_URL', { infer: true }),
+        sendUrl: config.get('HUBTEL_SMS_URL', { infer: true }),
+        senderId: config.get('HUBTEL_SENDER_ID', { infer: true }),
       });
     case 'arkesel':
       logger.log('SMS provider: arkesel');
       return new ArkeselSmsClient({
         apiKey: config.get('ARKESEL_API_KEY', { infer: true }),
         baseUrl: config.get('ARKESEL_BASE_URL', { infer: true }),
+        senderId: config.get('ARKESEL_SENDER_ID', { infer: true }),
       });
     case 'console':
     default:

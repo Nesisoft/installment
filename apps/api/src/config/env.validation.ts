@@ -37,7 +37,21 @@ export const envSchema = z.object({
   HUBTEL_CLIENT_ID: z.string().default(''),
   HUBTEL_CLIENT_SECRET: z.string().default(''),
   HUBTEL_BASE_URL: z.string().default('https://sms.hubtel.com'),
+  /**
+   * Full send endpoint. Preferred over HUBTEL_BASE_URL: Hubtel documents one
+   * absolute URL per operation, so carrying the whole thing avoids a service
+   * that moves host or path silently falling back to a stale default.
+   */
+  HUBTEL_SMS_URL: z.string().default(''),
+  /**
+   * Sender ID registered with THIS Hubtel account. Sender IDs are approved per
+   * provider account, so the account's own value has to win over the generic
+   * SMS_SENDER_ID — sending an unregistered one gets the message rejected.
+   */
+  HUBTEL_SENDER_ID: z.string().default(''),
   ARKESEL_API_KEY: z.string().default(''),
+  /** Sender ID registered with this Arkesel account; falls back to SMS_SENDER_ID. */
+  ARKESEL_SENDER_ID: z.string().default(''),
   ARKESEL_BASE_URL: z.string().default('https://sms.arkesel.com'),
   /**
    * Print the full SMS body to the log. Off by default: the body carries login
