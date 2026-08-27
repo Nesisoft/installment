@@ -38,6 +38,34 @@ export type SignupStartInput = z.infer<typeof signupStartSchema>;
  * — a BNPL account cannot exist without them, so refusing means not signing up,
  * not signing up without them. Marketing is genuinely optional and defaults off.
  */
+/**
+ * Step 2 of self-signup: prove the code, before the registration form is shown.
+ * Nothing is created here — it returns a short-lived ticket for step 3.
+ */
+export const signupVerifyCodeSchema = z.object({
+  phone: ghPhoneNumber,
+  code: z.string().regex(/^\d{4,8}$/, 'OTP must be 4–8 digits'),
+});
+export type SignupVerifyCodeInput = z.infer<typeof signupVerifyCodeSchema>;
+
+/** Step 3: the ticket from step 2, plus the profile. This is what creates the account. */
+export const signupCompleteSchema = z.object({
+  signupToken: z.string().min(1),
+  first_name: z.string().trim().min(1).max(80),
+  last_name: z.string().trim().min(1).max(80),
+  email: z.string().email().optional(),
+  consents: z.object({
+    data_processing: z.literal(true, {
+      errorMap: () => ({ message: 'Consent to data processing is required to open an account' }),
+    }),
+    credit_scoring: z.literal(true, {
+      errorMap: () => ({ message: 'Consent to credit checks is required to pay in instalments' }),
+    }),
+    marketing: z.boolean().default(false),
+  }),
+});
+export type SignupCompleteInput = z.infer<typeof signupCompleteSchema>;
+
 export const signupVerifySchema = z.object({
   phone: ghPhoneNumber,
   code: z.string().regex(/^\d{4,8}$/, 'OTP must be 4–8 digits'),

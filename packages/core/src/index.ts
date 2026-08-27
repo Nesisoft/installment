@@ -415,6 +415,8 @@ export {
   refreshSchema,
   signupStartSchema,
   signupVerifySchema,
+  signupVerifyCodeSchema,
+  signupCompleteSchema,
   type LoginInput,
   type OtpStartInput,
   type OtpVerifyInput,

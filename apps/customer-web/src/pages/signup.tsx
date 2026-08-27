@@ -1,7 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { apiErrorMessage, useAuth } from '@installment/web-kit';
-import { signupStartSchema, signupVerifySchema } from '@installment/api-types';
+import {
+  signupStartSchema,
+  signupVerifyCodeSchema,
+  signupCompleteSchema,
+} from '@installment/api-types';
 import {
   Button,
   Card,
@@ -14,16 +18,25 @@ import {
 } from '@installment/ui';
 import { Wallet } from 'lucide-react';
 
+type Step = 'phone' | 'code' | 'details';
+
 /**
- * Verify-then-create: step one only sends a code, so an abandoned signup leaves
- * nothing behind. The profile and consents travel with the code in step two,
- * which is the request that actually creates the account.
+ * Three steps: prove the number, then fill in the form.
+ *
+ * The code is checked on its own before the registration form is shown, so a
+ * wrong or expired code is caught in the one field it relates to — rather than
+ * letting someone type their name, email and consents and only then be told the
+ * six digits at the top were wrong. Verifying returns a short-lived ticket, so
+ * the five-minute life of the OTP is not also the deadline for filling in a form.
+ *
+ * Nothing is created until the final step.
  */
 export function SignupPage() {
-  const { startSignup, completeSignup } = useAuth();
-  const [step, setStep] = useState<'phone' | 'details'>('phone');
+  const { startSignup, verifySignupCode, completeSignup } = useAuth();
+  const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
+  const [signupToken, setSignupToken] = useState('');
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '' });
   const [consents, setConsents] = useState({
     data_processing: false,
@@ -44,9 +57,30 @@ export function SignupPage() {
     setBusy(true);
     try {
       await startSignup(parsed.data.phone);
-      setStep('details');
+      setStep('code');
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not send the code. Try again.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onVerifyCode(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const parsed = signupVerifyCodeSchema.safeParse({ phone, code });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? 'Enter the 6-digit code');
+      return;
+    }
+    setBusy(true);
+    try {
+      const { signupToken: ticket } = await verifySignupCode(parsed.data.phone, parsed.data.code);
+      setSignupToken(ticket);
+      setStep('details');
+    } catch (err) {
+      // Stay on this step: the code is the only thing that can be wrong here.
+      setError(apiErrorMessage(err, 'That code is not right. Check it and try again.'));
     } finally {
       setBusy(false);
     }
@@ -55,9 +89,8 @@ export function SignupPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    const parsed = signupVerifySchema.safeParse({
-      phone,
-      code,
+    const parsed = signupCompleteSchema.safeParse({
+      signupToken,
       first_name: form.first_name,
       last_name: form.last_name,
       ...(form.email ? { email: form.email } : {}),
@@ -78,6 +111,26 @@ export function SignupPage() {
     }
   }
 
+  function restart() {
+    setStep('phone');
+    setCode('');
+    setSignupToken('');
+    setError(null);
+  }
+
+  const heading =
+    step === 'phone'
+      ? 'Your phone number'
+      : step === 'code'
+        ? 'Confirm your number'
+        : 'Your details';
+  const blurb =
+    step === 'phone'
+      ? 'We will text you a code to confirm it is yours.'
+      : step === 'code'
+        ? `Enter the 6-digit code we sent to ${phone}.`
+        : 'Your number is confirmed. Tell us who you are.';
+
   return (
     <div className="grid min-h-screen place-items-center bg-background px-4 py-8">
       <div className="w-full max-w-sm">
@@ -91,12 +144,8 @@ export function SignupPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{step === 'phone' ? 'Your phone number' : 'Your details'}</CardTitle>
-            <CardDescription>
-              {step === 'phone'
-                ? 'We will text you a code to confirm it is yours.'
-                : `Enter the code we sent to ${phone}, and tell us who you are.`}
-            </CardDescription>
+            <CardTitle>{heading}</CardTitle>
+            <CardDescription>{blurb}</CardDescription>
           </CardHeader>
           <CardContent>
             {step === 'phone' ? (
@@ -125,8 +174,8 @@ export function SignupPage() {
                   </Link>
                 </p>
               </form>
-            ) : (
-              <form onSubmit={onCreate} className="space-y-4">
+            ) : step === 'code' ? (
+              <form onSubmit={onVerifyCode} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="code">6-digit code</Label>
                   <Input
@@ -140,7 +189,16 @@ export function SignupPage() {
                     autoFocus
                   />
                 </div>
-
+                {error ? <p className="text-sm text-destructive">{error}</p> : null}
+                <Button type="submit" className="w-full" disabled={busy}>
+                  {busy ? 'Checking…' : 'Confirm number'}
+                </Button>
+                <Button type="button" variant="ghost" className="w-full" onClick={restart}>
+                  Use a different number
+                </Button>
+              </form>
+            ) : (
+              <form onSubmit={onCreate} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label htmlFor="first">First name</Label>
@@ -149,6 +207,7 @@ export function SignupPage() {
                       autoComplete="given-name"
                       value={form.first_name}
                       onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))}
+                      autoFocus
                     />
                   </div>
                   <div className="space-y-2">
@@ -223,16 +282,7 @@ export function SignupPage() {
                 <Button type="submit" className="w-full" disabled={busy}>
                   {busy ? 'Creating your account…' : 'Create account'}
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="w-full"
-                  onClick={() => {
-                    setStep('phone');
-                    setCode('');
-                    setError(null);
-                  }}
-                >
+                <Button type="button" variant="ghost" className="w-full" onClick={restart}>
                   Use a different number
                 </Button>
               </form>

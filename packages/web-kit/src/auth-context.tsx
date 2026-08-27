@@ -5,7 +5,7 @@ import type {
   LoginInput,
   OtpStartResult,
   Permission,
-  SignupVerifyInput,
+  SignupCompleteInput,
   UserType,
 } from '@installment/api-types';
 import { createApiClient } from './api-client';
@@ -24,8 +24,14 @@ export interface AuthContextValue {
   verifyOtp: (phone: string, code: string) => Promise<AuthResult>;
   /** Self-signup step 1: sends a code without creating anything. */
   startSignup: (phone: string) => Promise<OtpStartResult>;
-  /** Self-signup step 2: creates the account and signs in. */
-  completeSignup: (input: SignupVerifyInput) => Promise<AuthResult>;
+  /**
+   * Self-signup step 2: proves the code and returns a short-lived ticket. Still
+   * creates nothing — this is what lets the app confirm the phone before asking
+   * anyone to fill in a registration form.
+   */
+  verifySignupCode: (phone: string, code: string) => Promise<{ signupToken: string }>;
+  /** Self-signup step 3: ticket + profile creates the account and signs in. */
+  completeSignup: (input: SignupCompleteInput) => Promise<AuthResult>;
   logout: () => void;
 }
 
@@ -84,8 +90,15 @@ export function AuthProvider({ baseURL, storageKey, children }: AuthProviderProp
         const { data } = await api.post<OtpStartResult>('/auth/customer/signup/start', { phone });
         return data;
       },
+      async verifySignupCode(phone, code) {
+        const { data } = await api.post<{ signupToken: string }>(
+          '/auth/customer/signup/verify-code',
+          { phone, code },
+        );
+        return data;
+      },
       async completeSignup(input) {
-        const { data } = await api.post<AuthResult>('/auth/customer/signup/verify', input);
+        const { data } = await api.post<AuthResult>('/auth/customer/signup/complete', input);
         store.set(toSession(data));
         return data;
       },
