@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "openapi:emit": "node dist/tools/emit-openapi.js"
+    "openapi:emit": "node dist/tools/emit-openapi.js",
+    "create:admin": "node --env-file-if-exists=../../.env dist/tools/create-admin.js"
   },
   "dependencies": {
     "@installment/commerce": "workspace:*",
