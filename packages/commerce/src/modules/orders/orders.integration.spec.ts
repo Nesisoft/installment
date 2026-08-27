@@ -242,6 +242,50 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
    * somebody asks, and the shopper who never paid is by definition not coming
    * back to tidy up.
    */
+  it('declineFinancing closes the order and gives the stock back', async () => {
+    const customerId = await freshCustomer();
+    const { storeId } = await merchantWithStore();
+    const v = await variant(storeId, 50_000);
+    const templateId = await bnplTemplate();
+    await cart.addItem(customerId, { variant_id: v, quantity: 2 });
+    const [order] = await orders.checkout(
+      customerId,
+      { payment_type: 'installment', plan_template_id: templateId },
+      ACTOR,
+    );
+    expect(order!.status).toBe('pending_approval');
+
+    const declined = await orders.declineFinancing(order!.id, ACTOR);
+    expect(declined.status).toBe('declined');
+
+    // The units were being held for financing that is not going to happen.
+    const inv = await inventory.getByVariant(v);
+    expect(inv.quantity_available).toBe(100);
+    expect(inv.quantity_reserved).toBe(0);
+
+    // Idempotent: a retried decision must not release the same units twice.
+    const again = await orders.declineFinancing(order!.id, ACTOR);
+    expect(again.status).toBe('declined');
+    const after = await inventory.getByVariant(v);
+    expect(after.quantity_available).toBe(100);
+    expect(after.quantity_reserved).toBe(0);
+  });
+
+  it('refuses to decline an order that is not awaiting a credit decision', async () => {
+    const customerId = await freshCustomer();
+    const { storeId } = await merchantWithStore();
+    const v = await variant(storeId, 2000);
+    await cart.addItem(customerId, { variant_id: v, quantity: 1 });
+    // A pay-in-full order has no credit decision to decline.
+    const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+
+    await expect(orders.declineFinancing(order!.id, ACTOR)).rejects.toBeInstanceOf(
+      OrderNotCancellableError,
+    );
+    const inv = await inventory.getByVariant(v);
+    expect(inv.quantity_reserved).toBe(1);
+  });
+
   it('sweeps unpaid orders past the TTL and leaves fresh ones alone', async () => {
     const { storeId } = await merchantWithStore();
 
