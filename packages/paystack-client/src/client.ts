@@ -39,6 +39,29 @@ export interface ChargeCardRequest {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * The saved-card handle Paystack returns alongside a successful card charge.
+ *
+ * `authorization_code` is the credential: presenting it charges the card again
+ * without the cardholder present. `reusable` is the part that matters most —
+ * Paystack marks some authorizations single-use, and charging one of those
+ * simply fails, so it must be checked before anything is stored for reuse.
+ */
+export interface PaystackAuthorization {
+  authorization_code: string;
+  /** Fingerprint of the underlying card: the same card re-tokenised repeats it. */
+  signature?: string;
+  last4?: string;
+  brand?: string;
+  card_type?: string;
+  bank?: string;
+  exp_month?: string;
+  exp_year?: string;
+  channel?: string;
+  country_code?: string;
+  reusable?: boolean;
+}
+
 export interface ChargeData {
   reference: string;
   status: 'pay_offline' | 'success' | 'failed' | 'pending' | string;
@@ -46,6 +69,7 @@ export interface ChargeData {
   display_text?: string;
   amount?: number;
   channel?: string;
+  authorization?: PaystackAuthorization;
 }
 
 export interface VerifyTransactionData {
@@ -55,6 +79,7 @@ export interface VerifyTransactionData {
   amount?: number;
   paid_at?: string;
   channel?: string;
+  authorization?: PaystackAuthorization;
 }
 
 export interface CreatePaymentLinkRequest {

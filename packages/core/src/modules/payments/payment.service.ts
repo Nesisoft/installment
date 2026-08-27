@@ -8,6 +8,7 @@ import {
   IllegalScheduleTransitionError,
   ScheduleTerminalStateError,
 } from '../schedules/state-machine';
+import { CardAuthorizationService, type ProviderAuthorization } from './card-authorization.service';
 import { AttemptRepository, type PaymentAttempt, type PaymentMethod } from './attempt-repository';
 import {
   ChargeAlreadyInFlightError,
@@ -32,6 +33,8 @@ interface PaystackChargeResponse {
     status: string;
     gateway_response?: string;
     display_text?: string;
+    /** Present on a successful card charge; only the reusable ones are kept. */
+    authorization?: ProviderAuthorization;
   };
 }
 
@@ -137,6 +140,16 @@ export class PaymentService {
      * the installment and transitioning it.
      */
     private readonly lock?: RedisLock,
+    /**
+     * Keeps a reusable card authorization from a successful charge, so the next
+     * instalment can be collected without the customer approving anything.
+     *
+     * Last in the list on purpose: these parameters are positional, and adding
+     * one in the middle silently rebinds every existing caller's arguments —
+     * which is exactly what happened on the first attempt here, with a Redis
+     * lock landing on this parameter.
+     */
+    private readonly cards?: CardAuthorizationService,
   ) {
     this.escalator = new ChargeFailureEscalator(plans, schedules, retryScheduler, receipts);
   }
@@ -209,7 +222,13 @@ export class PaymentService {
       }
 
       if (response.data.status === 'success') {
-        return this.settleAttemptSuccess(attempt.id, installment.id, response, actor);
+        return this.settleAttemptSuccess(
+          attempt.id,
+          installment.id,
+          response,
+          actor,
+          installment.customer_plan_id,
+        );
       }
       return this.handleSyncFailure(attempt.id, installment.id, response, actor);
     });
@@ -241,7 +260,13 @@ export class PaymentService {
       const status = response.data.status;
       if (status === 'success') {
         this.recordTelco(input.provider, true);
-        return this.settleAttemptSuccess(attempt.id, installment.id, response, actor);
+        return this.settleAttemptSuccess(
+          attempt.id,
+          installment.id,
+          response,
+          actor,
+          installment.customer_plan_id,
+        );
       }
       if (status === 'pay_offline' || status === 'pending') {
         // In-flight — not a telco-decisive outcome; the webhook/verify resolves it.
@@ -389,6 +414,7 @@ export class PaymentService {
     scheduleId: string,
     response: PaystackChargeResponse,
     actor: PlanActor,
+    customerPlanId?: string,
   ): Promise<ChargeResult> {
     const providerReference = response.data.reference;
     const succeeded = await this.attempts.update(attemptId, {
@@ -398,8 +424,31 @@ export class PaymentService {
       settledAt: new Date(),
     });
     await this.plans.recordChargeSuccess(scheduleId, { providerReference }, actor);
+    await this.rememberCard(response.data.authorization, customerPlanId);
     this.notify((n) => n.notifyChargeSucceeded(scheduleId, succeeded.amount_pesewas));
     return { status: 'succeeded', attempt: succeeded, providerReference };
+  }
+
+  /**
+   * Saves a reusable card off the back of a successful charge.
+   *
+   * Deliberately swallows its own failures. The money has already moved and the
+   * schedule is already paid; losing a saved card costs the customer one Mobile
+   * Money prompt next month, whereas throwing here would report a successful
+   * payment as a failure.
+   */
+  private async rememberCard(
+    authorization: ProviderAuthorization | undefined,
+    customerPlanId: string | undefined,
+  ): Promise<void> {
+    if (!this.cards || !authorization?.reusable || !customerPlanId) return;
+    try {
+      const plan = await this.plans.get(customerPlanId);
+      await this.cards.record(plan.customer_id, authorization);
+      await this.cards.markUsed(authorization.authorization_code);
+    } catch {
+      /* best effort — see the doc above */
+    }
   }
 
   private async handleSyncFailure(

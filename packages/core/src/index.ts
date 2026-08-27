@@ -105,6 +105,11 @@ export {
   type RetryStep,
 } from './modules/payments/retry-policy';
 export {
+  CardAuthorizationService,
+  type CardAuthorization,
+  type ProviderAuthorization,
+} from './modules/payments/card-authorization.service';
+export {
   AttemptRepository,
   type PaymentAttempt,
   type PaymentProvider,

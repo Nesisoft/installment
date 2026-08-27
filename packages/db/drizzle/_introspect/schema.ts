@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, index, foreignKey, unique, check, uuid, date, boolean, smallint, jsonb, bigint, integer, uniqueIndex, char, primaryKey } from "drizzle-orm/pg-core"
+import { pgTable, text, timestamp, index, foreignKey, unique, check, uuid, date, boolean, smallint, jsonb, uniqueIndex, bigint, integer, char, primaryKey } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { citext } from "../../src/citext";
 import { tsvector } from "../../src/tsvector";
@@ -51,6 +51,35 @@ export const customers = pgTable("customers", {
 	unique("customers_user_id_key").on(table.user_id),
 	check("customers_kyc_tier_check", sql`kyc_tier = ANY (ARRAY[0, 1, 2])`),
 	check("customers_momo_provider_check", sql`(momo_provider IS NULL) OR (momo_provider = ANY (ARRAY['mtn'::text, 'tgo'::text, 'vod'::text]))`),
+]);
+
+export const customer_card_authorizations = pgTable("customer_card_authorizations", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	customer_id: uuid().notNull(),
+	authorization_code: text().notNull(),
+	signature: text(),
+	last4: text(),
+	brand: text(),
+	card_type: text(),
+	bank: text(),
+	exp_month: smallint(),
+	exp_year: smallint(),
+	reusable: boolean().default(false).notNull(),
+	status: text().default('active').notNull(),
+	last_used_at: timestamp({ withTimezone: true, mode: 'string' }),
+	revoked_at: timestamp({ withTimezone: true, mode: 'string' }),
+	revoked_reason: text(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("customer_card_authorizations_code_key").using("btree", table.authorization_code.asc().nullsLast().op("text_ops")),
+	index("customer_card_authorizations_usable_idx").using("btree", table.customer_id.asc().nullsLast().op("timestamptz_ops"), table.created_at.desc().nullsFirst().op("timestamptz_ops")).where(sql`((status = 'active'::text) AND reusable)`),
+	foreignKey({
+			columns: [table.customer_id],
+			foreignColumns: [customers.id],
+			name: "customer_card_authorizations_customer_id_fkey"
+		}).onDelete("cascade"),
+	check("customer_card_authorizations_status_check", sql`status = ANY (ARRAY['active'::text, 'revoked'::text])`),
 ]);
 
 export const customer_employment = pgTable("customer_employment", {
