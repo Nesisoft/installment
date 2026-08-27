@@ -22,3 +22,36 @@ export const refreshSchema = z.object({
   refreshToken: z.string().min(1),
 });
 export type RefreshInput = z.infer<typeof refreshSchema>;
+
+/** Step 1 of self-signup: prove the phone is reachable before anything is created. */
+export const signupStartSchema = z.object({
+  phone: ghPhoneNumber,
+});
+export type SignupStartInput = z.infer<typeof signupStartSchema>;
+
+/**
+ * Step 2: the code, plus the profile to create.
+ *
+ * Consent is captured here because this is the moment the person agrees, and
+ * Ghana's Data Protection Act wants each purpose consented to separately rather
+ * than bundled into one "I accept". Processing and credit scoring are required
+ * — a BNPL account cannot exist without them, so refusing means not signing up,
+ * not signing up without them. Marketing is genuinely optional and defaults off.
+ */
+export const signupVerifySchema = z.object({
+  phone: ghPhoneNumber,
+  code: z.string().regex(/^\d{4,8}$/, 'OTP must be 4–8 digits'),
+  first_name: z.string().trim().min(1).max(80),
+  last_name: z.string().trim().min(1).max(80),
+  email: z.string().email().optional(),
+  consents: z.object({
+    data_processing: z.literal(true, {
+      errorMap: () => ({ message: 'Consent to data processing is required to open an account' }),
+    }),
+    credit_scoring: z.literal(true, {
+      errorMap: () => ({ message: 'Consent to credit checks is required to pay in instalments' }),
+    }),
+    marketing: z.boolean().default(false),
+  }),
+});
+export type SignupVerifyInput = z.infer<typeof signupVerifySchema>;

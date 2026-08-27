@@ -8,3 +8,4 @@ export {
   type AuthProviderProps,
 } from './auth-context';
 export { createQueryClient } from './query';
+export { newIdempotencyKey, idempotent } from './idempotency';

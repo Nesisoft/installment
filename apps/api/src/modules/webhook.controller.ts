@@ -4,6 +4,7 @@ import type { Request } from 'express';
 import { WebhookService } from '@installment/core';
 import { ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
 import { Public } from '../auth/decorators';
+import { SkipRateLimit } from '../common/rate-limit.decorator';
 
 /**
  * Paystack webhook sink. Public (no JWT) — authenticity comes from the
@@ -12,6 +13,7 @@ import { Public } from '../auth/decorators';
  */
 @ApiTags('webhooks')
 @Controller('webhooks/paystack')
+@SkipRateLimit()
 export class WebhookController {
   constructor(private readonly webhooks: WebhookService) {}
 

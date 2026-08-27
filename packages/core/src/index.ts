@@ -413,10 +413,14 @@ export {
   otpStartSchema,
   otpVerifySchema,
   refreshSchema,
+  signupStartSchema,
+  signupVerifySchema,
   type LoginInput,
   type OtpStartInput,
   type OtpVerifyInput,
   type RefreshInput,
+  type SignupStartInput,
+  type SignupVerifyInput,
 } from './modules/auth/dto';
 export * from './modules/auth/errors';
 export {

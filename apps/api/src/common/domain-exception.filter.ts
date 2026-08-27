@@ -56,12 +56,17 @@ const NAME_STATUS: Record<string, number> = {
   ReceiptNotAvailableError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
   CaseAlreadyClosedError: HttpStatus.CONFLICT,
+  PhoneAlreadyRegisteredError: HttpStatus.CONFLICT,
   // 422
   GhanaCardNotAttachedError: HttpStatus.UNPROCESSABLE_ENTITY,
   GhanaCardVerificationFailedError: HttpStatus.UNPROCESSABLE_ENTITY,
   PlanTemplateInactiveError: HttpStatus.UNPROCESSABLE_ENTITY,
   PlanActivationError: HttpStatus.UNPROCESSABLE_ENTITY,
   LedgerError: HttpStatus.UNPROCESSABLE_ENTITY,
+  // 502 — the SMS aggregator refused or was unreachable. Customer OTP login
+  // sends synchronously, so this reaches a customer: it is an upstream fault,
+  // not a bad request and not our bug, and a client may retry it.
+  SmsError: HttpStatus.BAD_GATEWAY,
 };
 
 interface ErrorBody {

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApi } from '@installment/web-kit';
+import { idempotent, useApi } from '@installment/web-kit';
 import type {
   ActivatedPlan,
   CustomerPlan,
@@ -63,6 +63,7 @@ export function useRecordManualPayment(planId: string) {
       const { data } = await api.post(
         `/admin/installments/${args.scheduleId}/record-payment`,
         args.input,
+        idempotent(`record-${args.scheduleId}`),
       );
       return data;
     },
@@ -75,7 +76,11 @@ export function useRefundInstallment(planId: string) {
   const invalidate = usePlanActionInvalidator(planId);
   return useMutation({
     mutationFn: async (args: { scheduleId: string; input: RefundInstallmentInput }) => {
-      const { data } = await api.post(`/admin/installments/${args.scheduleId}/refund`, args.input);
+      const { data } = await api.post(
+        `/admin/installments/${args.scheduleId}/refund`,
+        args.input,
+        idempotent(`refund-${args.scheduleId}`),
+      );
       return data;
     },
     onSuccess: invalidate,
@@ -87,7 +92,11 @@ export function useDefaultPlan(planId: string) {
   const invalidate = usePlanActionInvalidator(planId);
   return useMutation({
     mutationFn: async (input: DefaultPlanInput) => {
-      const { data } = await api.post<CustomerPlan>(`/admin/plans/${planId}/default`, input);
+      const { data } = await api.post<CustomerPlan>(
+        `/admin/plans/${planId}/default`,
+        input,
+        idempotent(`default-${planId}`),
+      );
       return data;
     },
     onSuccess: invalidate,
@@ -101,6 +110,8 @@ export function useActivateFromApplication() {
     mutationFn: async (applicationId: string) => {
       const { data } = await api.post<ActivatedPlan>(
         `/admin/plans/from-application/${applicationId}`,
+        undefined,
+        idempotent(`activate-${applicationId}`),
       );
       return data;
     },

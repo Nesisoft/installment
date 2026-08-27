@@ -115,6 +115,16 @@ export class CustomersService {
   }
 
   /** Resolve the customer linked to an authenticated login (users.id). */
+  /** Lookup by (canonicalised) phone — customers.phone is unique. */
+  async findByPhone(phone: string): Promise<Customer | undefined> {
+    const rows = await this.db
+      .select()
+      .from(c)
+      .where(and(eq(c.phone, phone), isNull(c.deleted_at)))
+      .limit(1);
+    return rows[0];
+  }
+
   async findByUserId(userId: string): Promise<Customer | undefined> {
     const rows = await this.db
       .select()

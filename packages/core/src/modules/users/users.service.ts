@@ -54,17 +54,35 @@ export class UsersService {
   async createMerchantUser(rawInput: unknown, actor: UserActor): Promise<User> {
     const input: CreateMerchantUserInput = createMerchantUserSchema.parse(rawInput);
     const passwordHash = await this.passwords.hash(input.password);
+    // The merchant link lives in metadata.merchant_id (no dedicated column yet);
+    // getMerchantScope reads it to scope the /merchant portal to one merchant.
+    const metadata = {
+      ...(input.metadata ?? {}),
+      ...(input.merchant_id ? { merchant_id: input.merchant_id } : {}),
+    };
     return this.insertUser(
       {
         email: input.email,
         name: input.name,
         password_hash: passwordHash,
         user_type: 'merchant',
-        metadata: input.metadata ?? {},
+        metadata,
       },
       input.roleNames ?? ['merchant_owner'],
       actor,
     );
+  }
+
+  /**
+   * The merchant a login is scoped to (from metadata.merchant_id), or null when
+   * the user is not a merchant or has no merchant linked. Used by the merchant
+   * portal guard to resolve the caller's own merchant id.
+   */
+  async getMerchantScope(userId: string): Promise<string | null> {
+    const user = await this.getById(userId);
+    if (user.user_type !== 'merchant') return null;
+    const merchantId = (user.metadata as { merchant_id?: unknown } | null)?.merchant_id;
+    return typeof merchantId === 'string' ? merchantId : null;
   }
 
   async createCustomerUser(rawInput: unknown, actor: UserActor): Promise<User> {

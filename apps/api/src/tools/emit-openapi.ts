@@ -17,7 +17,11 @@ import { buildOpenApiDocument } from '../openapi';
 const OUT = resolve(__dirname, '../../../../docs/api/openapi.json');
 
 async function main(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { logger: false });
+  // `abortOnError: false` so a module that fails to initialise rejects the
+  // promise instead of exiting the process from inside Nest — with `logger:
+  // false` that exit is completely silent, and a bad env var surfaces as a bare
+  // exit code with nothing to go on.
+  const app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
   const document = buildOpenApiDocument(app);
   await app.close();
   mkdirSync(dirname(OUT), { recursive: true });

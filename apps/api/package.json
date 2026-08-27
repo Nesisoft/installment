@@ -17,6 +17,7 @@
     "@installment/core": "workspace:*",
     "@installment/db": "workspace:*",
     "@installment/paystack-client": "workspace:*",
+    "@installment/sms-client": "workspace:*",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.1",

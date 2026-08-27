@@ -12,8 +12,23 @@ const p = schema.products;
 export type Cart = typeof schema.carts.$inferSelect;
 export type CartItem = typeof schema.cart_items.$inferSelect;
 
+/**
+ * A cart line with the product details needed to render it.
+ *
+ * Read live from the catalog rather than snapshotted onto the row: a cart is a
+ * current intention, so a product renamed while it sits in the basket should
+ * show its new name. Orders are the opposite — `order_items` snapshots title
+ * and sku, because what you bought is a historical record that must not shift
+ * under the merchant's later edits.
+ */
+export interface CartLine extends CartItem {
+  title: string;
+  sku: string;
+  product_id: string | null;
+}
+
 export interface CartWithItems extends Cart {
-  items: CartItem[];
+  items: CartLine[];
   subtotal_pesewas: number;
 }
 
@@ -50,11 +65,23 @@ export class CartService {
 
   async getCart(customerId: string): Promise<CartWithItems> {
     const cart = await this.getOrCreateActiveCart(customerId);
-    const items = await this.db
-      .select()
+    // LEFT joins on purpose: if a variant or product ever disappears, the line
+    // still surfaces (labelled, and removable) instead of vanishing from the
+    // basket while its price silently stays in the subtotal.
+    const rows = await this.db
+      .select({ item: ci, title: p.title, sku: pv.sku, productId: p.id })
       .from(ci)
+      .leftJoin(pv, eq(pv.id, ci.variant_id))
+      .leftJoin(p, eq(p.id, pv.product_id))
       .where(eq(ci.cart_id, cart.id))
       .orderBy(ci.created_at);
+
+    const items: CartLine[] = rows.map((r) => ({
+      ...r.item,
+      title: r.title ?? 'Unavailable item',
+      sku: r.sku ?? '',
+      product_id: r.productId ?? null,
+    }));
     const subtotal = items.reduce((sum, it) => sum + it.unit_price_pesewas * it.quantity, 0);
     return { ...cart, items, subtotal_pesewas: subtotal };
   }

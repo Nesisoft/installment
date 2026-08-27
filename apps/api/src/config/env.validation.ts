@@ -11,6 +11,18 @@ export const envSchema = z.object({
   CORS_ORIGINS: z
     .string()
     .default('http://localhost:5173,http://localhost:5174,http://localhost:5175'),
+  // Rate limiting (Phase 10). Defaults are generous enough that normal use never
+  // notices; per-route overrides tighten the endpoints worth abusing.
+  RATE_LIMIT_ENABLED: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => v !== false && v !== 'false' && v !== '0')
+    .default(true),
+  RATE_LIMIT_LIMIT: z.coerce.number().int().positive().default(300),
+  RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
+  // Behind a proxy/load balancer the client IP arrives in X-Forwarded-For. Set
+  // this to the hop count (or 'true') so the limiter buckets real clients rather
+  // than lumping the whole estate into the proxy's single address.
+  TRUST_PROXY: z.string().default(''),
   // Auth — dev defaults keep `pnpm dev` friction-free; production MUST override
   // these with secrets from a real secret store (see DEVELOPMENT-PLAN.md §5).
   JWT_ACCESS_SECRET: z.string().min(16).default('dev-access-secret-change-me!!'),
@@ -18,6 +30,23 @@ export const envSchema = z.object({
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   JWT_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
   SMS_SENDER_ID: z.string().default('Installmt'),
+  // Which SMS provider actually dispatches. `console` logs and delivers
+  // nothing — fine locally, catastrophic in production, where customer auth is
+  // phone+OTP only and no customer could log in. See the refinement below.
+  SMS_PROVIDER: z.enum(['console', 'hubtel', 'arkesel']).default('console'),
+  HUBTEL_CLIENT_ID: z.string().default(''),
+  HUBTEL_CLIENT_SECRET: z.string().default(''),
+  HUBTEL_BASE_URL: z.string().default('https://smsc.hubtel.com'),
+  ARKESEL_API_KEY: z.string().default(''),
+  ARKESEL_BASE_URL: z.string().default('https://sms.arkesel.com'),
+  /**
+   * Print the full SMS body to the log. Off by default: the body carries login
+   * OTPs, so a log with it in is a credential store. Local development only.
+   */
+  SMS_LOG_BODY: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => v === true || v === 'true' || v === '1')
+    .default(false),
   // Paystack — empty in dev keeps boot friction-free; charging/webhooks need a real key.
   PAYSTACK_SECRET_KEY: z.string().default(''),
   PAYSTACK_BASE_URL: z.string().default('https://api.paystack.co'),
@@ -33,10 +62,55 @@ export const envSchema = z.object({
     .default(false),
 });
 
+/**
+ * Refusals that only make sense once the whole environment is known.
+ *
+ * Boot is the right place for these. A production deployment on the console
+ * sender does not fail visibly — it fails silently, one customer at a time, at
+ * the OTP screen, and the notifications table records every one of those
+ * messages as `sent`.
+ */
+export const envSchemaChecked = envSchema.superRefine((env, ctx) => {
+  if (env.NODE_ENV === 'production') {
+    if (env.SMS_PROVIDER === 'console') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SMS_PROVIDER'],
+        message:
+          'refusing to start: SMS_PROVIDER=console delivers nothing, and customer login is phone+OTP only. Set hubtel or arkesel.',
+      });
+    }
+    if (env.SMS_LOG_BODY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SMS_LOG_BODY'],
+        message: 'refusing to start: SMS_LOG_BODY writes login OTPs to the log.',
+      });
+    }
+  }
+
+  // Credentials are checked whatever the environment: a provider selected
+  // without them fails on the first send, which is the worst time to find out.
+  if (env.SMS_PROVIDER === 'hubtel' && !(env.HUBTEL_CLIENT_ID && env.HUBTEL_CLIENT_SECRET)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['HUBTEL_CLIENT_ID'],
+      message: 'SMS_PROVIDER=hubtel requires HUBTEL_CLIENT_ID and HUBTEL_CLIENT_SECRET',
+    });
+  }
+  if (env.SMS_PROVIDER === 'arkesel' && !env.ARKESEL_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ARKESEL_API_KEY'],
+      message: 'SMS_PROVIDER=arkesel requires ARKESEL_API_KEY',
+    });
+  }
+});
+
 export type Env = z.infer<typeof envSchema>;
 
 export function validateEnv(config: Record<string, unknown>): Env {
-  const parsed = envSchema.safeParse(config);
+  const parsed = envSchemaChecked.safeParse(config);
   if (!parsed.success) {
     const details = JSON.stringify(parsed.error.flatten().fieldErrors, null, 2);
     throw new Error(`Invalid environment variables:\n${details}`);

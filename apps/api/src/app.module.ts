@@ -11,6 +11,8 @@ import { WorkersModule } from './workers/workers.module';
 import { AuthController } from './auth/auth.controller';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { PermissionsGuard } from './auth/permissions.guard';
+import { MerchantScopeGuard } from './auth/merchant-scope.guard';
+import { RateLimitGuard, type RateLimitDefaults } from './common/rate-limit.guard';
 import { MerchantsController } from './modules/merchants.controller';
 import { StoresController } from './modules/stores.controller';
 import { CategoriesController } from './modules/categories.controller';
@@ -29,6 +31,7 @@ import { SettlementsController } from './modules/settlements.controller';
 import { LedgerController } from './modules/ledger.controller';
 import { RefundsController } from './modules/refunds.controller';
 import { CollectionsController } from './modules/collections.controller';
+import { MerchantPortalController } from './modules/merchant-portal.controller';
 import { MeController } from './modules/me.controller';
 import { MeCommerceController } from './modules/me-commerce.controller';
 import { WebhookController } from './modules/webhook.controller';
@@ -81,16 +84,31 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
     LedgerController,
     RefundsController,
     CollectionsController,
+    MerchantPortalController,
     MeController,
     MeCommerceController,
     WebhookController,
   ],
   providers: [
+    MerchantScopeGuard,
     { provide: APP_FILTER, useClass: DomainExceptionFilter },
     // Replay protection for money-mutating routes marked @Idempotent().
     { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
-    // Order matters: authenticate first, then check permissions.
+    {
+      provide: 'RATE_LIMIT_DEFAULTS',
+      useFactory: (config: ConfigService<Env, true>): RateLimitDefaults => ({
+        enabled: config.get('RATE_LIMIT_ENABLED', { infer: true }),
+        limit: config.get('RATE_LIMIT_LIMIT', { infer: true }),
+        windowSeconds: config.get('RATE_LIMIT_WINDOW_SECONDS', { infer: true }),
+      }),
+      inject: [ConfigService],
+    },
+    // Order matters. Authenticate first so the limiter can bucket a known user
+    // by identity rather than by IP (many customers share one mobile-network
+    // address). Then limit — ahead of the permissions guard, which reads the
+    // database on every request and is the thing worth protecting.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
