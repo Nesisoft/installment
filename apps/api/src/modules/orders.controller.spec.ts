@@ -24,11 +24,12 @@ vi.mock('@sentry/node', () => ({ captureException: vi.fn() }));
 describe('OrdersController', () => {
   let app: INestApplication;
   const confirmPayment = vi.fn();
+  const cancel = vi.fn();
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [OrdersController],
-      providers: [{ provide: OrdersService, useValue: { confirmPayment } }],
+      providers: [{ provide: OrdersService, useValue: { confirmPayment, cancel } }],
     })
       // The real app applies these globally; here we only care that the
       // controller delegates, so the request runs unguarded.
@@ -63,6 +64,27 @@ describe('OrdersController', () => {
       // the caller, so the ledger and audit rows record who settled it
       { actorId: 'admin-1', actorType: 'admin' },
     );
+  });
+
+  it('cancels an order through the service, passing the caller as actor', async () => {
+    cancel.mockResolvedValueOnce({ id: 'order-2', status: 'cancelled' });
+
+    const res = await request(app.getHttpServer())
+      .post('/admin/orders/order-2/cancel')
+      .send({ reason: 'Merchant cannot fulfil' });
+
+    expect(res.status).toBe(200);
+    expect(cancel).toHaveBeenCalledWith(
+      'order-2',
+      { reason: 'Merchant cannot fulfil' },
+      { actorId: 'admin-1', actorType: 'admin' },
+    );
+  });
+
+  it('gates cancel on plans:write — it moves no money, so it does not need settlements:run', () => {
+    const perms = Reflect.getMetadata(PERMISSIONS_KEY, OrdersController.prototype.cancel as object);
+    expect(perms).toContain('plans:write');
+    expect(perms).not.toContain('settlements:run');
   });
 
   it('requires an Idempotency-Key — it books a ledger transaction', () => {

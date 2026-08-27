@@ -16,7 +16,13 @@ import { ProductsService } from '../catalog/products.service';
 import { InventoryService } from '../catalog/inventory.service';
 import { CartService } from './cart.service';
 import { OrdersService } from './orders.service';
-import { EmptyCartError, OrderNotActivatableError, OrderNotPayableError } from './errors';
+import {
+  EmptyCartError,
+  OrderNotActivatableError,
+  OrderNotCancellableError,
+  OrderNotFoundError,
+  OrderNotPayableError,
+} from './errors';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
@@ -160,6 +166,74 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
     await expect(
       orders.confirmPayment(order!.id, { provider_reference: 'ps_ref_1' }, ACTOR),
     ).rejects.toBeInstanceOf(OrderNotPayableError);
+  });
+
+  /**
+   * Checkout reserves stock; nothing ever gave it back. InventoryService.release
+   * was written for this ("cancel / expiry") and had no caller, so an order the
+   * customer abandoned held its units out of sellable stock forever.
+   */
+  it('cancel returns the reserved stock to available', async () => {
+    const customerId = await freshCustomer();
+    const { storeId } = await merchantWithStore();
+    const v = await variant(storeId, 2000);
+    await cart.addItem(customerId, { variant_id: v, quantity: 3 });
+    const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+
+    const reserved = await inventory.getByVariant(v);
+    expect(reserved.quantity_available).toBe(97);
+    expect(reserved.quantity_reserved).toBe(3);
+
+    const cancelled = await orders.cancel(order!.id, { reason: 'Changed my mind' }, ACTOR);
+    expect(cancelled.status).toBe('cancelled');
+
+    // Back to where it started — released, not sold.
+    const after = await inventory.getByVariant(v);
+    expect(after.quantity_available).toBe(100);
+    expect(after.quantity_reserved).toBe(0);
+
+    // A second cancel is refused rather than releasing the same units twice.
+    await expect(orders.cancel(order!.id, {}, ACTOR)).rejects.toBeInstanceOf(
+      OrderNotCancellableError,
+    );
+  });
+
+  it('refuses to cancel an order that has already been paid', async () => {
+    const customerId = await freshCustomer();
+    const { storeId } = await merchantWithStore();
+    const v = await variant(storeId, 2000);
+    await cart.addItem(customerId, { variant_id: v, quantity: 1 });
+    const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+    await orders.confirmPayment(order!.id, { provider_reference: 'ps_ref_cancel' }, ACTOR);
+
+    // ORDER_TRANSITIONS permits paid -> cancelled, but that needs the ledger
+    // reversed and the customer refunded. Cancelling here would keep the cash.
+    await expect(orders.cancel(order!.id, {}, ACTOR)).rejects.toBeInstanceOf(
+      OrderNotCancellableError,
+    );
+
+    // Nothing moved: the sale stands and the stock stays sold.
+    const inv = await inventory.getByVariant(v);
+    expect(inv.quantity_available).toBe(99);
+    expect(inv.quantity_reserved).toBe(0);
+  });
+
+  it('scopes a cancel to the order owner', async () => {
+    const owner = await freshCustomer();
+    const stranger = await freshCustomer();
+    const { storeId } = await merchantWithStore();
+    const v = await variant(storeId, 2000);
+    await cart.addItem(owner, { variant_id: v, quantity: 1 });
+    const [order] = await orders.checkout(owner, { payment_type: 'full' }, ACTOR);
+
+    // Not found rather than forbidden — a stranger must not learn it exists.
+    await expect(
+      orders.cancel(order!.id, {}, ACTOR, { customerId: stranger }),
+    ).rejects.toBeInstanceOf(OrderNotFoundError);
+
+    // And the units are still held for the real owner.
+    const inv = await inventory.getByVariant(v);
+    expect(inv.quantity_reserved).toBe(1);
   });
 
   it('checks out an installment cart: hands the order to the engine as an application', async () => {

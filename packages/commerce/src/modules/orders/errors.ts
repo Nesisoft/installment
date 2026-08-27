@@ -51,6 +51,20 @@ export class OrderNotActivatableError extends Error {
   }
 }
 
+/**
+ * Cancellation was attempted on an order that has already taken the customer's
+ * money. ORDER_TRANSITIONS permits paid -> cancelled and financing_active ->
+ * cancelled, but neither is a status flip: one needs the ledger reversed and
+ * the money refunded, the other needs an active credit plan unwound. Refusing
+ * is safer than a cancel that silently keeps the cash.
+ */
+export class OrderNotCancellableError extends Error {
+  constructor(orderId: string, status: string) {
+    super(`Order "${orderId}" cannot be cancelled from status "${status}"`);
+    this.name = 'OrderNotCancellableError';
+  }
+}
+
 export class InvalidOrderTransitionError extends Error {
   constructor(from: string, to: string) {
     super(`Illegal order transition ${from} → ${to}`);

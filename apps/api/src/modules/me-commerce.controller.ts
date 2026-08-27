@@ -8,9 +8,10 @@ import {
   createAddressSchema,
   setCartItemQuantitySchema,
   updateAddressSchema,
+  cancelOrderSchema,
 } from '@installment/commerce';
 import { CustomerNotFoundError, CustomersService } from '@installment/core';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators';
 import { ApiModel } from '../common/api-model';
 import { Idempotent } from '../common/idempotent.decorator';
@@ -104,6 +105,30 @@ export class MeCommerceController {
   @ApiModel('OrderWithItems', { array: true })
   async listOrders(@CurrentUser() user: AuthenticatedUser) {
     return this.orders.listForCustomer(await this.customerId(user));
+  }
+
+  /**
+   * Lets a customer cancel their own unpaid order.
+   *
+   * This is the common way stock comes back: someone checks out, never pays,
+   * and changes their mind. Their units were reserved at checkout, and before
+   * this there was no way — for them or for anyone — to release them.
+   *
+   * The customer id is passed down and checked inside the same transaction as
+   * the row lock, so someone else's order id answers 404 rather than confirming
+   * it exists.
+   */
+  @Post('orders/:id/cancel')
+  @ApiZodBody(cancelOrderSchema)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Cancel one of your own unpaid orders' })
+  async cancelOrder(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const customerId = await this.customerId(user);
+    return this.orders.cancel(id, body, this.actorFor(customerId), { customerId });
   }
 
   @Get('orders/:id')

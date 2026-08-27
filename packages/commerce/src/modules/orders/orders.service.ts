@@ -16,7 +16,7 @@ import {
   type TransactionalTx,
 } from '@installment/core';
 import { InventoryService } from '../catalog/inventory.service';
-import { checkoutSchema, confirmOrderPaymentSchema } from './dto';
+import { cancelOrderSchema, checkoutSchema, confirmOrderPaymentSchema } from './dto';
 import {
   AddressNotFoundError,
   EmptyCartError,
@@ -24,6 +24,7 @@ import {
   OrderNotActivatableError,
   OrderNotFoundError,
   OrderNotPayableError,
+  OrderNotCancellableError,
 } from './errors';
 import { assertOrderTransition, type OrderStatus } from './order-state';
 
@@ -69,6 +70,17 @@ export const DEFAULT_MERCHANT_CATEGORY = 'general';
  * split into the ledger; `activateFinancing` turns an approved application into
  * an active plan and advances the order. Every write is audited.
  */
+/**
+ * The states a cancel can act on: everything before the customer's money moves.
+ * `paid` and `financing_active` are cancellable per ORDER_TRANSITIONS but need a
+ * refund or a plan unwind, which is the refunds module's job.
+ */
+const CANCELLABLE_STATUSES: readonly OrderStatus[] = [
+  'pending_payment',
+  'pending_approval',
+  'payment_failed',
+];
+
 export class OrdersService {
   constructor(
     private readonly db: Database,
@@ -344,6 +356,92 @@ export class OrdersService {
 
       return { ...updated, items };
     });
+  }
+
+  /**
+   * Cancels an order that has not yet taken the customer's money, and gives the
+   * stock back.
+   *
+   * Checkout reserves every unit it is about to sell. Until now nothing ever
+   * released a reservation — `InventoryService.release` existed, documented for
+   * exactly this ("cancel / expiry"), with no caller anywhere — so an order the
+   * customer walked away from held its units out of sellable stock permanently.
+   *
+   * Only the states before money moves are cancellable here. ORDER_TRANSITIONS
+   * also permits `paid -> cancelled` and `financing_active -> cancelled`, but
+   * neither is a status flip: one needs the ledger reversed and the customer
+   * refunded, the other needs a live credit plan unwound. Those belong with the
+   * refunds module, so this refuses them rather than cancelling an order while
+   * quietly keeping the cash.
+   *
+   * `customerId` scopes the cancel to its owner. It is checked inside the same
+   * transaction as the lock, so ownership cannot change under the request, and
+   * a foreign id answers "not found" rather than confirming the order exists.
+   */
+  async cancel(
+    orderId: string,
+    rawInput: unknown,
+    actor: PlanActor,
+    opts: { customerId?: string } = {},
+    now: Date = new Date(),
+  ): Promise<OrderWithItems> {
+    const { reason } = cancelOrderSchema.parse(rawInput);
+
+    const cancelled = await runInTransaction(this.db, async (tx) => {
+      const order = await this.lockOrder(tx, orderId);
+      if (opts.customerId && order.customer_id !== opts.customerId) {
+        throw new OrderNotFoundError(orderId);
+      }
+      if (!CANCELLABLE_STATUSES.includes(order.status as OrderStatus)) {
+        throw new OrderNotCancellableError(orderId, order.status);
+      }
+      assertOrderTransition(order.status as OrderStatus, 'cancelled');
+
+      // Hand every reserved unit back before the status flips, so a failure
+      // anywhere here rolls the whole thing back rather than losing the stock.
+      const items = await this.loadItems(tx, order.id);
+      for (const item of items) {
+        if (item.variant_id) await this.inventory.release(item.variant_id, item.quantity, tx);
+      }
+
+      const [updated] = await tx
+        .update(o)
+        .set({ status: 'cancelled', updated_at: now.toISOString() })
+        .where(and(eq(o.id, order.id), eq(o.status, order.status)))
+        .returning();
+      if (!updated) throw new OrderNotCancellableError(orderId, order.status);
+
+      await this.audit.append(tx, {
+        entityType: 'order',
+        entityId: order.id,
+        eventType: 'order.cancelled',
+        fromState: order.status,
+        toState: 'cancelled',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        metadata: {
+          ...(reason ? { reason } : {}),
+          released_units: items.reduce((n, i) => n + (i.variant_id ? i.quantity : 0), 0),
+        },
+      });
+
+      return { ...updated, items, application_id: order.application_id };
+    });
+
+    // The credit application lives in the engine and opens its own transaction,
+    // so it cannot join the one above — the same constraint activateFinancing
+    // documents. Cancel it after the order is safely cancelled: leaving it
+    // pending would keep a dead application in the review queue. If this fails
+    // the order stays cancelled and the stock stays released, which is the half
+    // that matters; the stranded application cannot be activated because
+    // activateFinancing refuses any order that is not pending_approval.
+    if (cancelled.application_id) {
+      await this.applications
+        .cancel(cancelled.application_id, { actorId: actor.actorId, actorType: actor.actorType })
+        .catch(() => undefined);
+    }
+
+    return cancelled;
   }
 
   /**
