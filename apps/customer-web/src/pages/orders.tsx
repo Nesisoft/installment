@@ -1,8 +1,20 @@
+import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle, StatusBadge } from '@installment/ui';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+  StatusBadge,
+} from '@installment/ui';
 import { formatGhs } from '@installment/api-types';
-import { ArrowLeft } from 'lucide-react';
-import { useOrder, useOrders } from '../lib/shop-api';
+import { apiErrorMessage, newIdempotencyKey } from '@installment/web-kit';
+import { ArrowLeft, Smartphone } from 'lucide-react';
+import { useOrder, useOrders, usePayOrderMomo } from '../lib/shop-api';
 import { formatDate } from '../lib/format';
 import { EmptyState, ErrorState, LoadingState } from '../components/data-states';
 
@@ -54,9 +66,52 @@ export function OrdersPage() {
   );
 }
 
+const MOMO_PROVIDERS = [
+  { value: 'mtn', label: 'MTN' },
+  { value: 'vod', label: 'Telecel' },
+  { value: 'tgo', label: 'AirtelTigo' },
+] as const;
+
 export function OrderDetailPage() {
   const { id = '' } = useParams();
-  const order = useOrder(id);
+  // While a charge is awaiting approval on the customer's handset, the webhook
+  // is what settles it — so poll until the order stops being unpaid.
+  const [awaitingApproval, setAwaitingApproval] = useState(false);
+  const order = useOrder(id, { pollMs: awaitingApproval ? 3000 : undefined });
+  const payMomo = usePayOrderMomo(id);
+  const [momo, setMomo] = useState({ phone: '', provider: 'mtn' as 'mtn' | 'tgo' | 'vod' });
+  // One key per attempt, rotated only after a charge that actually went
+  // through. A retry of a failed or timed-out attempt reuses it, so a charge
+  // that succeeded while the response was lost is replayed, not repeated.
+  const [payKey, setPayKey] = useState(() => newIdempotencyKey('order-pay'));
+  const [failure, setFailure] = useState<string | null>(null);
+
+  function onPay(e: FormEvent) {
+    e.preventDefault();
+    setFailure(null);
+    if (!momo.phone.trim()) {
+      setFailure('Enter the Mobile Money number to charge.');
+      return;
+    }
+    payMomo.mutate(
+      { phone: momo.phone.trim(), provider: momo.provider, idempotencyKey: payKey },
+      {
+        onSuccess: (result) => {
+          if (result.status === 'paid') {
+            setAwaitingApproval(false);
+            setPayKey(newIdempotencyKey('order-pay'));
+            return;
+          }
+          if (result.status === 'pending') {
+            // Not paid yet — they still have to approve it on the handset.
+            setAwaitingApproval(true);
+            return;
+          }
+          setFailure(result.message ?? 'The payment did not go through. Try again.');
+        },
+      },
+    );
+  }
 
   if (order.isPending) return <LoadingState />;
   if (order.isError) return <ErrorState error={order.error} onRetry={() => void order.refetch()} />;
@@ -83,6 +138,72 @@ export function OrderDetailPage() {
         </div>
         <StatusBadge status={o.status} />
       </div>
+
+      {o.payment_type === 'full' && o.status === 'pending_payment' ? (
+        <Card className="border-primary/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Smartphone className="size-4 text-primary" />
+              Pay {formatGhs(o.total_pesewas)} with Mobile Money
+            </CardTitle>
+            <CardDescription>
+              We will send a prompt to this number. Approve it on your phone to complete the order.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={onPay} className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="momo-phone">Mobile Money number</Label>
+                <Input
+                  id="momo-phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="024 123 4567"
+                  value={momo.phone}
+                  onChange={(e) => setMomo((m) => ({ ...m, phone: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="momo-provider">Network</Label>
+                <select
+                  id="momo-provider"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={momo.provider}
+                  onChange={(e) =>
+                    setMomo((m) => ({ ...m, provider: e.target.value as 'mtn' | 'tgo' | 'vod' }))
+                  }
+                >
+                  {MOMO_PROVIDERS.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {awaitingApproval ? (
+                <p className="text-sm text-muted-foreground">
+                  Check your phone and approve the prompt. This page updates on its own once the
+                  payment goes through.
+                </p>
+              ) : null}
+              {failure ? <p className="text-sm text-destructive">{failure}</p> : null}
+              {payMomo.isError ? (
+                <p className="text-sm text-destructive">{apiErrorMessage(payMomo.error)}</p>
+              ) : null}
+
+              <Button type="submit" className="w-full" size="lg" disabled={payMomo.isPending}>
+                {payMomo.isPending
+                  ? 'Starting…'
+                  : awaitingApproval
+                    ? 'Send the prompt again'
+                    : `Pay ${formatGhs(o.total_pesewas)} now`}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {o.payment_type === 'installment' ? (
         <Card className="border-primary/40">
