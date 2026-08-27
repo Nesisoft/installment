@@ -70,6 +70,12 @@ export const envSchema = z.object({
   // Scheduled workers (settlement / reserve-release / reconciliation crons).
   // Keep OFF in tests and local single-instance dev; turn ON exactly once per
   // production deployment (a future leader-election step picks the runner).
+  /**
+   * How long an unpaid order may hold its stock reservation before the hourly
+   * sweep cancels it and returns the units to sale. Matches the 24h an engine
+   * application gets by default.
+   */
+  ORDER_PAYMENT_TTL_HOURS: z.coerce.number().int().positive().default(24),
   ENABLE_SCHEDULED_WORKERS: z
     .union([z.boolean(), z.string()])
     .transform((v) => v === true || v === 'true' || v === '1')

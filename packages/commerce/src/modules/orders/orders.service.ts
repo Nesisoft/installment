@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, lte } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import {
   AuditLogger,
@@ -14,6 +14,7 @@ import {
   type LedgerEntryInput,
   type PlanActor,
   type TransactionalTx,
+  SYSTEM_ACTORS,
 } from '@installment/core';
 import { InventoryService } from '../catalog/inventory.service';
 import { cancelOrderSchema, checkoutSchema, confirmOrderPaymentSchema } from './dto';
@@ -36,6 +37,7 @@ const pv = schema.product_variants;
 const p = schema.products;
 const addresses = schema.addresses;
 const cp = schema.customer_plans;
+const ap = schema.applications;
 
 export type Order = typeof schema.orders.$inferSelect;
 export type OrderItem = typeof schema.order_items.$inferSelect;
@@ -75,6 +77,13 @@ export const DEFAULT_MERCHANT_CATEGORY = 'general';
  * `paid` and `financing_active` are cancellable per ORDER_TRANSITIONS but need a
  * refund or a plan unwind, which is the refunds module's job.
  */
+/** How long an unpaid order may hold its stock before the sweep takes it back. */
+const DEFAULT_PAYMENT_TTL_HOURS = 24;
+/** Bounds one sweep so a large backlog is worked through over several runs. */
+const DEFAULT_SWEEP_LIMIT = 500;
+/** Application states from which an order can never become financing_active. */
+const TERMINAL_APPLICATION_STATUSES = ['expired', 'declined', 'cancelled'];
+
 const CANCELLABLE_STATUSES: readonly OrderStatus[] = [
   'pending_payment',
   'pending_approval',
@@ -442,6 +451,80 @@ export class OrdersService {
     }
 
     return cancelled;
+  }
+
+  /**
+   * Cancels orders that are never going to be paid for, and gives their stock
+   * back.
+   *
+   * `cancel` only helps when somebody asks. The ordinary case is that nobody
+   * does: a shopper checks out, never pays, and never returns. Their units stay
+   * reserved forever, so the catalogue slowly bleeds sellable stock to
+   * abandoned baskets.
+   *
+   * Two kinds of order have stopped being live:
+   *
+   * - `pending_payment` older than `paymentTtlHours` — the customer had their
+   *   chance to pay and did not take it.
+   * - `pending_approval` whose credit application has reached a terminal state.
+   *   ApplicationExpiryCron already expires stale applications hourly and an
+   *   admin can decline one, but neither touches the ORDER: the application goes
+   *   terminal and its order sits in `pending_approval` holding stock with
+   *   nothing left that could ever approve it.
+   *
+   * Each order is cancelled on its own, so one failure cannot strand the rest of
+   * the batch — a row that has moved on since it was selected simply loses its
+   * status guard and is skipped.
+   */
+  async sweepAbandoned(
+    now: Date = new Date(),
+    opts: { paymentTtlHours?: number; limit?: number } = {},
+  ): Promise<{
+    checked: number;
+    cancelled: number;
+    releasedUnits: number;
+    failed: number;
+  }> {
+    const ttlHours = opts.paymentTtlHours ?? DEFAULT_PAYMENT_TTL_HOURS;
+    const limit = opts.limit ?? DEFAULT_SWEEP_LIMIT;
+    const cutoff = new Date(now.getTime() - ttlHours * 60 * 60 * 1000).toISOString();
+    const actor = { actorId: SYSTEM_ACTORS.SCHEDULER, actorType: 'worker' as const };
+
+    const unpaid = await this.db
+      .select({ id: o.id })
+      .from(o)
+      .where(and(eq(o.status, 'pending_payment'), lte(o.created_at, cutoff)))
+      .limit(limit);
+
+    // Financing that can no longer happen: the application is terminal, so the
+    // order will never leave pending_approval on its own.
+    const deadFinancing = await this.db
+      .select({ id: o.id })
+      .from(o)
+      .innerJoin(ap, eq(ap.id, o.application_id))
+      .where(
+        and(eq(o.status, 'pending_approval'), inArray(ap.status, TERMINAL_APPLICATION_STATUSES)),
+      )
+      .limit(limit);
+
+    const candidates = [...unpaid, ...deadFinancing];
+    let cancelled = 0;
+    let releasedUnits = 0;
+    let failed = 0;
+
+    for (const row of candidates) {
+      try {
+        const order = await this.cancel(row.id, { reason: 'Abandoned — swept' }, actor, {}, now);
+        cancelled += 1;
+        releasedUnits += order.items.reduce((n, i) => n + (i.variant_id ? i.quantity : 0), 0);
+      } catch {
+        // Raced with a real payment, a manual cancel, or an approval that landed
+        // between the select and the update. Leave it be and keep sweeping.
+        failed += 1;
+      }
+    }
+
+    return { checked: candidates.length, cancelled, releasedUnits, failed };
   }
 
   /**
