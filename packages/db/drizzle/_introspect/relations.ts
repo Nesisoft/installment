@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, stores, products, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, refunds, permissions, role_permissions, roles, user_roles } from "./schema";
+import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, held_reserves, payouts, collections_cases, collections_actions, rule_definitions, categories, stores, products, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, refunds, permissions, role_permissions, roles, user_roles } from "./schema";
 
 export const customersRelations = relations(customers, ({one, many}) => ({
 	user: one(users, {
@@ -64,8 +64,8 @@ export const applicationsRelations = relations(applications, ({one, many}) => ({
 export const merchantsRelations = relations(merchants, ({many}) => ({
 	applications: many(applications),
 	customer_plans: many(customer_plans),
-	payouts: many(payouts),
 	held_reserves: many(held_reserves),
+	payouts: many(payouts),
 	stores: many(stores),
 	products: many(products),
 	cart_items: many(cart_items),
@@ -143,13 +143,6 @@ export const payment_attemptsRelations = relations(payment_attempts, ({one}) => 
 	}),
 }));
 
-export const payoutsRelations = relations(payouts, ({one}) => ({
-	merchant: one(merchants, {
-		fields: [payouts.merchant_id],
-		references: [merchants.id]
-	}),
-}));
-
 export const held_reservesRelations = relations(held_reserves, ({one}) => ({
 	customer_plan: one(customer_plans, {
 		fields: [held_reserves.customer_plan_id],
@@ -157,6 +150,13 @@ export const held_reservesRelations = relations(held_reserves, ({one}) => ({
 	}),
 	merchant: one(merchants, {
 		fields: [held_reserves.merchant_id],
+		references: [merchants.id]
+	}),
+}));
+
+export const payoutsRelations = relations(payouts, ({one}) => ({
+	merchant: one(merchants, {
+		fields: [payouts.merchant_id],
 		references: [merchants.id]
 	}),
 }));

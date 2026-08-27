@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
+import type { AuditActorType } from '../audit/audit-logger.service';
 import { AttemptRepository, type PaymentAttempt } from '../payments/attempt-repository';
 import type { ChargeFailureEscalator } from '../payments/charge-failure-escalator';
 import { CustomerPlansService } from '../schedules/customer-plans.service';
@@ -91,6 +92,24 @@ function transactionReferenceOf(event: PaystackWebhookEvent): string | undefined
  * charge outcomes to the same settle/fail handlers the synchronous path uses —
  * idempotently, so a webhook that races the synchronous charge does no harm.
  */
+/**
+ * Settles a customer-initiated order payment from its provider reference.
+ *
+ * Orders deliberately do not use `payment_attempts` — that table is shaped for
+ * installment schedules, and its readers include the credit-scoring behaviour
+ * collector — so their reference lives on the order instead. This port is how
+ * the webhook reaches across to commerce without core depending on it.
+ *
+ * Returns true when the reference belonged to an order (settled, or already
+ * settled), so the caller knows not to alert on it.
+ */
+export interface OrderPaymentSettler {
+  settleByPaymentReference(
+    reference: string,
+    actor: { actorId: string; actorType: AuditActorType },
+  ): Promise<boolean>;
+}
+
 export class WebhookService {
   constructor(
     private readonly db: Database,
@@ -118,6 +137,12 @@ export class WebhookService {
      * until the slower reconciliation sweep notices.
      */
     private readonly refunds?: RefundConfirmer,
+    /**
+     * Settles a customer-initiated order payment. Without it, a shopper paying
+     * for an order by Mobile Money is charged and the order never advances —
+     * the money arrives and the goods never ship.
+     */
+    private readonly orderPayments?: OrderPaymentSettler,
   ) {}
 
   /** Reports an unapplied outcome without ever failing the ingest. */
@@ -204,6 +229,15 @@ export class WebhookService {
     }
     const attempt = await this.attempts.findByProviderReference(reference);
     if (!attempt) {
+      // Not an installment charge. It may be a customer paying for an order:
+      // those carry their reference on the order row rather than in
+      // payment_attempts, so try there before treating it as unknown.
+      if (event.event === 'charge.success' && this.orderPayments) {
+        const settled = await this.orderPayments
+          .settleByPaymentReference(reference, WEBHOOK_ACTOR)
+          .catch(() => false);
+        if (settled) return;
+      }
       // Paystack is telling us a customer was charged against a reference we
       // have no record of. Returning silently loses that fact permanently.
       this.alert({ eventType: event.event, reference, reason: 'no payment_attempt for reference' });

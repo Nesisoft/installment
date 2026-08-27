@@ -17,6 +17,7 @@ import { ProductsService } from '../catalog/products.service';
 import { InventoryService } from '../catalog/inventory.service';
 import { CartService } from './cart.service';
 import { OrdersService } from './orders.service';
+import { OrderPaymentService } from './order-payment.service';
 import {
   EmptyCartError,
   OrderNotActivatableError,
@@ -242,6 +243,113 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
    * somebody asks, and the shopper who never paid is by definition not coming
    * back to tidy up.
    */
+  /**
+   * Customer-initiated payment. Orders deliberately do not use payment_attempts
+   * (see order-payment.service), so the provider reference lives on the order
+   * and is the only thing tying an asynchronous charge.success back to it.
+   */
+  describe('customer MoMo payment', () => {
+    function stubPaystack(status: string) {
+      const calls: { reference: string; amount: number }[] = [];
+      const client = {
+        chargeMobileMoney: async (req: { reference: string; amount: number }) => {
+          calls.push({ reference: req.reference, amount: req.amount });
+          return { data: { reference: req.reference, status, display_text: 'Approve it' } };
+        },
+      };
+      return { client, calls };
+    }
+
+    async function payableOrder(qty = 2) {
+      const customerId = await freshCustomer();
+      const { storeId } = await merchantWithStore();
+      const v = await variant(storeId, 2000);
+      await cart.addItem(customerId, { variant_id: v, quantity: qty });
+      const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+      return { customerId, variantId: v, order: order! };
+    }
+
+    it('settles the order when the provider approves synchronously', async () => {
+      const { customerId, variantId, order } = await payableOrder();
+      const { client, calls } = stubPaystack('success');
+      const payments = new OrderPaymentService(db, orders, client);
+
+      const result = await payments.payWithMobileMoney(
+        { orderId: order.id, customerId, email: 'a@b.com', phone: '0245550000', provider: 'mtn' },
+        ACTOR,
+      );
+
+      expect(result.status).toBe('paid');
+      // The amount charged is the order total, in pesewas.
+      expect(calls[0]!.amount).toBe(order.total_pesewas);
+      expect(result.reference).toBe(OrderPaymentService.referenceFor(order.id));
+
+      const inv = await inventory.getByVariant(variantId);
+      expect(inv.quantity_reserved).toBe(0);
+    });
+
+    it('leaves the order unpaid but records the reference when the charge is pending', async () => {
+      const { customerId, variantId, order } = await payableOrder();
+      const { client } = stubPaystack('pay_offline');
+      const payments = new OrderPaymentService(db, orders, client);
+
+      const result = await payments.payWithMobileMoney(
+        { orderId: order.id, customerId, email: 'a@b.com', phone: '0245550000', provider: 'mtn' },
+        ACTOR,
+      );
+      expect(result.status).toBe('pending');
+
+      // Nothing has been paid, and the units are still held for the customer.
+      const inv = await inventory.getByVariant(variantId);
+      expect(inv.quantity_reserved).toBe(2);
+
+      // The webhook can now find it — which is the whole point of the reference.
+      const found = await payments.findByPaymentReference(result.reference);
+      expect(found?.id).toBe(order.id);
+    });
+
+    it('settleByPaymentReference is what turns a later charge.success into a paid order', async () => {
+      const { customerId, variantId, order } = await payableOrder();
+      const { client } = stubPaystack('pay_offline');
+      const payments = new OrderPaymentService(db, orders, client);
+      const { reference } = await payments.payWithMobileMoney(
+        { orderId: order.id, customerId, email: 'a@b.com', phone: '0245550000', provider: 'mtn' },
+        ACTOR,
+      );
+
+      expect(await payments.settleByPaymentReference(reference, ACTOR)).toBe(true);
+
+      const inv = await inventory.getByVariant(variantId);
+      expect(inv.quantity_reserved).toBe(0);
+
+      // A re-delivered webhook must not book the money twice. It still claims
+      // the reference so the caller does not alert on something we know.
+      expect(await payments.settleByPaymentReference(reference, ACTOR)).toBe(true);
+      const after = await inventory.getByVariant(variantId);
+      expect(after.quantity_reserved).toBe(0);
+    });
+
+    it('returns false for a reference that is not an order, so the webhook still alerts', async () => {
+      const { client } = stubPaystack('success');
+      const payments = new OrderPaymentService(db, orders, client);
+      expect(await payments.settleByPaymentReference('NOT-AN-ORDER-REF', ACTOR)).toBe(false);
+    });
+
+    it('refuses to charge an order that is not awaiting payment', async () => {
+      const { customerId, order } = await payableOrder(1);
+      const { client } = stubPaystack('success');
+      const payments = new OrderPaymentService(db, orders, client);
+      await orders.confirmPayment(order.id, { provider_reference: 'already' }, ACTOR);
+
+      await expect(
+        payments.payWithMobileMoney(
+          { orderId: order.id, customerId, email: 'a@b.com', phone: '0245550000', provider: 'mtn' },
+          ACTOR,
+        ),
+      ).rejects.toBeInstanceOf(OrderNotPayableError);
+    });
+  });
+
   it('declineFinancing closes the order and gives the stock back', async () => {
     const customerId = await freshCustomer();
     const { storeId } = await merchantWithStore();

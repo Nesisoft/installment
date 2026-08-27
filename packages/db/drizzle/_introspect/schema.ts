@@ -300,6 +300,48 @@ export const customer_plans = pgTable("customer_plans", {
 	check("customer_plans_total_interest_pesewas_check", sql`total_interest_pesewas >= 0`),
 ]);
 
+export const merchants = pgTable("merchants", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	business_name: text().notNull(),
+	legal_name: text().notNull(),
+	tin: text(),
+	registration_number: text(),
+	email: citext("email").notNull(),
+	phone: text().notNull(),
+	paystack_recipient_code: text(),
+	bank_account_number: text(),
+	bank_code: text(),
+	bank_account_name: text(),
+	default_business_model: text().default('bnpl').notNull(),
+	default_mdr_bps: integer().default(400).notNull(),
+	default_reserve_bps: integer().default(500).notNull(),
+	status: text().default('pending_kyc').notNull(),
+	onboarded_at: timestamp({ withTimezone: true, mode: 'string' }),
+	suspended_at: timestamp({ withTimezone: true, mode: 'string' }),
+	suspension_reason: text(),
+	metadata: jsonb().default({}).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	min_payout_pesewas: bigint({ mode: "number" }).default(10000).notNull(),
+	mdr_bps_override: integer(),
+	reserve_bps_override: integer(),
+}, (table) => [
+	index("merchants_email_idx").using("btree", table.email.asc().nullsLast().op("citext_ops")).where(sql`(deleted_at IS NULL)`),
+	index("merchants_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
+	unique("merchants_tin_key").on(table.tin),
+	unique("merchants_registration_number_key").on(table.registration_number),
+	unique("merchants_email_key").on(table.email),
+	check("merchants_default_business_model_check", sql`default_business_model = ANY (ARRAY['bnpl'::text, 'layaway'::text, 'hybrid'::text, 'rent_to_own'::text])`),
+	check("merchants_default_mdr_bps_check", sql`(default_mdr_bps >= 0) AND (default_mdr_bps <= 2000)`),
+	check("merchants_default_reserve_bps_check", sql`(default_reserve_bps >= 0) AND (default_reserve_bps <= 5000)`),
+	check("merchants_mdr_bps_override_check", sql`(mdr_bps_override IS NULL) OR ((mdr_bps_override >= 0) AND (mdr_bps_override <= 2000))`),
+	check("merchants_min_payout_pesewas_check", sql`min_payout_pesewas >= 0`),
+	check("merchants_reserve_bps_override_check", sql`(reserve_bps_override IS NULL) OR ((reserve_bps_override >= 0) AND (reserve_bps_override <= 5000))`),
+	check("merchants_status_check", sql`status = ANY (ARRAY['pending_kyc'::text, 'active'::text, 'suspended'::text, 'offboarded'::text])`),
+]);
+
 export const installment_schedule = pgTable("installment_schedule", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	customer_plan_id: uuid().notNull(),
@@ -402,34 +444,6 @@ export const webhook_events = pgTable("webhook_events", {
 	check("webhook_events_provider_check", sql`provider = 'paystack'::text`),
 ]);
 
-export const payouts = pgTable("payouts", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	merchant_id: uuid().notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	amount_pesewas: bigint({ mode: "number" }).notNull(),
-	as_of_date: date().notNull(),
-	reference: text().notNull(),
-	paystack_transfer_code: text(),
-	paystack_transfer_id: text(),
-	status: text().default('initiated').notNull(),
-	last_error: text(),
-	initiated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	settled_at: timestamp({ withTimezone: true, mode: 'string' }),
-	failed_at: timestamp({ withTimezone: true, mode: 'string' }),
-}, (table) => [
-	index("payouts_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("uuid_ops"), table.initiated_at.desc().nullsFirst().op("timestamptz_ops")),
-	index("payouts_pending_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status = ANY (ARRAY['initiated'::text, 'pending_confirmation'::text, 'unknown'::text]))`),
-	foreignKey({
-			columns: [table.merchant_id],
-			foreignColumns: [merchants.id],
-			name: "payouts_merchant_id_fkey"
-		}),
-	unique("payouts_merchant_id_as_of_date_key").on(table.merchant_id, table.as_of_date),
-	unique("payouts_reference_key").on(table.reference),
-	check("payouts_amount_pesewas_check", sql`amount_pesewas > 0`),
-	check("payouts_status_check", sql`status = ANY (ARRAY['initiated'::text, 'pending_confirmation'::text, 'settled'::text, 'failed'::text, 'unknown'::text, 'reversed'::text])`),
-]);
-
 export const held_reserves = pgTable("held_reserves", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	merchant_id: uuid().notNull(),
@@ -466,6 +480,34 @@ export const held_reserves = pgTable("held_reserves", {
 	check("held_reserves_business_model_check", sql`business_model = ANY (ARRAY['bnpl'::text, 'layaway'::text, 'hybrid'::text, 'rent_to_own'::text])`),
 	check("held_reserves_check", sql`(released_amount_pesewas + consumed_for_default_pesewas) <= amount_pesewas`),
 	check("held_reserves_released_amount_pesewas_check", sql`released_amount_pesewas >= 0`),
+]);
+
+export const payouts = pgTable("payouts", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	merchant_id: uuid().notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	amount_pesewas: bigint({ mode: "number" }).notNull(),
+	as_of_date: date().notNull(),
+	reference: text().notNull(),
+	paystack_transfer_code: text(),
+	paystack_transfer_id: text(),
+	status: text().default('initiated').notNull(),
+	last_error: text(),
+	initiated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	settled_at: timestamp({ withTimezone: true, mode: 'string' }),
+	failed_at: timestamp({ withTimezone: true, mode: 'string' }),
+}, (table) => [
+	index("payouts_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("uuid_ops"), table.initiated_at.desc().nullsFirst().op("timestamptz_ops")),
+	index("payouts_pending_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status = ANY (ARRAY['initiated'::text, 'pending_confirmation'::text, 'unknown'::text]))`),
+	foreignKey({
+			columns: [table.merchant_id],
+			foreignColumns: [merchants.id],
+			name: "payouts_merchant_id_fkey"
+		}),
+	unique("payouts_merchant_id_as_of_date_key").on(table.merchant_id, table.as_of_date),
+	unique("payouts_reference_key").on(table.reference),
+	check("payouts_amount_pesewas_check", sql`amount_pesewas > 0`),
+	check("payouts_status_check", sql`status = ANY (ARRAY['initiated'::text, 'pending_confirmation'::text, 'settled'::text, 'failed'::text, 'unknown'::text, 'reversed'::text])`),
 ]);
 
 export const collections_cases = pgTable("collections_cases", {
@@ -939,9 +981,11 @@ export const orders = pgTable("orders", {
 	metadata: jsonb().default({}).notNull(),
 	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	payment_reference: text(),
 }, (table) => [
 	index("orders_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("uuid_ops")),
 	index("orders_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("orders_payment_reference_key").using("btree", table.payment_reference.asc().nullsLast().op("text_ops")).where(sql`(payment_reference IS NOT NULL)`),
 	index("orders_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")),
 	foreignKey({
 			columns: [table.application_id],
@@ -1018,48 +1062,6 @@ export const order_items = pgTable("order_items", {
 	check("order_items_line_total_pesewas_check", sql`line_total_pesewas >= 0`),
 	check("order_items_quantity_check", sql`quantity > 0`),
 	check("order_items_unit_price_pesewas_check", sql`unit_price_pesewas >= 0`),
-]);
-
-export const merchants = pgTable("merchants", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	business_name: text().notNull(),
-	legal_name: text().notNull(),
-	tin: text(),
-	registration_number: text(),
-	email: citext("email").notNull(),
-	phone: text().notNull(),
-	paystack_recipient_code: text(),
-	bank_account_number: text(),
-	bank_code: text(),
-	bank_account_name: text(),
-	default_business_model: text().default('bnpl').notNull(),
-	default_mdr_bps: integer().default(400).notNull(),
-	default_reserve_bps: integer().default(500).notNull(),
-	status: text().default('pending_kyc').notNull(),
-	onboarded_at: timestamp({ withTimezone: true, mode: 'string' }),
-	suspended_at: timestamp({ withTimezone: true, mode: 'string' }),
-	suspension_reason: text(),
-	metadata: jsonb().default({}).notNull(),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	min_payout_pesewas: bigint({ mode: "number" }).default(10000).notNull(),
-	mdr_bps_override: integer(),
-	reserve_bps_override: integer(),
-}, (table) => [
-	index("merchants_email_idx").using("btree", table.email.asc().nullsLast().op("citext_ops")).where(sql`(deleted_at IS NULL)`),
-	index("merchants_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
-	unique("merchants_tin_key").on(table.tin),
-	unique("merchants_registration_number_key").on(table.registration_number),
-	unique("merchants_email_key").on(table.email),
-	check("merchants_default_business_model_check", sql`default_business_model = ANY (ARRAY['bnpl'::text, 'layaway'::text, 'hybrid'::text, 'rent_to_own'::text])`),
-	check("merchants_default_mdr_bps_check", sql`(default_mdr_bps >= 0) AND (default_mdr_bps <= 2000)`),
-	check("merchants_default_reserve_bps_check", sql`(default_reserve_bps >= 0) AND (default_reserve_bps <= 5000)`),
-	check("merchants_mdr_bps_override_check", sql`(mdr_bps_override IS NULL) OR ((mdr_bps_override >= 0) AND (mdr_bps_override <= 2000))`),
-	check("merchants_min_payout_pesewas_check", sql`min_payout_pesewas >= 0`),
-	check("merchants_reserve_bps_override_check", sql`(reserve_bps_override IS NULL) OR ((reserve_bps_override >= 0) AND (reserve_bps_override <= 5000))`),
-	check("merchants_status_check", sql`status = ANY (ARRAY['pending_kyc'::text, 'active'::text, 'suspended'::text, 'offboarded'::text])`),
 ]);
 
 export const refunds = pgTable("refunds", {

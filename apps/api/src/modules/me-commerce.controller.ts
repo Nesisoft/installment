@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  BadRequestException,
+} from '@nestjs/common';
 import {
   AddressesService,
   CartService,
@@ -9,6 +20,7 @@ import {
   setCartItemQuantitySchema,
   updateAddressSchema,
   cancelOrderSchema,
+  OrderPaymentService,
 } from '@installment/commerce';
 import { CustomerNotFoundError, CustomersService } from '@installment/core';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
@@ -31,6 +43,7 @@ export class MeCommerceController {
     private readonly cart: CartService,
     private readonly addresses: AddressesService,
     private readonly orders: OrdersService,
+    private readonly orderPayments: OrderPaymentService,
   ) {}
 
   private async customerId(user: AuthenticatedUser): Promise<string> {
@@ -105,6 +118,46 @@ export class MeCommerceController {
   @ApiModel('OrderWithItems', { array: true })
   async listOrders(@CurrentUser() user: AuthenticatedUser) {
     return this.orders.listForCustomer(await this.customerId(user));
+  }
+
+  /**
+   * Lets a customer pay for their own pay-in-full order by Mobile Money.
+   *
+   * Before this, the only way an order got paid was an operator reconciling the
+   * money by hand — there was no way for a customer to pay online at all.
+   *
+   * `@Idempotent()` because it moves money. The provider reference is also
+   * derived from the order id and so is stable across retries, which means a
+   * customer who taps Pay again after a timeout sends the provider the same
+   * reference rather than starting a second debit.
+   */
+  @Post('orders/:id/pay-momo')
+  @Idempotent()
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Pay for one of my orders by Mobile Money' })
+  async payOrderMomo(
+    @Param('id') id: string,
+    @Body() body: { phone?: string; provider?: string },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const customer = await this.customers.findByUserId(user.id);
+    if (!customer) throw new CustomerNotFoundError(user.id);
+    const customerId = customer.id;
+
+    // Charge the details on the request if given, otherwise the saved ones.
+    const phone = body?.phone?.trim() || customer.momo_phone || '';
+    const provider = body?.provider?.trim() || customer.momo_provider || '';
+    if (!phone) {
+      throw new BadRequestException('Mobile Money phone is required (none on file)');
+    }
+    if (provider !== 'mtn' && provider !== 'tgo' && provider !== 'vod') {
+      throw new BadRequestException('Mobile Money provider must be one of mtn, tgo, vod');
+    }
+
+    return this.orderPayments.payWithMobileMoney(
+      { orderId: id, customerId, email: customer.email, phone, provider },
+      this.actorFor(customerId),
+    );
   }
 
   /**

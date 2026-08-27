@@ -58,6 +58,7 @@ import {
   OrdersService,
   ProductsService,
   StoresService,
+  OrderPaymentService,
 } from '@installment/commerce';
 import { PaystackClient } from '@installment/paystack-client';
 import type { Database } from '@installment/db';
@@ -457,6 +458,12 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [CustomerPlansService, CustomersService, NotificationService],
     },
     {
+      provide: OrderPaymentService,
+      useFactory: (db: Database, orders: OrdersService, paystack: PaystackClient) =>
+        new OrderPaymentService(db, orders, paystack),
+      inject: [DRIZZLE, OrdersService, PaystackClient],
+    },
+    {
       provide: WebhookService,
       useFactory: (
         db: Database,
@@ -467,6 +474,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         payments: PaymentService,
         settlements: SettlementService,
         refunds: RefundService,
+        orderPayments: OrderPaymentService,
       ) =>
         // Share PaymentService's failure pipeline so a webhook-delivered
         // decline runs the same retry ladder as a synchronous one.
@@ -482,6 +490,9 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
           settlements,
           // ...and refund.* events discharge the customer's refund.
           refunds,
+          // A charge.success matching no installment attempt may be a customer
+          // paying for an order; those carry their reference on the order row.
+          orderPayments,
         ),
       inject: [
         DRIZZLE,
@@ -492,6 +503,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         PaymentService,
         SettlementService,
         RefundService,
+        OrderPaymentService,
       ],
     },
     {
@@ -541,6 +553,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     AddressesService,
     CartService,
     OrdersService,
+    OrderPaymentService,
     CustomersService,
     EmployersService,
     CustomerEmploymentService,
