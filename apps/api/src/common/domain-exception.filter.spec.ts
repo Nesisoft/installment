@@ -9,7 +9,13 @@ import {
   LedgerError,
   PermissionDeniedError,
 } from '@installment/core';
-import { DomainExceptionFilter } from './domain-exception.filter';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import {
+  DomainExceptionFilter,
+  INTENTIONALLY_UNMAPPED,
+  NAME_STATUS,
+} from './domain-exception.filter';
 
 vi.mock('@sentry/node', () => ({ captureException: vi.fn() }));
 
@@ -65,6 +71,99 @@ class BoomController {
     throw new Error('connection string is postgres://user:hunter2@db.internal');
   }
 }
+
+/**
+ * The bug this guards against: every one of the 33 error classes in
+ * @installment/commerce, @installment/core and @installment/paystack-client was
+ * absent from NAME_STATUS, so all of them answered 500 "Internal server error"
+ * and were reported to Sentry as server faults. A shopper opening a stale
+ * product link got an outage page, and the alerting drowned in it.
+ *
+ * Nothing failed, which is why it survived: the filter has a default branch and
+ * a forgotten error looks exactly like a handled one. So rather than testing the
+ * mappings one at a time, this reads the source tree and insists every declared
+ * domain error is CLASSIFIED — mapped to a status, or named in
+ * INTENTIONALLY_UNMAPPED with the reasoning that keeps it a 500.
+ */
+describe('domain error coverage', () => {
+  // Walk up to the workspace root rather than counting '..' from __dirname,
+  // which vitest's transform does not reliably provide.
+  function workspaceRoot(): string {
+    let dir = process.cwd();
+    for (let i = 0; i < 8; i++) {
+      try {
+        if (statSync(join(dir, 'pnpm-workspace.yaml')).isFile()) return dir;
+      } catch {
+        /* keep walking */
+      }
+      const parent = resolve(dir, '..');
+      if (parent === dir) break;
+      dir = parent;
+    }
+    throw new Error(`could not locate the workspace root from ${process.cwd()}`);
+  }
+
+  const ROOT = workspaceRoot();
+  const PACKAGES = ['core', 'commerce', 'paystack-client', 'sms-client', 'db'];
+
+  function tsFiles(dir: string): string[] {
+    let out: string[] = [];
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return out;
+    }
+    for (const entry of entries) {
+      if (entry === 'node_modules' || entry === 'dist') continue;
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) out = out.concat(tsFiles(full));
+      else if (entry.endsWith('.ts') && !entry.endsWith('.spec.ts')) out.push(full);
+    }
+    return out;
+  }
+
+  const declared = new Set<string>();
+  for (const pkg of PACKAGES) {
+    for (const file of tsFiles(join(ROOT, 'packages', pkg, 'src'))) {
+      const src = readFileSync(file, 'utf8');
+      for (const m of src.matchAll(/export class ([A-Za-z0-9_]*Error)/g)) declared.add(m[1]!);
+    }
+  }
+
+  it('found the domain error classes (guards against a bad path resolving to nothing)', () => {
+    expect(declared.size).toBeGreaterThan(40);
+    expect(declared.has('CustomerPlanNotFoundError')).toBe(true);
+    expect(declared.has('ProductNotFoundError')).toBe(true);
+  });
+
+  it('classifies every declared domain error — mapped, or deliberately left at 500', () => {
+    const unclassified = [...declared]
+      .filter((name) => !(name in NAME_STATUS))
+      .filter((name) => !INTENTIONALLY_UNMAPPED.includes(name))
+      .sort();
+
+    expect(
+      unclassified,
+      'These error classes fall through to 500 and will alarm Sentry. Add each to ' +
+        'NAME_STATUS, or to INTENTIONALLY_UNMAPPED if a 5xx is genuinely right: ' +
+        unclassified.join(', '),
+    ).toEqual([]);
+  });
+
+  it('keeps the anonymous-reachable storefront errors off 5xx', () => {
+    // A stale link is not an outage.
+    for (const name of ['ProductNotFoundError', 'StoreNotFoundError', 'CategoryNotFoundError']) {
+      expect(NAME_STATUS[name], name).toBeLessThan(500);
+    }
+  });
+
+  it('leaves internal invariant failures alarming', () => {
+    for (const name of INTENTIONALLY_UNMAPPED) {
+      expect(name in NAME_STATUS, `${name} should stay unmapped`).toBe(false);
+    }
+  });
+});
 
 describe('DomainExceptionFilter (HTTP)', () => {
   let app: INestApplication;
