@@ -40,6 +40,22 @@ class BoomController {
     throw new CustomerPlanNotFoundError('plan-1');
   }
 
+  /**
+   * Shaped like what actually reaches the filter: drizzle wraps the driver
+   * error, so the pg code sits on the cause and the wrapper carries the SQL.
+   */
+  @Get('bad-uuid')
+  badUuid(): never {
+    const driverError = Object.assign(
+      new Error('invalid input syntax for type uuid: "not-a-uuid"'),
+      { code: '22P02' },
+    );
+    throw Object.assign(
+      new Error('Failed query: select "id", "customer_id" from "orders" where "id" = $1'),
+      { cause: driverError },
+    );
+  }
+
   @Get('in-flight')
   inFlight(): never {
     throw new ChargeAlreadyInFlightError('sched-1', 'already processing');
@@ -217,6 +233,37 @@ describe('DomainExceptionFilter (HTTP)', () => {
     // idempotency header from a malformed body.
     const res = await request(app.getHttpServer()).get('/boom/coded').expect(400);
     expect(res.body).toEqual({ error: 'IdempotencyKeyRequired', message: 'header missing' });
+  });
+
+  /**
+   * Every route in the API answered 500 to a malformed identifier — a client
+   * error reported as a server fault, alerting Sentry each time.
+   */
+  it('turns a malformed identifier into 400, not 500', async () => {
+    const res = await request(app.getHttpServer()).get('/boom/bad-uuid');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('InvalidIdentifier');
+  });
+
+  it('never leaks the SQL or the offending value to the client', async () => {
+    const res = await request(app.getHttpServer()).get('/boom/bad-uuid');
+
+    const body = JSON.stringify(res.body);
+    expect(body).not.toContain('select');
+    expect(body).not.toContain('orders');
+    expect(body).not.toContain('not-a-uuid');
+  });
+
+  it('does not report a malformed identifier to Sentry', async () => {
+    // The filter only captures >= 500, so dropping this to 400 is what stops
+    // routine bad input drowning real server faults.
+    const Sentry = await import('@sentry/node');
+    (Sentry.captureException as ReturnType<typeof vi.fn>).mockClear();
+
+    await request(app.getHttpServer()).get('/boom/bad-uuid');
+
+    expect(Sentry.captureException).not.toHaveBeenCalled();
   });
 
   it('never leaks the message of an unrecognised error', async () => {
