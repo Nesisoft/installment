@@ -175,12 +175,61 @@ export function useOrders() {
   });
 }
 
-export function useOrder(id: string) {
+export function useOrder(id: string, opts: { pollMs?: number } = {}) {
   const api = useApi();
   return useQuery({
     queryKey: ['order', id],
     queryFn: async () => (await api.get<OrderWithItems>(`/me/orders/${id}`)).data,
     enabled: Boolean(id),
+    // A Mobile Money charge the customer approves on their handset is settled by
+    // a webhook, not by our response. Poll while one is outstanding so the page
+    // flips to paid on its own instead of asking them to refresh — and stop the
+    // moment it does, so a settled order cannot leave a timer running.
+    refetchInterval: (query) =>
+      opts.pollMs && query.state.data?.status === 'pending_payment' ? opts.pollMs : false,
+    // Keep polling while the tab is hidden. Approving a Mobile Money prompt
+    // means leaving the browser for the MoMo app, which is exactly when the
+    // payment lands — and the shared client sets refetchOnWindowFocus: false,
+    // so without this the customer comes back to a stale "awaiting payment"
+    // page and has to reload to see an order they have already paid for.
+    refetchIntervalInBackground: true,
+  });
+}
+
+export interface OrderChargeResult {
+  status: 'paid' | 'pending' | 'failed';
+  reference: string;
+  order?: OrderWithItems;
+  message?: string;
+}
+
+/**
+ * Pay for a pay-in-full order by Mobile Money.
+ *
+ * `idempotencyKey` is required and owned by the caller, for the same reason as
+ * useCheckout and usePayMomo: minting one per call would produce a fresh key on
+ * every retry and turn a timed-out charge into a second debit.
+ */
+export function usePayOrderMomo(orderId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: {
+      phone: string;
+      provider: 'mtn' | 'tgo' | 'vod';
+      idempotencyKey: string;
+    }) => {
+      const { data } = await api.post<OrderChargeResult>(
+        `/me/orders/${orderId}/pay-momo`,
+        { phone: args.phone, provider: args.provider },
+        { headers: { 'Idempotency-Key': args.idempotencyKey } },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['order', orderId] });
+      void qc.invalidateQueries({ queryKey: ['orders'] });
+    },
   });
 }
 
