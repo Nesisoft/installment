@@ -36,7 +36,7 @@ export const envSchema = z.object({
   SMS_PROVIDER: z.enum(['console', 'hubtel', 'arkesel']).default('console'),
   HUBTEL_CLIENT_ID: z.string().default(''),
   HUBTEL_CLIENT_SECRET: z.string().default(''),
-  HUBTEL_BASE_URL: z.string().default('https://smsc.hubtel.com'),
+  HUBTEL_BASE_URL: z.string().default('https://sms.hubtel.com'),
   ARKESEL_API_KEY: z.string().default(''),
   ARKESEL_BASE_URL: z.string().default('https://sms.arkesel.com'),
   /**
