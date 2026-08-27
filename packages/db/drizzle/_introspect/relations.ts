@@ -1,11 +1,12 @@
 import { relations } from "drizzle-orm/relations";
-import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, held_reserves, payouts, collections_cases, collections_actions, rule_definitions, categories, stores, products, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, refunds, permissions, role_permissions, roles, user_roles } from "./schema";
+import { users, customers, customer_card_authorizations, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, held_reserves, payouts, collections_cases, collections_actions, rule_definitions, categories, stores, products, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, refunds, permissions, role_permissions, roles, user_roles } from "./schema";
 
 export const customersRelations = relations(customers, ({one, many}) => ({
 	user: one(users, {
 		fields: [customers.user_id],
 		references: [users.id]
 	}),
+	customer_card_authorizations: many(customer_card_authorizations),
 	customer_employments: many(customer_employment),
 	applications: many(applications),
 	credit_profiles: many(credit_profiles),
@@ -25,6 +26,13 @@ export const usersRelations = relations(users, ({many}) => ({
 	}),
 	user_roles_user_id: many(user_roles, {
 		relationName: "user_roles_user_id_users_id"
+	}),
+}));
+
+export const customer_card_authorizationsRelations = relations(customer_card_authorizations, ({one}) => ({
+	customer: one(customers, {
+		fields: [customer_card_authorizations.customer_id],
+		references: [customers.id]
 	}),
 }));
 

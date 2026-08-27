@@ -1,6 +1,7 @@
 import type { CustomerPlansService, PlanActor } from '../schedules/customer-plans.service';
 import type { CustomersService } from '../customers/customers.service';
 import type { PaymentService, ChargeResult } from './payment.service';
+import type { CardAuthorizationService } from './card-authorization.service';
 
 /** Outcome of one auto-debit attempt. `skipped` means we couldn't even try. */
 export interface DebitAttemptOutcome {
@@ -23,9 +24,18 @@ export interface DebitSweepSummary {
 }
 
 /**
- * Drives auto-debit for installments that are due. The instrument is the
- * customer's saved Mobile Money (no stored card authorization exists yet), so
- * a customer without MoMo on file is skipped rather than charged.
+ * Drives auto-debit for installments that are due.
+ *
+ * Prefers a saved card authorization, and falls back to the customer's Mobile
+ * Money. That order is the whole point: a card authorization debits without the
+ * customer doing anything, while a MoMo charge sends a prompt they have to
+ * notice and approve — so a collection run that reaches for MoMo first turns
+ * every instalment into a request rather than a collection.
+ *
+ * It picks ONE instrument per run and does not cascade. Trying the card and
+ * then MoMo in the same pass is how a charge that actually succeeded but
+ * reported a failure becomes two debits; the retry ladder is what tries again,
+ * with PaymentService's unresolved-attempt guard in between.
  *
  * Shared by the hourly debit sweep (first attempts on pending/due rows) and the
  * retry worker (auto_debit retries on retry_scheduled rows) — PaymentService's
@@ -36,17 +46,26 @@ export class DebitRunner {
     private readonly plans: CustomerPlansService,
     private readonly customers: CustomersService,
     private readonly payments: PaymentService,
+    /**
+     * Optional so framework-free callers keep working; without it collection
+     * falls back to Mobile Money exactly as before.
+     */
+    private readonly cards?: CardAuthorizationService,
   ) {}
 
-  /** Attempts a single auto-debit via the customer's saved MoMo. Never throws. */
+  /**
+   * Attempts a single auto-debit on the best instrument on file. Never throws.
+   */
   async attemptAutoDebit(scheduleId: string, actor: PlanActor): Promise<DebitAttemptOutcome> {
     let phone: string;
     let provider: string;
     let email: string;
+    let customerId: string;
     try {
       const installment = await this.plans.getInstallment(scheduleId);
       const plan = await this.plans.get(installment.customer_plan_id);
       const customer = await this.customers.get(plan.customer_id);
+      customerId = customer.id;
       phone = customer.momo_phone ?? '';
       provider = customer.momo_provider ?? '';
       email = customer.email;
@@ -58,8 +77,31 @@ export class DebitRunner {
       };
     }
 
+    // A saved card collects silently, so it is tried first when there is one.
+    const card = this.cards ? await this.cards.findUsable(customerId).catch(() => null) : null;
+    if (card) {
+      try {
+        const result = await this.payments.chargeCard(
+          { scheduleId, email, authorizationCode: card.authorization_code },
+          actor,
+        );
+        return {
+          scheduleId,
+          status: result.status,
+          providerReference: result.providerReference,
+          reason: result.failureReason,
+        };
+      } catch (err) {
+        return {
+          scheduleId,
+          status: 'skipped',
+          reason: err instanceof Error ? err.message : 'card_charge_failed',
+        };
+      }
+    }
+
     if (!phone || (provider !== 'mtn' && provider !== 'tgo' && provider !== 'vod')) {
-      return { scheduleId, status: 'skipped', reason: 'no_momo_instrument' };
+      return { scheduleId, status: 'skipped', reason: 'no_instrument' };
     }
 
     try {

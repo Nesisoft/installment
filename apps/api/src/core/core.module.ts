@@ -49,6 +49,7 @@ import {
   UsersService,
   WebhookService,
   type SmsSender,
+  CardAuthorizationService,
 } from '@installment/core';
 import {
   AddressesService,
@@ -365,6 +366,11 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [REDIS],
     },
     {
+      provide: CardAuthorizationService,
+      useFactory: (db: Database) => new CardAuthorizationService(db),
+      inject: [DRIZZLE],
+    },
+    {
       provide: PaymentService,
       useFactory: (
         plans: CustomerPlansService,
@@ -375,6 +381,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         receipts: ChargeReceiptService,
         telco: TelcoHealthMonitor,
         lock: RedisLock,
+        cards: CardAuthorizationService,
       ) =>
         new PaymentService(
           plans,
@@ -385,6 +392,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
           receipts,
           telco,
           lock,
+          cards,
         ),
       inject: [
         CustomerPlansService,
@@ -395,6 +403,7 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         ChargeReceiptService,
         TelcoHealthMonitor,
         RedisLock,
+        CardAuthorizationService,
       ],
     },
     {
@@ -416,8 +425,9 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
         plans: CustomerPlansService,
         customers: CustomersService,
         payments: PaymentService,
-      ) => new DebitRunner(plans, customers, payments),
-      inject: [CustomerPlansService, CustomersService, PaymentService],
+        cards: CardAuthorizationService,
+      ) => new DebitRunner(plans, customers, payments, cards),
+      inject: [CustomerPlansService, CustomersService, PaymentService, CardAuthorizationService],
     },
     {
       provide: VerifyRunner,
