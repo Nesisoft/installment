@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, Inject, Param, Post } from '@nestjs/common';
 import { PERMISSIONS } from '@installment/core';
-import { OrdersService, confirmOrderPaymentSchema } from '@installment/commerce';
+import { OrdersService, cancelOrderSchema, confirmOrderPaymentSchema } from '@installment/commerce';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
@@ -72,5 +72,32 @@ export class OrdersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.orders.confirmPayment(id, body, actorOf(user));
+  }
+
+  /**
+   * Cancels an unpaid order and returns its stock to sale.
+   *
+   * PLANS_WRITE rather than SETTLEMENTS_RUN: no money moves, so this does not
+   * need the money authority. It is the operator's counterpart to the
+   * customer's own cancel on /me/orders/:id/cancel — for an order abandoned by
+   * someone who never comes back, or one a merchant cannot fulfil.
+   *
+   * Not idempotent-guarded: it moves no money, and a second attempt is refused
+   * by the status check rather than doing anything twice.
+   */
+  @Post(':id/cancel')
+  @ApiZodBody(cancelOrderSchema)
+  @RequirePermissions(PERMISSIONS.PLANS_WRITE)
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Cancel an unpaid order and release its stock reservation',
+    description:
+      'For an order in `pending_payment`, `pending_approval` or `payment_failed`. Returns ' +
+      'every reserved unit to available stock and cancels the linked credit application. ' +
+      'Refused for `paid` and `financing_active`: those need a refund or a plan unwind, ' +
+      'not a status change.',
+  })
+  cancel(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    return this.orders.cancel(id, body, actorOf(user));
   }
 }

@@ -49,6 +49,12 @@ export const checkoutSchema = z
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
 
 /** Provider confirmation that a full order's charge cleared (webhook / admin). */
+/** Why the order was cancelled — free text, kept for the audit trail. */
+export const cancelOrderSchema = z.object({
+  reason: z.string().trim().min(1).max(300).optional(),
+});
+export type CancelOrderInput = z.infer<typeof cancelOrderSchema>;
+
 export const confirmOrderPaymentSchema = z.object({
   provider_reference: z.string().trim().min(1).max(200),
 });

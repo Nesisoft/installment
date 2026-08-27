@@ -88,6 +88,9 @@ export const NAME_STATUS: Record<string, number> = {
   InvalidOrderTransitionError: HttpStatus.CONFLICT,
   OrderNotPayableError: HttpStatus.CONFLICT,
   OrderNotActivatableError: HttpStatus.CONFLICT,
+  // The order's own state refuses the cancel — it has already been paid or
+  // financed, so unwinding it is a refund, not a status change.
+  OrderNotCancellableError: HttpStatus.CONFLICT,
   // The stock moved under the request. A conflict with current state rather
   // than a bad request: the same call may succeed once stock returns.
   InsufficientStockError: HttpStatus.CONFLICT,
