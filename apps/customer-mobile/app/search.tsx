@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Dimensions, Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -11,16 +11,16 @@ import {
   ErrorState,
   Icon,
   Loading,
-  ProductCard,
+  QuotedProductCard,
   Screen,
   SectionLabel,
   Text,
 } from '../src/components';
-import { bestQuote, usePlanQuote, useSearch, useTrending } from '../src/features/storefront';
+import { useSearch, useTrending } from '../src/features/storefront';
 import { useToggleWishlist, useWishlistIds } from '../src/features/account';
-import { cadenceNoun, ghs, pluralise } from '../src/lib/format';
+import { pluralise } from '../src/lib/format';
 import { color, font, radius, space } from '../src/theme/tokens';
-import type { StorefrontProduct, TrendingTerm } from '../src/features/types';
+import type { TrendingTerm } from '../src/features/types';
 
 /** How long the box stays quiet before the term reaches the API. */
 const DEBOUNCE_MS = 300;
@@ -154,7 +154,7 @@ export default function SearchScreen(): React.ReactElement {
                 ) : (
                   <View style={styles.grid}>
                     {results.data.rows.map((p) => (
-                      <CardWithQuote
+                      <QuotedProductCard
                         key={p.id}
                         product={p}
                         saved={saved.has(p.id)}
@@ -258,42 +258,6 @@ function TrendingRow({
   );
 }
 
-/**
- * A product card with its "or GHS X/week" line — the same pairing the home
- * grid uses, so a product looks identical wherever it is found.
- *
- * The quote comes from the engine rather than a division here: the generator
- * spreads a rounding remainder across the earliest instalments, so a local
- * approximation would disagree with the schedule shown at checkout. Quotes are
- * cached by amount, so a grid makes far fewer requests than it has cards.
- */
-function CardWithQuote({
-  product,
-  saved,
-  onToggleSave,
-}: {
-  product: StorefrontProduct;
-  saved: boolean;
-  onToggleSave?: () => void;
-}): React.ReactElement {
-  const quotes = usePlanQuote(product.installment_eligible ? product.base_price_pesewas : 0);
-  const best = bestQuote(quotes.data);
-
-  return (
-    <ProductCard
-      product={product}
-      width={GRID_WIDTH}
-      saved={saved}
-      onToggleSave={onToggleSave}
-      weekly={
-        best
-          ? `or ${ghs(best.per_installment_pesewas)}/${cadenceNoun(best.installment_frequency_days)}`
-          : null
-      }
-    />
-  );
-}
-
 const RECENT_KEY = 'ejua.recent-searches';
 const RECENT_LIMIT = 6;
 
@@ -360,7 +324,6 @@ async function persistRecent(terms: string[]): Promise<void> {
  * Two columns with a gutter, measured rather than flexed — `flex: 1` in a
  * wrapping row stretches the single card on an odd last row to full width.
  */
-const GRID_WIDTH = (Dimensions.get('window').width - space.lg * 2 - space.md) / 2;
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.canvas },

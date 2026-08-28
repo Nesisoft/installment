@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Dimensions, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@installment/mobile-kit';
 import {
@@ -10,33 +10,22 @@ import {
   Header,
   Icon,
   Loading,
-  ProductCard,
+  QuotedProductCard,
   Screen,
   SectionLabel,
   Sheet,
   Text,
 } from '../../src/components';
 import {
-  bestQuote,
   SORTS,
   useBrowse,
   useCategories,
-  usePlanQuote,
   type BrowseFilters,
   type SortValue,
 } from '../../src/features/storefront';
 import { useToggleWishlist, useWishlistIds } from '../../src/features/account';
-import { cadenceNoun, ghs, pluralise } from '../../src/lib/format';
+import { ghs, pluralise } from '../../src/lib/format';
 import { color, font, radius, space } from '../../src/theme/tokens';
-import type { StorefrontProduct } from '../../src/features/types';
-
-/**
- * `GET /storefront/products` accepts `deals_only`, but `BrowseFilters` in
- * src/features/storefront.ts does not declare it yet. The hook spreads whatever
- * it is handed into the request params, so widening the object here carries the
- * flag through without editing the shared type.
- */
-type BrowseQuery = BrowseFilters & { deals_only?: boolean };
 
 /**
  * The PAYMENT group is single-select: "Pay in instalments" and "In stock" are
@@ -90,7 +79,7 @@ export default function BrowseScreen(): React.ReactElement {
     setFilters(seed(paramCategory, paramStore, paramInstalments, paramDeals));
   }, [paramCategory, paramStore, paramInstalments, paramDeals]);
 
-  const query = useMemo<BrowseQuery>(
+  const query = useMemo<BrowseFilters>(
     () => ({
       sort: filters.sort,
       ...(filters.category_slug ? { category_slug: filters.category_slug } : {}),
@@ -156,6 +145,7 @@ export default function BrowseScreen(): React.ReactElement {
       >
         <Chip
           label="All"
+          accessibilityLabel="All categories"
           selected={!filters.category_slug}
           onPress={() => update({ category_slug: undefined })}
         />
@@ -216,7 +206,7 @@ export default function BrowseScreen(): React.ReactElement {
       {rows.length > 0 ? (
         <View style={styles.grid}>
           {rows.map((p) => (
-            <CardWithQuote
+            <QuotedProductCard
               key={p.id}
               product={p}
               saved={saved.has(p.id)}
@@ -252,6 +242,7 @@ export default function BrowseScreen(): React.ReactElement {
               <Chip
                 key={s.value}
                 label={s.label}
+                accessibilityLabel={`Sort by ${s.label}`}
                 selected={filters.sort === s.value}
                 onPress={() => update({ sort: s.value })}
               />
@@ -264,6 +255,7 @@ export default function BrowseScreen(): React.ReactElement {
               <Chip
                 key={p.value}
                 label={p.label}
+                accessibilityLabel={`Payment: ${p.label}`}
                 selected={filters.payment === p.value}
                 onPress={() => update({ payment: p.value })}
               />
@@ -274,6 +266,7 @@ export default function BrowseScreen(): React.ReactElement {
           <View style={styles.chipWrap}>
             <Chip
               label="Any"
+              accessibilityLabel="Any price"
               selected={!filters.max_price_pesewas}
               onPress={() => update({ max_price_pesewas: undefined })}
             />
@@ -317,41 +310,6 @@ export default function BrowseScreen(): React.ReactElement {
   );
 }
 
-/**
- * A product tile with its "or GHS X/week" line.
- *
- * One component per card so each price point gets its own cached quote: the
- * engine spreads a rounding remainder across the earliest instalments, so a
- * division done here would disagree with the schedule the customer is shown at
- * checkout. Repeated prices in the grid share a cache entry.
- */
-function CardWithQuote({
-  product,
-  saved,
-  onToggleSave,
-}: {
-  product: StorefrontProduct;
-  saved: boolean;
-  onToggleSave?: () => void;
-}): React.ReactElement {
-  const quotes = usePlanQuote(product.installment_eligible ? product.base_price_pesewas : 0);
-  const best = bestQuote(quotes.data);
-
-  return (
-    <ProductCard
-      product={product}
-      width={GRID_WIDTH}
-      saved={saved}
-      onToggleSave={onToggleSave}
-      weekly={
-        best
-          ? `or ${ghs(best.per_installment_pesewas)}/${cadenceNoun(best.installment_frequency_days)}`
-          : null
-      }
-    />
-  );
-}
-
 /** The filter state a set of route params means. */
 function seed(
   categorySlug: string | undefined,
@@ -386,7 +344,6 @@ function isTruthyParam(value: string | string[] | undefined): boolean {
  * odd-length list stretches its single card to full width. An explicit width
  * keeps every tile the same size whatever the count.
  */
-const GRID_WIDTH = (Dimensions.get('window').width - space.lg * 2 - space.md) / 2;
 
 const styles = StyleSheet.create({
   rail: { gap: space.sm, paddingHorizontal: space.lg, paddingVertical: space.md },

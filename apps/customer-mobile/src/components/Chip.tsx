@@ -7,13 +7,25 @@ export interface ChipProps {
   label: string;
   selected?: boolean;
   onPress?: () => void;
+  /**
+   * Spoken label, when the visible one is ambiguous out of context. Several
+   * screens show more than one "All" chip (a category group and a payment
+   * group), which a screen reader would otherwise announce identically.
+   */
+  accessibilityLabel?: string;
 }
 
 /** The filter/category chips: dark when chosen, sunk surface when not. */
-export function Chip({ label, selected, onPress }: ChipProps): React.ReactElement {
+export function Chip({
+  label,
+  selected,
+  onPress,
+  accessibilityLabel,
+}: ChipProps): React.ReactElement {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ selected: Boolean(selected) }}
       onPress={onPress}
       style={({ pressed }) => [

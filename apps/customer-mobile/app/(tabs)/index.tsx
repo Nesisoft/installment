@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Dimensions, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@installment/mobile-kit';
@@ -7,21 +7,22 @@ import {
   Button,
   Card,
   ErrorState,
+  GRID_WIDTH,
   Icon,
   Loading,
   Pill,
-  ProductCard,
+  QuotedProductCard,
   Screen,
   Text,
 } from '../../src/components';
-import { bestQuote, useHomeFeed, usePlanQuote } from '../../src/features/storefront';
+import { useHomeFeed } from '../../src/features/storefront';
 import {
   useCredit,
   useNextInstallment,
   useToggleWishlist,
   useWishlistIds,
 } from '../../src/features/account';
-import { cadenceNoun, ghs } from '../../src/lib/format';
+import { ghs } from '../../src/lib/format';
 import { countdown, relativeDate } from '../../src/lib/dates';
 import { DEFAULT_CITY } from '../../src/lib/config';
 import { color, radius, space } from '../../src/theme/tokens';
@@ -275,7 +276,7 @@ function DealsRail({
         contentContainerStyle={styles.rail}
       >
         {products.map((p) => (
-          <CardWithQuote
+          <QuotedProductCard
             key={p.id}
             product={p}
             width={150}
@@ -310,7 +311,7 @@ function ProductGrid({
       </Text>
       <View style={styles.grid}>
         {products.map((p) => (
-          <CardWithQuote
+          <QuotedProductCard
             key={p.id}
             product={p}
             width={GRID_WIDTH}
@@ -324,54 +325,12 @@ function ProductGrid({
 }
 
 /**
- * A product card with its "from GHS X / week" line.
- *
- * The quote is fetched per price point rather than computed here: the engine's
- * generator spreads a rounding remainder across the earliest instalments, so a
- * client-side division would disagree with the schedule the customer is later
- * shown. Quotes are cached by amount, so a grid of similarly-priced items makes
- * far fewer requests than it has cards.
- */
-function CardWithQuote({
-  product,
-  width,
-  compact,
-  saved,
-  onToggleSave,
-}: {
-  product: StorefrontProduct;
-  width?: number;
-  compact?: boolean;
-  saved: boolean;
-  onToggleSave?: () => void;
-}): React.ReactElement {
-  const quotes = usePlanQuote(product.installment_eligible ? product.base_price_pesewas : 0);
-  const best = bestQuote(quotes.data);
-
-  return (
-    <ProductCard
-      product={product}
-      width={width}
-      compact={compact}
-      saved={saved}
-      onToggleSave={onToggleSave}
-      weekly={
-        best
-          ? `or ${ghs(best.per_installment_pesewas)}/${cadenceNoun(best.installment_frequency_days)}`
-          : null
-      }
-    />
-  );
-}
-
-/**
  * Two columns with a gutter, measured rather than flexed.
  *
  * `flex: 1` inside a wrapping row does not produce a grid — the last row of an
  * odd-length list stretches its single card to full width. An explicit width
  * keeps every tile the same size whatever the count.
  */
-const GRID_WIDTH = (Dimensions.get('window').width - space.lg * 2 - space.md) / 2;
 
 const styles = StyleSheet.create({
   header: {

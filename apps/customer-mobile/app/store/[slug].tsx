@@ -1,5 +1,5 @@
 import React from 'react';
-import { Dimensions, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,22 +12,16 @@ import {
   Icon,
   Loading,
   Pill,
-  ProductCard,
+  QuotedProductCard,
   Screen,
   Text,
 } from '../../src/components';
-import {
-  bestQuote,
-  useBrowse,
-  usePlanQuote,
-  useStore,
-  type BrowseFilters,
-} from '../../src/features/storefront';
+import { useBrowse, useStore, type BrowseFilters } from '../../src/features/storefront';
 import { useToggleWishlist, useWishlistIds } from '../../src/features/account';
-import { cadenceNoun, compact, ghs, initials, pluralise } from '../../src/lib/format';
+import { compact, initials, pluralise } from '../../src/lib/format';
 import { longDate, parseApiDate } from '../../src/lib/dates';
 import { color, fillParent, radius, space, tintFor } from '../../src/theme/tokens';
-import type { StorefrontProduct, StorefrontStore } from '../../src/features/types';
+import type { StorefrontStore } from '../../src/features/types';
 
 /**
  * A vendor's shelf: who they are, what their record is, and everything they sell.
@@ -300,7 +294,7 @@ function Shelf({ storeId, storeName }: { storeId: string; storeName: string }): 
       {rows.length > 0 ? (
         <View style={styles.grid}>
           {rows.map((p) => (
-            <CardWithQuote
+            <QuotedProductCard
               key={p.id}
               product={p}
               saved={saved.has(p.id)}
@@ -323,41 +317,6 @@ function Shelf({ storeId, storeName }: { storeId: string; storeName: string }): 
         </Text>
       ) : null}
     </View>
-  );
-}
-
-/**
- * A product tile with its "or GHS X/week" line.
- *
- * The quote is fetched per price point rather than computed here: the engine
- * spreads a rounding remainder across the earliest instalments, so a division
- * done in the app would disagree with the schedule the customer is shown at
- * checkout. Repeated prices on the shelf share a cache entry.
- */
-function CardWithQuote({
-  product,
-  saved,
-  onToggleSave,
-}: {
-  product: StorefrontProduct;
-  saved: boolean;
-  onToggleSave?: () => void;
-}): React.ReactElement {
-  const quotes = usePlanQuote(product.installment_eligible ? product.base_price_pesewas : 0);
-  const best = bestQuote(quotes.data);
-
-  return (
-    <ProductCard
-      product={product}
-      width={GRID_WIDTH}
-      saved={saved}
-      onToggleSave={onToggleSave}
-      weekly={
-        best
-          ? `or ${ghs(best.per_installment_pesewas)}/${cadenceNoun(best.installment_frequency_days)}`
-          : null
-      }
-    />
   );
 }
 
@@ -392,7 +351,6 @@ function firstParam(value: string | string[] | undefined): string | undefined {
  * odd-length list stretches its single card to full width. An explicit width
  * keeps every tile the same size whatever the count.
  */
-const GRID_WIDTH = (Dimensions.get('window').width - space.lg * 2 - space.md) / 2;
 
 const styles = StyleSheet.create({
   banner: {

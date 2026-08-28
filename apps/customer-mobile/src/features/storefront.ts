@@ -35,6 +35,8 @@ export interface BrowseFilters {
   max_price_pesewas?: number;
   installment_only?: boolean;
   in_stock?: boolean;
+  /** Only products inside a live deal window — what "Deals · See all" links to. */
+  deals_only?: boolean;
   limit?: number;
 }
 
