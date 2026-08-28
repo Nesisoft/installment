@@ -73,6 +73,7 @@ import {
   OrderPaymentService,
 } from '@installment/commerce';
 import { PaystackClient } from '@installment/paystack-client';
+import type { StorageDriver } from '@installment/storage-client';
 import type { Database } from '@installment/db';
 import { captureAlert } from '../common/alerting';
 import { DRIZZLE } from '../db/db.module';
@@ -82,8 +83,12 @@ import type { Env } from '../config/env.validation';
 import { RedisOtpStore } from './redis-otp-store';
 import { createSmsSender } from './sms-sender.factory';
 import { BullMqRetryScheduler } from '../workers/bullmq-retry-scheduler';
+import { createDriverFromEnv, resolveMediaBaseUrl } from './storage.factory';
+import { LocalMediaConfig } from '../media/local-media.config';
+import { UploadsService } from '../media/uploads.service';
 
 export const SMS_SENDER = Symbol('SMS_SENDER');
+export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
 
 /**
  * Wires the framework-free @installment/core services into Nest providers.
@@ -153,13 +158,41 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
       inject: [DRIZZLE],
     },
     {
-      provide: MediaService,
-      // MEDIA_BASE_URL unset means every image URL resolves to null, which the
-      // apps render as their placeholder tile rather than a broken image — so a
-      // deployment without object storage degrades quietly instead of loudly.
-      useFactory: (config: ConfigService<Env, true>) =>
-        new MediaService(config.get('MEDIA_BASE_URL', { infer: true })),
+      provide: STORAGE_DRIVER,
+      useFactory: (config: ConfigService<Env, true>) => createDriverFromEnv(config),
       inject: [ConfigService],
+    },
+    {
+      provide: UploadsService,
+      useFactory: (config: ConfigService<Env, true>, driver: StorageDriver) =>
+        new UploadsService(driver, {
+          maxUploadBytes: config.get('STORAGE_MAX_UPLOAD_BYTES', { infer: true }),
+          uploadTtlSeconds: config.get('STORAGE_UPLOAD_TTL_SECONDS', { infer: true }),
+        }),
+      inject: [ConfigService, STORAGE_DRIVER],
+    },
+    {
+      provide: LocalMediaConfig,
+      useFactory: (config: ConfigService<Env, true>) =>
+        new LocalMediaConfig(
+          config.get('STORAGE_DRIVER', { infer: true }) === 'local',
+          config.get('STORAGE_LOCAL_DIR', { infer: true }),
+          config.get('STORAGE_UPLOAD_SECRET', { infer: true }),
+          config.get('STORAGE_MAX_UPLOAD_BYTES', { infer: true }),
+        ),
+      inject: [ConfigService],
+    },
+    {
+      provide: MediaService,
+      // Both MEDIA_BASE_URL and the driver's public prefix unset means every
+      // image URL resolves to null, which the apps render as their placeholder
+      // tile rather than a broken image — so a deployment without object
+      // storage degrades quietly instead of loudly.
+      useFactory: (config: ConfigService<Env, true>, driver: StorageDriver) =>
+        new MediaService(
+          resolveMediaBaseUrl(config.get('MEDIA_BASE_URL', { infer: true }), driver),
+        ),
+      inject: [ConfigService, STORAGE_DRIVER],
     },
     {
       provide: StorefrontService,
@@ -661,6 +694,9 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     OrdersService,
     OrderPaymentService,
     MediaService,
+    STORAGE_DRIVER,
+    UploadsService,
+    LocalMediaConfig,
     StorefrontService,
     FulfilmentService,
     WishlistService,

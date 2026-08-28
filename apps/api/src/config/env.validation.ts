@@ -1,5 +1,13 @@
 import { z } from 'zod';
 
+/**
+ * Only the `local` driver signs with this, and `local` is refused in production
+ * below — so the published default is confined to development by construction,
+ * and there is no separate refusal for it. Adding one would fail a production
+ * boot over a variable that deployment never reads.
+ */
+const STORAGE_UPLOAD_SECRET_DEV_DEFAULT = 'dev-upload-secret-change-me!!';
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -40,6 +48,54 @@ export const envSchema = z.object({
    * degrades quietly instead of showing broken images.
    */
   MEDIA_BASE_URL: z.string().default(''),
+  /**
+   * Which backend accepts new uploads.
+   *
+   * `none` (the default) keeps boot friction-free and existing images resolving
+   * — MEDIA_BASE_URL is read directly and does not go through a driver — but
+   * every upload request answers 503. `local` writes to disk through the API,
+   * which is development only. `s3` covers every provider that verifies a SigV4
+   * signature: S3, Cloudflare R2, DigitalOcean Spaces, MinIO.
+   */
+  STORAGE_DRIVER: z.enum(['none', 'local', 's3']).default('none'),
+  STORAGE_BUCKET: z.string().default(''),
+  STORAGE_REGION: z.string().default('eu-west-1'),
+  /**
+   * Provider endpoint for anything that is not AWS — `https://<account>.r2.cloudflarestorage.com`,
+   * `https://fra1.digitaloceanspaces.com`, `http://localhost:9000`. Empty means AWS.
+   */
+  STORAGE_ENDPOINT: z.string().default(''),
+  /** R2 and MinIO address the bucket in the path; Spaces and AWS do not. */
+  STORAGE_FORCE_PATH_STYLE: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => v === true || v === 'true' || v === '1')
+    .default(false),
+  STORAGE_ACCESS_KEY_ID: z.string().default(''),
+  STORAGE_SECRET_ACCESS_KEY: z.string().default(''),
+  /**
+   * Public prefix `public/` objects are served from, e.g. a CDN hostname. When
+   * MEDIA_BASE_URL is unset this becomes it, so configuring storage is one
+   * variable rather than two that must agree.
+   */
+  STORAGE_PUBLIC_URL: z.string().default(''),
+  /** Where the `local` driver writes. Relative paths resolve from the API's cwd. */
+  STORAGE_LOCAL_DIR: z.string().default('.media'),
+  /**
+   * Origin the API is reachable at, which the `local` driver puts in the URLs it
+   * hands out. A phone on the LAN cannot reach `localhost`, so an emulator or
+   * device needs this set to the host machine's address.
+   */
+  PUBLIC_API_URL: z.string().default('http://localhost:3000'),
+  /**
+   * Signs the `local` driver's upload tokens. Only that driver uses it — S3
+   * signs with the provider credentials — but it is the entire protection on a
+   * write endpoint, so it must not be guessable if the API is reachable.
+   */
+  STORAGE_UPLOAD_SECRET: z.string().default(STORAGE_UPLOAD_SECRET_DEV_DEFAULT),
+  /** Largest single upload the API will issue a URL for. 10 MB covers a phone photo. */
+  STORAGE_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(10_485_760),
+  /** How long an upload URL stays valid. Short: it is a bearer token for a write. */
+  STORAGE_UPLOAD_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   SMS_SENDER_ID: z.string().default('Installmt'),
   // Which SMS provider actually dispatches. `console` logs and delivers
   // nothing — fine locally, catastrophic in production, where customer auth is
@@ -135,6 +191,37 @@ export const envSchemaChecked = envSchema.superRefine((env, ctx) => {
       path: ['ARKESEL_API_KEY'],
       message: 'SMS_PROVIDER=arkesel requires ARKESEL_API_KEY',
     });
+  }
+
+  // Storage, same rule as the SMS credentials: a driver selected without what
+  // it needs fails on the first upload, and the first upload is a merchant
+  // listing a product, not a developer at a terminal.
+  if (env.STORAGE_DRIVER === 's3') {
+    const missing = (
+      [
+        ['STORAGE_BUCKET', env.STORAGE_BUCKET],
+        ['STORAGE_ACCESS_KEY_ID', env.STORAGE_ACCESS_KEY_ID],
+        ['STORAGE_SECRET_ACCESS_KEY', env.STORAGE_SECRET_ACCESS_KEY],
+      ] as const
+    ).filter(([, value]) => !value);
+    for (const [name] of missing) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [name],
+        message: `STORAGE_DRIVER=s3 requires ${name}`,
+      });
+    }
+  }
+
+  if (env.NODE_ENV === 'production') {
+    if (env.STORAGE_DRIVER === 'local') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['STORAGE_DRIVER'],
+        message:
+          'refusing to start: STORAGE_DRIVER=local stores uploads on a container filesystem that a redeploy discards.',
+      });
+    }
   }
 });
 

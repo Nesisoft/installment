@@ -27,6 +27,9 @@ logs/
 .redis/
 *.pid
 
+# Uploads written by STORAGE_DRIVER=local. Development scratch, never source.
+.media/
+
 # editor / OS
 .DS_Store
 .idea/

@@ -29,6 +29,14 @@ export class MediaService {
     // An absolute URL in the key column is already resolved — seed data and
     // partner imports both do this — so pass it through untouched.
     if (/^https?:\/\//i.test(key)) return key;
+    // `private/` objects are not served from the public prefix, and a URL that
+    // looks right but 403s is worse than no URL: it invites a caller to put it
+    // in an <img> and blame the storage. The only way to read one is a signed,
+    // permission-checked link (`UploadsService.readPrivate`). Guarding here
+    // means a private key reaching a public read model — a Ghana Card scan
+    // handed to a storefront serialiser by mistake — degrades to a placeholder
+    // rather than leaking the object's location.
+    if (key.replace(/^\/+/, '').startsWith('private/')) return null;
     return `${this.base}/${key.replace(/^\/+/, '')}`;
   }
 }

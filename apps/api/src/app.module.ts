@@ -37,6 +37,12 @@ import { MeController } from './modules/me.controller';
 import { MeCommerceController } from './modules/me-commerce.controller';
 import { MeShopperController } from './modules/me-shopper.controller';
 import { WebhookController } from './modules/webhook.controller';
+import {
+  AdminUploadsController,
+  MerchantUploadsController,
+  ShopperUploadsController,
+} from './media/uploads.controller';
+import { MediaController } from './media/media.controller';
 import { DomainExceptionFilter } from './common/domain-exception.filter';
 import { IdempotencyInterceptor } from './common/idempotency.interceptor';
 
@@ -92,6 +98,10 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
     MeCommerceController,
     MeShopperController,
     WebhookController,
+    MerchantUploadsController,
+    AdminUploadsController,
+    ShopperUploadsController,
+    MediaController,
   ],
   providers: [
     MerchantScopeGuard,
