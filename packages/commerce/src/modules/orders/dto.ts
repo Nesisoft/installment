@@ -56,12 +56,6 @@ export const checkoutSchema = z
   .refine((v) => v.fulfilment_method !== 'pickup' || !!v.pickup_hub_id, {
     message: 'pickup checkout requires pickup_hub_id',
     path: ['pickup_hub_id'],
-  })
-  .refine((v) => v.fulfilment_method !== 'courier' || !!v.shipping_address_id, {
-    // Courier delivery with nowhere to deliver to was previously accepted and
-    // then discovered by whoever tried to fulfil it.
-    message: 'courier delivery requires shipping_address_id',
-    path: ['shipping_address_id'],
   });
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
 

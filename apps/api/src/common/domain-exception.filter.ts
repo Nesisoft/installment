@@ -141,6 +141,9 @@ export const NAME_STATUS: Record<string, number> = {
  * must be classified here or in NAME_STATUS, never forgotten into a 500.
  */
 export const INTENTIONALLY_UNMAPPED: readonly string[] = [
+  // Config that ops removed. A 5xx is right: the alternative is quietly
+  // charging nothing for delivery and absorbing it on every order.
+  'DeliveryZoneNotConfiguredError',
   'AuditError',
   'IdempotencyError',
   'NotificationTemplateError',

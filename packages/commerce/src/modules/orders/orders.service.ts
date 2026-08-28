@@ -223,8 +223,13 @@ export class OrdersService {
       // otherwise would have the marketplace absorb the difference silently.
       // Charging the quote per order is the honest reading of "one order per
       // store", and it is what the merchant settlement maths already assumes.
+      //
+      // Delivery is only charged when there is somewhere to deliver to. Without
+      // an address the zone lookup falls through to the national rate, so a
+      // checkout that names no destination would be billed for a delivery
+      // nobody can make — and `shipping_address_id` has always been optional.
       const shippingPerOrder =
-        input.fulfilment_method === 'pickup'
+        input.fulfilment_method === 'pickup' || !input.shipping_address_id
           ? 0
           : (await this.fulfilment.deliveryQuote({ address_id: input.shipping_address_id }, now))
               .fee_pesewas;

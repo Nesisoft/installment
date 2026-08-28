@@ -6,7 +6,7 @@ import {
   type DeliveryQuoteInput,
   type ListPickupHubsInput,
 } from '../catalog/storefront.dto';
-import { AddressNotFoundError } from '../orders/errors';
+import { AddressNotFoundError, DeliveryZoneNotConfiguredError } from '../orders/errors';
 
 const dz = schema.delivery_zones;
 const hub = schema.pickup_hubs;
@@ -96,11 +96,9 @@ export class FulfilmentService {
     const national = zones.find((z) => !z.city && !z.region);
 
     const zone = byCity ?? byRegion ?? national;
-    if (!zone) {
-      // The seed guarantees a national row; reaching here means it was deleted,
-      // which is an operational fault rather than a customer's problem.
-      throw new Error('No active delivery zone is configured (expected a national fallback)');
-    }
+    // The seed guarantees a national row; reaching here means it was removed,
+    // which is an operational fault rather than a customer's problem.
+    if (!zone) throw new DeliveryZoneNotConfiguredError();
 
     return {
       fulfilment_method: 'courier',
