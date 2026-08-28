@@ -19,6 +19,7 @@ export * from './modules/catalog/inventory.service';
 export * from './modules/catalog/media';
 export * from './modules/catalog/storefront.dto';
 export * from './modules/catalog/storefront.service';
+export * from './modules/fulfilment/dto';
 export * from './modules/fulfilment/fulfilment.service';
 export * from './modules/orders/checkout-decision.service';
 export * from './modules/shopper/errors';

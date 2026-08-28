@@ -168,8 +168,12 @@ export const SMS_SENDER = Symbol('SMS_SENDER');
     },
     {
       provide: FulfilmentService,
-      useFactory: (db: Database) => new FulfilmentService(db),
-      inject: [DRIZZLE],
+      // The plans service is what turns a delivery into a reserve release, so a
+      // deployment without it would mark orders delivered and never start the
+      // merchant's payout clock.
+      useFactory: (db: Database, audit: AuditLogger, plans: CustomerPlansService) =>
+        new FulfilmentService(db, audit, plans),
+      inject: [DRIZZLE, AuditLogger, CustomerPlansService],
     },
     {
       provide: WishlistService,

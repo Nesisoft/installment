@@ -145,12 +145,30 @@ The debit sweep was unconditional, while the Installments screen offers a toggle
 `POST /me/plans/:id/autopay` flips it. Switching it off does not waive anything —
 the copy says so, and the late-fee accrual proves it.
 
-### 2.10 Order tracking
+### 2.10 Order tracking and fulfilment
 
-The tracking screen draws an 8-step lifecycle. `order_events` now records every
+The tracking screen draws an 8-step lifecycle. `order_events` records every
 order transition with its timestamp and a customer-readable label, and
 `shipments` carries the courier, the tracking code and the ETA.
 `GET /me/orders/:id/tracking` returns both.
+
+The write side is `FulfilmentService`: `startFulfilment`, `markShipped`,
+`markOutForDelivery` and `markDelivered`, exposed merchant-scoped at
+`POST /merchant/orders/:id/{fulfilling,ship,out-for-delivery,delivered}`.
+
+Delivery is the event the rest of the system waits on. It stamps
+`orders.delivered_at` and `return_window_ends_at` from the order's own term,
+makes the line reviewable, and — on a financed order — calls the engine's
+`CustomerPlansService.markDelivered`, which is what finally releases the layaway
+reserve against a real signal rather than a staff member's estimate.
+
+"Out for delivery" is deliberately a *shipment* status, not an order status: it
+is a courier state, and inventing an order status for it would put a value in
+the column that no other consumer of the order lifecycle understands.
+
+`ReturnWindowCron` closes `delivered` orders once the window elapses. Hourly,
+not daily: the window is a timestamp, so a daily sweep would hold a merchant's
+money up to a day longer than the terms promise.
 
 ### 2.11 Reviews, wishlist, trending, devices
 

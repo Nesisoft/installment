@@ -89,6 +89,9 @@ export const NAME_STATUS: Record<string, number> = {
   InvalidOrderTransitionError: HttpStatus.CONFLICT,
   OrderNotPayableError: HttpStatus.CONFLICT,
   OrderNotActivatableError: HttpStatus.CONFLICT,
+  // The order is not in a state that allows this fulfilment step — including a
+  // lost race with a concurrent writer, which is a retry, not a fault.
+  OrderNotFulfillableError: HttpStatus.CONFLICT,
   // The order's own state refuses the cancel — it has already been paid or
   // financed, so unwinding it is a refund, not a status change.
   OrderNotCancellableError: HttpStatus.CONFLICT,

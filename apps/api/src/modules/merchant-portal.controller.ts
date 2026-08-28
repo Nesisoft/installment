@@ -1,13 +1,22 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Header,
+  HttpCode,
   NotFoundException,
   Param,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
+import {
+  FulfilmentService,
+  markDeliveredSchema,
+  markOutForDeliverySchema,
+  markShippedSchema,
+} from '@installment/commerce';
 import {
   CustomerPlansService,
   MerchantDashboardService,
@@ -21,6 +30,8 @@ import {
 } from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentMerchantId } from '../auth/decorators';
+import { ApiModel } from '../common/api-model';
+import { ApiZodBody } from '../common/api-zod';
 import { MerchantScopeGuard } from '../auth/merchant-scope.guard';
 import { numOrUndefined } from '../auth/current-actor';
 
@@ -56,7 +67,80 @@ export class MerchantPortalController {
     private readonly dashboard: MerchantDashboardService,
     private readonly merchants: MerchantsService,
     private readonly planTemplates: PlanTemplatesService,
+    private readonly fulfilment: FulfilmentService,
   ) {}
+
+  // --- Fulfilment -----------------------------------------------------------
+  //
+  // Every route here passes the caller's own merchant id into the service,
+  // which puts it in the WHERE clause — so another merchant's order is
+  // indistinguishable from one that does not exist, the same rule the rest of
+  // the scoped surface follows.
+
+  /**
+   * "We are packing it." Optional — marking an order shipped moves it through
+   * this state on its own — but a seller who wants to tell the customer
+   * something is happening can say so.
+   */
+  @Post('orders/:id/fulfilling')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Start preparing one of my orders' })
+  @ApiModel('Order')
+  startFulfilment(@Param('id') id: string, @CurrentMerchantId() merchantId: string) {
+    return this.fulfilment.startFulfilment(id, this.actor(merchantId), { merchantId });
+  }
+
+  /** The order has left the seller. Creates the shipment with whatever courier detail exists. */
+  @Post('orders/:id/ship')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Mark one of my orders shipped' })
+  @ApiZodBody(markShippedSchema)
+  @ApiModel('Order')
+  markShipped(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentMerchantId() merchantId: string,
+  ) {
+    return this.fulfilment.markShipped(id, body, this.actor(merchantId), { merchantId });
+  }
+
+  @Post('orders/:id/out-for-delivery')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'The rider is on the way with one of my orders' })
+  @ApiZodBody(markOutForDeliverySchema)
+  @ApiModel('Order')
+  markOutForDelivery(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentMerchantId() merchantId: string,
+  ) {
+    return this.fulfilment.markOutForDelivery(id, body, this.actor(merchantId), { merchantId });
+  }
+
+  /**
+   * Delivery — the event the rest of the system waits for.
+   *
+   * It starts the customer's return window, makes the line reviewable, and on a
+   * financed order releases the layaway reserve against a real signal rather
+   * than a staff member's estimate.
+   */
+  @Post('orders/:id/delivered')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Mark one of my orders delivered or collected' })
+  @ApiZodBody(markDeliveredSchema)
+  @ApiModel('Order')
+  markDelivered(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentMerchantId() merchantId: string,
+  ) {
+    return this.fulfilment.markDelivered(id, body, this.actor(merchantId), { merchantId });
+  }
+
+  /** A merchant acts as themselves; the audit trail records the merchant id. */
+  private actor(merchantId: string) {
+    return { actorId: merchantId, actorType: 'merchant' as const };
+  }
 
   @Get('me')
   @ApiOperation({ summary: 'The authenticated merchant profile' })

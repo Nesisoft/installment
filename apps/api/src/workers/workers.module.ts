@@ -9,6 +9,7 @@ import { VerifyPollCron } from './verify-poll.cron';
 import { CollectionsCron } from './collections.cron';
 import { ReminderCron } from './reminder.cron';
 import { LateFeeCron } from './late-fee.cron';
+import { ReturnWindowCron } from './return-window.cron';
 import { TelcoAlertCron } from './telco-alert.cron';
 import { StuckScheduleCron } from './stuck-schedule.cron';
 import { ApplicationExpiryCron } from './application-expiry.cron';
@@ -38,6 +39,7 @@ import { RetryWorker } from './retry.worker';
     CollectionsCron,
     ReminderCron,
     LateFeeCron,
+    ReturnWindowCron,
     TelcoAlertCron,
     StuckScheduleCron,
     ApplicationExpiryCron,

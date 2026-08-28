@@ -94,3 +94,17 @@ export class DeliveryZoneNotConfiguredError extends Error {
     this.name = 'DeliveryZoneNotConfiguredError';
   }
 }
+
+/**
+ * The order is not in a state that allows this fulfilment step.
+ *
+ * Also what a lost optimistic-update race produces: every fulfilment write
+ * guards on the status it read, so a concurrent writer turns into this rather
+ * than a silent double transition.
+ */
+export class OrderNotFulfillableError extends Error {
+  constructor(orderId: string, status: string, attempted: string) {
+    super(`Order "${orderId}" is "${status}" and cannot be marked ${attempted}`);
+    this.name = 'OrderNotFulfillableError';
+  }
+}
