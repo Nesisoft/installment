@@ -94,6 +94,13 @@ Same format as `DEVELOPMENT-PLAN.md`: Goal · Deliverables · Definition of done
 - Returns → existing refund flow; order lifecycle completion (full vs installment convergence)
   **Definition of done:** marking delivered releases the layaway reserve on the real event; a return issues a correct proportional refund; order reaches `COMPLETED` on both paths.
 
+**Status:** the fulfilment half is **built** — `FulfilmentService` walks an order
+`paid|financing_active → fulfilling → shipped → delivered → completed`, records a
+customer-readable event at each step, carries the courier on `shipments`, stamps the return window,
+and fires `ReserveReleaseService.markDelivered` on a real delivery. `ReturnWindowCron` closes the
+order when the window elapses. **Returns are still outstanding** — the customer-initiated return
+journey does not exist, though the engine's refund path does.
+
 ### Phase 14 — Customer Auth + Customer Mobile App (Expo) — **built**
 
 **Goal:** A buyer completes a full purchase from their phone in test mode.

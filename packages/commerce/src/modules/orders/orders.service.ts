@@ -441,6 +441,14 @@ export class OrdersService {
         },
       });
 
+      await this.recordEvent(tx, order.id, {
+        eventType: 'order.paid',
+        status: 'paid',
+        label: 'Payment received',
+        detail: 'The seller can start preparing your order.',
+        occurredAt: now,
+      });
+
       return { ...updated, items };
     });
   }
@@ -507,6 +515,14 @@ export class OrdersService {
           ...(reason ? { reason } : {}),
           released_units: items.reduce((n, i) => n + (i.variant_id ? i.quantity : 0), 0),
         },
+      });
+
+      await this.recordEvent(tx, order.id, {
+        eventType: 'order.cancelled',
+        status: 'cancelled',
+        label: 'Order cancelled',
+        detail: reason ?? 'Nothing was charged and the items are back on sale.',
+        occurredAt: now,
       });
 
       return { ...updated, items, application_id: order.application_id };
