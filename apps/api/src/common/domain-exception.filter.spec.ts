@@ -120,7 +120,7 @@ describe('domain error coverage', () => {
   }
 
   const ROOT = workspaceRoot();
-  const PACKAGES = ['core', 'commerce', 'paystack-client', 'sms-client', 'db'];
+  const PACKAGES = ['core', 'commerce', 'paystack-client', 'sms-client', 'storage-client', 'db'];
 
   function tsFiles(dir: string): string[] {
     let out: string[] = [];

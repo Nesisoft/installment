@@ -121,6 +121,10 @@ export const NAME_STATUS: Record<string, number> = {
   ReviewNotAllowedError: HttpStatus.UNPROCESSABLE_ENTITY,
   // A push token the device supplied that we cannot store as given.
   DeviceRegistrationError: HttpStatus.UNPROCESSABLE_ENTITY,
+  // The file, or the caller, is not one this surface issues upload URLs for —
+  // wrong content type, over the size ceiling, or a purpose this token may not
+  // request. Well-formed, and refused on its content.
+  UploadNotAllowedError: HttpStatus.UNPROCESSABLE_ENTITY,
   EmptyCartError: HttpStatus.UNPROCESSABLE_ENTITY,
   // 502 — the SMS aggregator refused or was unreachable. Customer OTP login
   // sends synchronously, so this reaches a customer: it is an upstream fault,
@@ -129,6 +133,11 @@ export const NAME_STATUS: Record<string, number> = {
   // Same reasoning for the payment provider: Paystack refused or was
   // unreachable. Upstream fault, not our bug, and the client may retry.
   PaystackError: HttpStatus.BAD_GATEWAY,
+  // 503 — the deployment has no object storage, so nothing can be uploaded
+  // until someone configures it. Stays in the 5xx band deliberately: it is a
+  // deployment gap and should keep alarming, but the client learns it is not
+  // their request that was wrong and that retrying later may work.
+  StorageNotConfiguredError: HttpStatus.SERVICE_UNAVAILABLE,
 };
 
 /**
@@ -147,6 +156,10 @@ export const INTENTIONALLY_UNMAPPED: readonly string[] = [
   // Config that ops removed. A 5xx is right: the alternative is quietly
   // charging nothing for delivery and absorbing it on every order.
   'DeliveryZoneNotConfiguredError',
+  // A bucket or endpoint that cannot produce a working driver, or a key that
+  // escapes the storage root. Both are our bug or our config, never the
+  // caller's, and both should alarm rather than read as a rejected request.
+  'StorageConfigurationError',
   'AuditError',
   'IdempotencyError',
   'NotificationTemplateError',

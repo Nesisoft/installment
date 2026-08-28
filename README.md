@@ -24,6 +24,7 @@ packages/
   commerce/         Catalogue, cart, orders, fulfilment, storefront reads
   paystack-client/  Typed Paystack wrapper
   sms-client/       Hubtel / Arkesel wrapper
+  storage-client/   S3-compatible object storage (SigV4 presigning, local dev driver)
   api-types/        Shared wire types (web + mobile)
   web-kit/          Browser client layer: API client, auth context, query defaults
   mobile-kit/       React Native client layer: same, on SecureStore
@@ -35,7 +36,9 @@ docs/               Development plan, design artifacts, ADRs
 The customer app has its own guide:
 [`apps/customer-mobile/README.md`](apps/customer-mobile/README.md), and the design-to-engine
 reconciliation behind it is
-[`docs/design/customer-app.md`](docs/design/customer-app.md).
+[`docs/design/customer-app.md`](docs/design/customer-app.md). How images get into the system —
+presigned uploads, the public/private key split, and what a presigned PUT can and cannot enforce —
+is [`docs/design/object-storage.md`](docs/design/object-storage.md).
 
 ## Prerequisites
 

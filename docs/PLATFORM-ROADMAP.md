@@ -68,7 +68,10 @@ Same format as `DEVELOPMENT-PLAN.md`: Goal · Deliverables · Definition of done
 
 - New tables: `stores`, `categories`, `products`, `product_variants`, `product_images`, `inventory`, `product_plan_offers` (see `commerce-domain.md` §3.1)
 - `catalog` + `stores` + `inventory` core modules; merchant product CRUD APIs; public catalog read/search (Postgres FTS)
-- `StorageService` (object storage + signed URLs) for images / Ghana Card
+- ~~`StorageService` (object storage + signed URLs) for images / Ghana Card~~ **built** —
+  `packages/storage-client` (S3 / R2 / Spaces / MinIO, plus a local dev driver) behind
+  `POST /merchant/uploads`, `/admin/uploads` and `/me/uploads`. See
+  [`design/object-storage.md`](./design/object-storage.md).
 - `packages/api-types` generated from the OpenAPI spec; `packages/api-client` (typed + TanStack Query hooks)
   **Definition of done:** a merchant creates a store, uploads a product with images/variants/stock and a plan offer via API; catalog is queryable and searchable; every app can import the generated client.
 
@@ -185,7 +188,10 @@ Carried from `commerce-domain.md` §9 + `mobile-apps.md` §6 — these shape Pha
 2. **Commission model** — flat marketplace take-rate (bps) on all orders + credit reserve on installment only? Per-category rates?
 3. **Guest checkout** — allowed for pay-now, blocked for installment (BNPL requires Ghana-Card-verified KYC)?
 4. **Fulfilment** — v1 merchant self-fulfils with manual status; integrated couriers later?
-5. **Object storage provider** — S3 / GCS / Cloudflare R2?
+5. ~~**Object storage provider** — S3 / GCS / Cloudflare R2?~~ **Deferred by design.** The
+   signer is hand-rolled SigV4, so S3, Cloudflare R2, DigitalOcean Spaces and MinIO all work
+   against the same driver — picking one stays a config change, and R2's zero egress is the
+   obvious default for Ghana-facing bandwidth.
 6. ~~**Mobile component kit**~~ **Decided: neither.** The design is entirely bespoke, so a kit
    would be styling overhead with no components used, and NativeWind's Babel transform plus Metro
    wrapper is the fragile part of a pnpm workspace. `apps/customer-mobile` uses a typed token
