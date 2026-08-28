@@ -4,14 +4,15 @@ import type {
   Address,
   CartWithItems,
   Category,
+  Paginated,
+  StorefrontProduct,
+  StorefrontProductDetails,
   CheckoutInput,
   CreateAddressInput,
   CustomerPlan,
   InstallmentScheduleRow,
   OrderWithItems,
   PlanTemplate,
-  Product,
-  ProductDetails,
   Statement,
 } from '@installment/api-types';
 
@@ -28,14 +29,23 @@ export function useCategories(topLevel = true) {
   });
 }
 
-/** Full-text product search. The API requires a non-empty term. */
+/**
+ * Full-text product search. The API requires a non-empty term.
+ *
+ * The endpoint returns `{ rows, total }` (the `Paginated<T>` shape api-types
+ * declares); the rows are unwrapped here so callers keep working with an array.
+ */
 export function useProductSearch(q: string) {
   const api = useApi();
   const term = q.trim();
   return useQuery({
     queryKey: ['product-search', term],
     queryFn: async () =>
-      (await api.get<Product[]>('/storefront/search', { params: { q: term, limit: 50 } })).data,
+      (
+        await api.get<Paginated<StorefrontProduct>>('/storefront/search', {
+          params: { q: term, limit: 50 },
+        })
+      ).data.rows,
     enabled: term.length > 0,
     placeholderData: (prev) => prev,
   });
@@ -50,7 +60,11 @@ export function useProducts(params: { category_id?: string; limit?: number }) {
   return useQuery({
     queryKey: ['products', params],
     queryFn: async () =>
-      (await api.get<Product[]>('/storefront/products', { params: { limit: 50, ...params } })).data,
+      (
+        await api.get<Paginated<StorefrontProduct>>('/storefront/products', {
+          params: { limit: 50, ...params },
+        })
+      ).data.rows,
     placeholderData: (prev) => prev,
   });
 }
@@ -59,7 +73,8 @@ export function useProduct(id: string) {
   const api = useApi();
   return useQuery({
     queryKey: ['product', id],
-    queryFn: async () => (await api.get<ProductDetails>(`/storefront/products/${id}`)).data,
+    queryFn: async () =>
+      (await api.get<StorefrontProductDetails>(`/storefront/products/${id}`)).data,
     enabled: Boolean(id),
   });
 }

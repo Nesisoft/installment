@@ -26,8 +26,10 @@ import {
   OrderNotFoundError,
   OrderNotPayableError,
   OrderNotCancellableError,
+  PickupHubNotFoundError,
 } from './errors';
 import { assertOrderTransition, type OrderStatus } from './order-state';
+import { FulfilmentService } from '../fulfilment/fulfilment.service';
 
 const o = schema.orders;
 const oi = schema.order_items;
@@ -38,6 +40,8 @@ const p = schema.products;
 const addresses = schema.addresses;
 const cp = schema.customer_plans;
 const ap = schema.applications;
+const oe = schema.order_events;
+const hubs = schema.pickup_hubs;
 
 export type Order = typeof schema.orders.$inferSelect;
 export type OrderItem = typeof schema.order_items.$inferSelect;
@@ -98,7 +102,41 @@ export class OrdersService {
     private readonly plans: CustomerPlansService,
     private readonly ledger: LedgerService,
     private readonly audit: AuditLogger,
+    /**
+     * Prices delivery and records the customer-facing lifecycle. Optional so
+     * framework-free callers and existing tests can construct the service
+     * without fulfilment plumbing; without it every order ships free.
+     */
+    private readonly fulfilment: FulfilmentService = new FulfilmentService(db),
   ) {}
+
+  /**
+   * Appends to the order's customer-facing history.
+   *
+   * Separate from `audit.append` on purpose: the audit trail carries actor ids
+   * and internal reasons that a shopper must not see, so the tracking screen
+   * reads its own table rather than a filtered view of the audit log.
+   */
+  private async recordEvent(
+    tx: Pick<Database, 'insert'>,
+    orderId: string,
+    event: {
+      eventType: string;
+      status?: string | null;
+      label: string;
+      detail?: string | null;
+      occurredAt?: Date;
+    },
+  ): Promise<void> {
+    await tx.insert(oe).values({
+      order_id: orderId,
+      event_type: event.eventType,
+      status: event.status ?? null,
+      label: event.label,
+      detail: event.detail ?? null,
+      occurred_at: (event.occurredAt ?? new Date()).toISOString(),
+    });
+  }
 
   /**
    * Converts the customer's active cart into orders (one per store). Runs in a
@@ -170,6 +208,32 @@ export class OrdersService {
         if (!addr) throw new AddressNotFoundError(input.shipping_address_id);
       }
 
+      if (input.fulfilment_method === 'pickup') {
+        const hubRows = await tx
+          .select({ id: hubs.id })
+          .from(hubs)
+          .where(and(eq(hubs.id, input.pickup_hub_id!), eq(hubs.is_active, true)))
+          .limit(1);
+        if (!hubRows[0]) throw new PickupHubNotFoundError(input.pickup_hub_id!);
+      }
+
+      // Price delivery once for the whole checkout, then charge it per order.
+      //
+      // A basket split across three stores is three deliveries, and pretending
+      // otherwise would have the marketplace absorb the difference silently.
+      // Charging the quote per order is the honest reading of "one order per
+      // store", and it is what the merchant settlement maths already assumes.
+      //
+      // Delivery is only charged when there is somewhere to deliver to. Without
+      // an address the zone lookup falls through to the national rate, so a
+      // checkout that names no destination would be billed for a delivery
+      // nobody can make — and `shipping_address_id` has always been optional.
+      const shippingPerOrder =
+        input.fulfilment_method === 'pickup' || !input.shipping_address_id
+          ? 0
+          : (await this.fulfilment.deliveryQuote({ address_id: input.shipping_address_id }, now))
+              .fee_pesewas;
+
       // One order per store (a store belongs to exactly one merchant).
       const byStore = new Map<string, typeof lines>();
       for (const l of lines) {
@@ -187,7 +251,7 @@ export class OrdersService {
         const storeId = group[0]!.store_id;
         const merchantId = group[0]!.merchant_id;
         const subtotal = group.reduce((s, l) => s + l.unit_price_pesewas * l.quantity, 0);
-        const total = subtotal; // shipping/discount are a later slice
+        const total = subtotal + shippingPerOrder;
 
         const [order] = await tx
           .insert(o)
@@ -198,9 +262,12 @@ export class OrdersService {
             store_id: storeId,
             payment_type: input.payment_type,
             subtotal_pesewas: subtotal,
+            shipping_pesewas: shippingPerOrder,
             total_pesewas: total,
             commission_bps: commissionBps,
             status,
+            fulfilment_method: input.fulfilment_method,
+            pickup_hub_id: input.pickup_hub_id ?? null,
             ...(input.shipping_address_id
               ? { shipping_address_id: input.shipping_address_id }
               : {}),
@@ -265,6 +332,17 @@ export class OrdersService {
             commission_bps: commissionBps,
             ...(applicationId ? { application_id: applicationId } : {}),
           },
+        });
+
+        await this.recordEvent(tx, order.id, {
+          eventType: 'order.created',
+          status,
+          label: 'Order placed',
+          detail:
+            input.payment_type === 'installment'
+              ? 'Checking your instalment plan'
+              : 'Waiting for your payment',
+          occurredAt: now,
         });
 
         result.push({ ...order, application_id: applicationId, items });
@@ -575,6 +653,14 @@ export class OrdersService {
         },
       });
 
+      await this.recordEvent(tx, order.id, {
+        eventType: 'order.declined',
+        status: 'declined',
+        label: 'Instalment plan declined',
+        detail: 'The items have gone back on sale and nothing was charged.',
+        occurredAt: now,
+      });
+
       return { ...updated, items };
     });
   }
@@ -656,6 +742,14 @@ export class OrdersService {
         actorId: actor.actorId,
         actorType: actor.actorType,
         metadata: { customer_plan_id: planId, application_id: order.application_id },
+      });
+
+      await this.recordEvent(tx, orderId, {
+        eventType: 'order.financing_activated',
+        status: 'financing_active',
+        label: 'Instalment plan approved',
+        detail: 'Your schedule is ready — pay the deposit to confirm the order.',
+        occurredAt: now,
       });
 
       return { ...updated, items };

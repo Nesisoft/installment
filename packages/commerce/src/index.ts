@@ -16,6 +16,15 @@ export * from './modules/catalog/errors';
 export * from './modules/catalog/categories.service';
 export * from './modules/catalog/products.service';
 export * from './modules/catalog/inventory.service';
+export * from './modules/catalog/media';
+export * from './modules/catalog/storefront.dto';
+export * from './modules/catalog/storefront.service';
+export * from './modules/fulfilment/fulfilment.service';
+export * from './modules/orders/checkout-decision.service';
+export * from './modules/shopper/errors';
+export * from './modules/shopper/wishlist.service';
+export * from './modules/shopper/reviews.service';
+export * from './modules/shopper/devices.service';
 
 // Orders: cart + addresses + checkout/orders (with the engine hand-off)
 export * from './modules/orders/dto';

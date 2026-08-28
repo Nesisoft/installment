@@ -21,13 +21,17 @@ export async function seedDevFixtures(): Promise<void> {
     throw new Error('DATABASE_URL is not set (checked process.env and ../../.env)');
   }
 
-  const sql = await readFile(resolve(SEEDS_DIR, 'dev-fixtures.sql'), 'utf8');
+  // Order matters: dev-fixtures creates the back-office users and the customer
+  // the demo catalogue is browsed by.
+  const files = ['dev-fixtures.sql', 'marketplace-demo.sql'];
 
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {
-    console.log('[seed:dev] applying dev-fixtures.sql ...');
-    await client.query(sql);
+    for (const file of files) {
+      console.log(`[seed:dev] applying ${file} ...`);
+      await client.query(await readFile(resolve(SEEDS_DIR, file), 'utf8'));
+    }
     console.log('[seed:dev] done');
   } finally {
     await client.end();

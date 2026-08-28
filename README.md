@@ -12,21 +12,30 @@ future Nesisoft products.
 
 ```
 apps/
-  api/            NestJS HTTP entry point (Phase 1)
-  workers/        BullMQ workers            (Phase 7+, placeholder)
-  customer-web/   React customer dashboard  (Phase 10, placeholder)
-  merchant-web/   React merchant dashboard  (Phase 10, placeholder)
-  admin-web/      React admin / ops console (Phase 10, placeholder)
+  api/              NestJS HTTP entry point
+  workers/          BullMQ workers
+  customer-mobile/  Ejua shopping app — Expo / React Native  ← Phase 14
+  customer-web/     React customer dashboard
+  merchant-web/     React merchant dashboard  (placeholder)
+  admin-web/        React admin / ops console (placeholder)
 packages/
-  db/             Drizzle schema + migration runner (Phase 1)
-  core/           Shared domain modules     (Phase 2+, placeholder)
-  paystack-client/ Typed Paystack wrapper   (Phase 2,  placeholder)
-  sms-client/     Hubtel / Arkesel wrapper  (Phase 2,  placeholder)
-  ui/             Shared shadcn/ui          (Phase 10, placeholder)
-  api-types/      Shared backend↔frontend types (Phase 3+, placeholder)
-infra/docker/     docker-compose: Postgres + Redis + pgAdmin
-docs/             Development plan, design artifacts, ADRs
+  db/               Drizzle schema + migration runner
+  core/             Installment engine domain modules
+  commerce/         Catalogue, cart, orders, fulfilment, storefront reads
+  paystack-client/  Typed Paystack wrapper
+  sms-client/       Hubtel / Arkesel wrapper
+  api-types/        Shared wire types (web + mobile)
+  web-kit/          Browser client layer: API client, auth context, query defaults
+  mobile-kit/       React Native client layer: same, on SecureStore
+  ui/               shadcn/ui — WEB ONLY
+infra/docker/       docker-compose: Postgres + Redis + pgAdmin
+docs/               Development plan, design artifacts, ADRs
 ```
+
+The customer app has its own guide:
+[`apps/customer-mobile/README.md`](apps/customer-mobile/README.md), and the design-to-engine
+reconciliation behind it is
+[`docs/design/customer-app.md`](docs/design/customer-app.md).
 
 ## Prerequisites
 
@@ -35,6 +44,10 @@ docs/             Development plan, design artifacts, ADRs
 - Docker + Docker Compose (for local Postgres / Redis)
 
 ## Local setup
+
+> **No Docker?** `./scripts/local-stack.sh up` starts Postgres 16 and Redis 7 from the system
+> binaries and applies the migrations — which is what the remote/CI container needs, since it
+> ships both but no Docker daemon.
 
 ```bash
 # 1. Install dependencies
@@ -87,6 +100,11 @@ and applied by a thin custom runner. **Migrations are immutable once applied** �
 add `000N_*.sql` files for changes; never edit an applied migration. See
 [`docs/adr/0001-sql-first-migrations.md`](docs/adr/0001-sql-first-migrations.md)
 for the rationale.
+
+## Contributing
+
+Branch names, commit format and the checks to run before pushing are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## CI
 

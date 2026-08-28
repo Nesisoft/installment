@@ -47,6 +47,8 @@ const productCols = {
   currency: p.currency,
   attributes: p.attributes,
   metadata: p.metadata,
+  compare_at_price_pesewas: p.compare_at_price_pesewas,
+  deal_ends_at: p.deal_ends_at,
   created_at: p.created_at,
   updated_at: p.updated_at,
   deleted_at: p.deleted_at,

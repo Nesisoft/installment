@@ -3,11 +3,15 @@ import { schema, type Database } from '@installment/db';
 import { isUniqueViolation } from '@installment/core';
 import { addCartItemSchema, setCartItemQuantitySchema } from './dto';
 import { CartItemNotFoundError, NotPurchasableError } from './errors';
+import { MediaService } from '../catalog/media';
 
 const c = schema.carts;
 const ci = schema.cart_items;
 const pv = schema.product_variants;
 const p = schema.products;
+const pi = schema.product_images;
+const st = schema.stores;
+const inv = schema.inventory;
 
 export type Cart = typeof schema.carts.$inferSelect;
 export type CartItem = typeof schema.cart_items.$inferSelect;
@@ -25,11 +29,27 @@ export interface CartLine extends CartItem {
   title: string;
   sku: string;
   product_id: string | null;
+  /** Line total, so no client re-derives price x quantity and rounds it differently. */
+  line_total_pesewas: number;
+  image_url: string | null;
+  store_id: string | null;
+  store_slug: string | null;
+  store_display_name: string | null;
+  /** The chosen variant's options, e.g. `{ size: 'L' }` — the design shows them under the title. */
+  option_values: Record<string, unknown>;
+  /** Sellable units left. The quantity stepper stops here instead of failing at checkout. */
+  quantity_available: number;
+  /** False when the product or variant has been delisted since it was added. */
+  purchasable: boolean;
+  installment_eligible: boolean;
 }
 
 export interface CartWithItems extends Cart {
   items: CartLine[];
   subtotal_pesewas: number;
+  /** Distinct stores in the basket — checkout will split into this many orders. */
+  store_count: number;
+  item_count: number;
 }
 
 interface PurchasableVariant {
@@ -45,7 +65,11 @@ interface PurchasableVariant {
  * (Phase 12 next slice). Not audited — customer-owned and high-frequency.
  */
 export class CartService {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    /** Resolves image keys to URLs; unconfigured means every line renders its placeholder. */
+    private readonly media: MediaService = new MediaService(''),
+  ) {}
 
   async getOrCreateActiveCart(customerId: string): Promise<Cart> {
     const existing = await this.activeCart(customerId);
@@ -69,10 +93,30 @@ export class CartService {
     // still surfaces (labelled, and removable) instead of vanishing from the
     // basket while its price silently stays in the subtotal.
     const rows = await this.db
-      .select({ item: ci, title: p.title, sku: pv.sku, productId: p.id })
+      .select({
+        item: ci,
+        title: p.title,
+        sku: pv.sku,
+        productId: p.id,
+        productStatus: p.status,
+        productDeleted: p.deleted_at,
+        variantActive: pv.is_active,
+        optionValues: pv.option_values,
+        storeId: st.id,
+        storeSlug: st.slug,
+        storeName: st.display_name,
+        storeStatus: st.status,
+        quantityAvailable: sql<number>`COALESCE(${inv.quantity_available} - ${inv.quantity_reserved}, 0)::int`,
+        imageKey: sql<string | null>`(SELECT ${pi.storage_key} FROM ${pi}
+          WHERE ${pi.product_id} = ${p.id} ORDER BY ${pi.position}, ${pi.created_at} LIMIT 1)`,
+        installmentEligible: sql<boolean>`EXISTS (SELECT 1 FROM product_plan_offers ppo
+          WHERE ppo.product_id = ${p.id} AND ppo.is_active)`,
+      })
       .from(ci)
       .leftJoin(pv, eq(pv.id, ci.variant_id))
       .leftJoin(p, eq(p.id, pv.product_id))
+      .leftJoin(st, eq(st.id, p.store_id))
+      .leftJoin(inv, eq(inv.variant_id, ci.variant_id))
       .where(eq(ci.cart_id, cart.id))
       .orderBy(ci.created_at);
 
@@ -81,9 +125,31 @@ export class CartService {
       title: r.title ?? 'Unavailable item',
       sku: r.sku ?? '',
       product_id: r.productId ?? null,
+      line_total_pesewas: r.item.unit_price_pesewas * r.item.quantity,
+      image_url: this.media.url(r.imageKey),
+      store_id: r.storeId ?? null,
+      store_slug: r.storeSlug ?? null,
+      store_display_name: r.storeName ?? null,
+      option_values: (r.optionValues ?? {}) as Record<string, unknown>,
+      quantity_available: r.quantityAvailable ?? 0,
+      // The same conditions checkout re-checks. Surfacing them in the cart is
+      // what lets the customer fix the basket themselves instead of finding out
+      // when the whole checkout rolls back on one dead line.
+      purchasable:
+        r.variantActive === true &&
+        r.productStatus === 'active' &&
+        r.productDeleted === null &&
+        r.storeStatus === 'active',
+      installment_eligible: r.installmentEligible ?? false,
     }));
     const subtotal = items.reduce((sum, it) => sum + it.unit_price_pesewas * it.quantity, 0);
-    return { ...cart, items, subtotal_pesewas: subtotal };
+    return {
+      ...cart,
+      items,
+      subtotal_pesewas: subtotal,
+      store_count: new Set(items.map((it) => it.store_id).filter(Boolean)).size,
+      item_count: items.reduce((n, it) => n + it.quantity, 0),
+    };
   }
 
   async addItem(customerId: string, rawInput: unknown): Promise<CartWithItems> {

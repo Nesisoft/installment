@@ -21,8 +21,10 @@ import {
   updateAddressSchema,
   cancelOrderSchema,
   OrderPaymentService,
+  CheckoutDecisionService,
+  FulfilmentService,
 } from '@installment/commerce';
-import { CustomerNotFoundError, CustomersService } from '@installment/core';
+import { CustomerNotFoundError, CustomerPlansService, CustomersService } from '@installment/core';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators';
 import { ApiModel } from '../common/api-model';
@@ -44,6 +46,9 @@ export class MeCommerceController {
     private readonly addresses: AddressesService,
     private readonly orders: OrdersService,
     private readonly orderPayments: OrderPaymentService,
+    private readonly decisions: CheckoutDecisionService,
+    private readonly fulfilment: FulfilmentService,
+    private readonly plans: CustomerPlansService,
   ) {}
 
   private async customerId(user: AuthenticatedUser): Promise<string> {
@@ -108,10 +113,17 @@ export class MeCommerceController {
   // become a second order and a second credit application.
   @Idempotent()
   @ApiZodBody(checkoutSchema)
-  @ApiModel('OrderWithItems', { array: true, created: true })
+  @ApiModel('DecidedOrder', { array: true, created: true })
   async checkout(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     const customerId = await this.customerId(user);
-    return this.orders.checkout(customerId, body, this.actorFor(customerId));
+    const actor = this.actorFor(customerId);
+    const orders = await this.orders.checkout(customerId, body, actor);
+    // Score and activate immediately, so an instalment customer leaves checkout
+    // with a decision, a plan and a deposit to pay rather than an order parked
+    // in pending_approval waiting for a member of staff. This runs after the
+    // checkout transaction has committed because scoring and activation each
+    // open their own — see CheckoutDecisionService for what that costs.
+    return this.decisions.decideAll(orders, actor);
   }
 
   @Get('orders')
@@ -184,10 +196,28 @@ export class MeCommerceController {
     return this.orders.cancel(id, body, this.actorFor(customerId), { customerId });
   }
 
+  /**
+   * One of my orders, with the instalment plan behind it.
+   *
+   * The confirmation and tracking screens both show the remaining schedule, and
+   * without the plan attached here the client would have to discover the plan id
+   * from the order, then fetch the plan, then fetch its schedule — three round
+   * trips on a handset to render one card.
+   */
   @Get('orders/:id')
-  @ApiModel('OrderWithItems')
+  @ApiModel('OrderWithPlan')
   async getOrder(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.orders.get(await this.customerId(user), id);
+    const customerId = await this.customerId(user);
+    const order = await this.orders.get(customerId, id);
+    if (!order.customer_plan_id) {
+      return { ...order, plan: null, schedule: [], pickup_hub: null };
+    }
+    const [plan, schedule, pickupHub] = await Promise.all([
+      this.plans.get(order.customer_plan_id),
+      this.plans.getSchedule(order.customer_plan_id),
+      order.pickup_hub_id ? this.fulfilment.pickupHub(order.pickup_hub_id) : Promise.resolve(null),
+    ]);
+    return { ...order, plan, schedule, pickup_hub: pickupHub };
   }
 
   // --- Addresses ------------------------------------------------------------

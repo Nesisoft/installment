@@ -15,6 +15,7 @@ import {
 import { StoresService } from '../stores/stores.service';
 import { ProductsService } from '../catalog/products.service';
 import { InventoryService } from '../catalog/inventory.service';
+import { AddressesService } from './addresses.service';
 import { CartService } from './cart.service';
 import { OrdersService } from './orders.service';
 import { OrderPaymentService } from './order-payment.service';
@@ -40,6 +41,7 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
   const plans = new CustomerPlansService(db, audit);
   const templates = new PlanTemplatesService(db, audit);
   const cart = new CartService(db);
+  const addresses = new AddressesService(db);
   const orders = new OrdersService(db, inventory, applications, plans, ledger, audit);
   const ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 
@@ -554,5 +556,110 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
     await expect(
       orders.checkout(customerId, { payment_type: 'full' }, ACTOR),
     ).rejects.toBeInstanceOf(EmptyCartError);
+  });
+
+  describe('delivery pricing at checkout', () => {
+    it('charges nothing when the checkout names no destination', async () => {
+      // `shipping_address_id` has always been optional, and without one the
+      // delivery-zone lookup falls through to the national rate. Charging that
+      // would bill the customer for a delivery nobody can make.
+      const customerId = await freshCustomer();
+      const { storeId } = await merchantWithStore();
+      const v = await variant(storeId, 1500);
+      await cart.addItem(customerId, { variant_id: v, quantity: 1 });
+
+      const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+
+      expect(order!.shipping_pesewas).toBe(0);
+      expect(order!.total_pesewas).toBe(order!.subtotal_pesewas);
+      expect(order!.shipping_address_id).toBeNull();
+    });
+
+    it('charges the zone rate once there is an address to deliver to', async () => {
+      const customerId = await freshCustomer();
+      const { storeId } = await merchantWithStore();
+      const v = await variant(storeId, 1500);
+      await cart.addItem(customerId, { variant_id: v, quantity: 1 });
+
+      // The harness truncates delivery_zones, so the migration's seeded rates
+      // are gone by the time a spec runs — the zone under test is explicit.
+      await db.insert(schema.delivery_zones).values({
+        region: 'Greater Accra',
+        city: 'Accra',
+        fee_pesewas: 1500,
+        eta_min_days: 1,
+        eta_max_days: 3,
+      });
+
+      const address = await addresses.create(customerId, {
+        recipient: 'Ama Boateng',
+        phone: '0240000002',
+        region: 'Greater Accra',
+        city: 'Accra',
+      });
+
+      const [order] = await orders.checkout(
+        customerId,
+        { payment_type: 'full', shipping_address_id: address.id, fulfilment_method: 'courier' },
+        ACTOR,
+      );
+
+      // The seeded Greater Accra / Accra zone: GHS 15.
+      expect(order!.shipping_pesewas).toBe(1500);
+      expect(order!.total_pesewas).toBe(order!.subtotal_pesewas + 1500);
+      expect(order!.fulfilment_method).toBe('courier');
+    });
+
+    it('charges nothing for collection, and records the hub', async () => {
+      const customerId = await freshCustomer();
+      const { storeId } = await merchantWithStore();
+      const v = await variant(storeId, 1500);
+      await cart.addItem(customerId, { variant_id: v, quantity: 1 });
+
+      const hub = (
+        await db
+          .insert(schema.pickup_hubs)
+          .values({ name: 'Circle Hub', region: 'Greater Accra', city: 'Accra' })
+          .returning()
+      )[0]!;
+
+      const [order] = await orders.checkout(
+        customerId,
+        { payment_type: 'full', fulfilment_method: 'pickup', pickup_hub_id: hub.id },
+        ACTOR,
+      );
+
+      expect(order!.shipping_pesewas).toBe(0);
+      expect(order!.fulfilment_method).toBe('pickup');
+      expect(order!.pickup_hub_id).toBe(hub.id);
+    });
+
+    it('refuses collection without a hub, rather than picking one', async () => {
+      const customerId = await freshCustomer();
+      const { storeId } = await merchantWithStore();
+      const v = await variant(storeId, 1500);
+      await cart.addItem(customerId, { variant_id: v, quantity: 1 });
+
+      await expect(
+        orders.checkout(customerId, { payment_type: 'full', fulfilment_method: 'pickup' }, ACTOR),
+      ).rejects.toThrow(/pickup_hub_id/);
+    });
+
+    it('records a customer-readable event when the order is created', async () => {
+      const customerId = await freshCustomer();
+      const { storeId } = await merchantWithStore();
+      const v = await variant(storeId, 1500);
+      await cart.addItem(customerId, { variant_id: v, quantity: 1 });
+
+      const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+
+      const events = await db
+        .select()
+        .from(schema.order_events)
+        .where(eq(schema.order_events.order_id, order!.id));
+      expect(events).toHaveLength(1);
+      expect(events[0]!.event_type).toBe('order.created');
+      expect(events[0]!.label).toBe('Order placed');
+    });
   });
 });

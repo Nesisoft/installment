@@ -72,6 +72,26 @@ export {
   type ManualPaymentResult,
   type RefundIntentRecorder,
 } from './modules/schedules/customer-plans.service';
+export { LateFeeService, type LateFeeAccrual } from './modules/schedules/late-fee.service';
+export {
+  CustomerCreditService,
+  type CreditStanding,
+} from './modules/schedules/customer-credit.service';
+export {
+  InstallmentsFeedService,
+  installmentsFeedSchema,
+  INSTALLMENT_FEED_FILTERS,
+  type FeedInstallment,
+  type InstallmentFeedFilter,
+  type InstallmentsFeedInput,
+} from './modules/schedules/installments-feed.service';
+export {
+  PlanQuoteService,
+  planQuoteSchema,
+  type PlanQuote,
+  type PlanQuoteInput,
+  type QuotedInstallment,
+} from './modules/schedules/plan-quote.service';
 export {
   ScheduleStateService,
   type ScheduleEventContext,

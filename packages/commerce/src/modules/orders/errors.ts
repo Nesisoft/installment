@@ -71,3 +71,26 @@ export class InvalidOrderTransitionError extends Error {
     this.name = 'InvalidOrderTransitionError';
   }
 }
+
+/** The pickup hub named at checkout does not exist, or is no longer active. */
+export class PickupHubNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Pickup hub "${id}" not found`);
+    this.name = 'PickupHubNotFoundError';
+  }
+}
+
+/**
+ * No active delivery zone matched, and there is no national fallback.
+ *
+ * Migration 0015 seeds a national row precisely so a quote is always
+ * answerable, so reaching this means the configuration has been removed. It is
+ * left to surface as a 5xx on purpose: the alternative is charging nothing and
+ * absorbing every delivery silently, and ops needs to know immediately.
+ */
+export class DeliveryZoneNotConfiguredError extends Error {
+  constructor() {
+    super('No active delivery zone is configured (expected a national fallback)');
+    this.name = 'DeliveryZoneNotConfiguredError';
+  }
+}

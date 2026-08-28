@@ -27,10 +27,12 @@ export function ProductPage() {
   const [variantId, setVariantId] = useState<string | null>(null);
 
   const p = product.data;
-  const variants = useMemo(() => (p?.variants ?? []).filter((v) => v.is_active), [p]);
+  // The storefront projection already excludes inactive variants and flattens
+  // sellable stock onto the row, so there is nothing to filter or unwrap here.
+  const variants = useMemo(() => p?.variants ?? [], [p]);
   const selected = variants.find((v) => v.id === variantId) ?? variants[0] ?? null;
-  const price = selected?.price_pesewas ?? p?.base_price_pesewas ?? 0;
-  const inStock = (selected?.inventory?.quantity_available ?? 0) > 0;
+  const price = selected?.effective_price_pesewas ?? p?.base_price_pesewas ?? 0;
+  const inStock = (selected?.quantity_available ?? 0) > 0;
 
   /** Offers for this product that also fit the price. Cheapest instalment first. */
   const offers = useMemo(() => {

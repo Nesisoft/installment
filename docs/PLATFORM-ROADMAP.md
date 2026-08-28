@@ -94,15 +94,47 @@ Same format as `DEVELOPMENT-PLAN.md`: Goal · Deliverables · Definition of done
 - Returns → existing refund flow; order lifecycle completion (full vs installment convergence)
   **Definition of done:** marking delivered releases the layaway reserve on the real event; a return issues a correct proportional refund; order reaches `COMPLETED` on both paths.
 
-### Phase 14 — Customer Auth + Customer Mobile App (Expo)
+### Phase 14 — Customer Auth + Customer Mobile App (Expo) — **built**
 
 **Goal:** A buyer completes a full purchase from their phone in test mode.
-**Deliverables:**
+**Delivered** (see [`design/customer-app.md`](./design/customer-app.md) for the full
+design→engine reconciliation):
 
-- **Customer auth** (phone + OTP), customer-scoped tokens, rate limiting
-- Push channel: extend `NotificationService` with push + device-token registration
-- `apps/customer-mobile` (Expo): onboarding + Ghana-Card capture, browse/search, product + live installment calculator, cart, checkout (pay-now/installment), order tracking, my-plans (`mobile-apps.md` §4)
-  **Definition of done:** a customer registers, browses, checks out (both payment types with real Paystack test creds), and tracks the order — all from the app; a plan created on the phone matches the engine's schedule.
+- **Customer auth** (phone + OTP) — already existed; the app hides the sign-in/sign-up split
+  behind one phone field, because a shopper does not know which they are
+- **Storefront reads a shopping app can render** — image URLs, vendor names, ratings, sold
+  counts, sort/filter/price bands, totals, a home feed, trending searches
+- **`POST /storefront/plan-quote`** — the engine's own `ScheduleGenerator`, so the preview on the
+  product and checkout screens is the schedule the plan will actually have
+- **Auto-decision at checkout** — instalment checkout now scores, activates and returns the plan
+  and deposit. Before this the order parked in `pending_approval` waiting for staff, and the
+  "approved in seconds" flow could not complete at all
+- **Fulfilment** — courier vs pickup, `delivery_zones` pricing, `pickup_hubs`, and
+  `orders.shipping_pesewas` finally written
+- **Late-fee engine** — rate and cap on templates and plans, accrued daily
+- **Auto-debit switch**, cross-plan instalments feed, credit standing, order tracking, reviews,
+  wishlist, push-token registration
+- **`apps/customer-mobile`** (Expo SDK 57 / RN 0.86): onboarding, home, search, browse+filters,
+  product, vendor, cart, checkout + BNPL approval sheet, confirmation, orders, tracking,
+  instalments, wallet & payments, account
+- **`packages/mobile-kit`** — API client, SecureStore session, query defaults, idempotency
+
+**Deferred, with the seam left in place:** Ghana Card capture (KYC tier 2), push _delivery_
+(registration ships), live courier position, returns/disputes, and a stored-value wallet balance —
+that last one because holding customer funds in Ghana is e-money under the Bank of Ghana's
+Payment Systems and Services Act, a licensing question rather than an engineering one.
+
+**⚠ Open business decision surfaced by the build.** With the shipped ruleset a **first-time
+customer cannot be auto-approved**. The reachable score for someone with no repayment history
+tops out around 325 (no prior defaults 50 + low failure rate 50 + payment diversity 25 + KYC
+tier 2 100 + account age 100), and 350 is the floor for `subprime` → manual review, 500 for
+`near_prime` → approval. The signals that would lift them — `score.on_time_rate`,
+`score.consecutive_on_time`, `score.paystack_history` — all require an existing plan, so the
+first order is always declined or sent to review. The design's "Approved in seconds against your
+MoMo history" is therefore only reachable for a _returning_ customer. This is a risk-appetite
+call, not a bug: the options are a first-order ruleset variant, a starter limit for
+Ghana-Card-verified customers, or accepting manual review on the first purchase. The app already
+renders all three outcomes honestly.
 
 ### Phase 15 — Merchant Mobile App (Expo)
 
@@ -147,8 +179,17 @@ Carried from `commerce-domain.md` §9 + `mobile-apps.md` §6 — these shape Pha
 3. **Guest checkout** — allowed for pay-now, blocked for installment (BNPL requires Ghana-Card-verified KYC)?
 4. **Fulfilment** — v1 merchant self-fulfils with manual status; integrated couriers later?
 5. **Object storage provider** — S3 / GCS / Cloudflare R2?
-6. **Mobile component kit** — NativeWind + gluestack-ui vs Tamagui?
-7. **Where are the existing UI/UX designs?** They are **not** in this repo or its git history — recovering them (Figma / Claude artifacts / another repo) would let us design Phases 14–15 to your intended look instead of redesigning.
+6. ~~**Mobile component kit**~~ **Decided: neither.** The design is entirely bespoke, so a kit
+   would be styling overhead with no components used, and NativeWind's Babel transform plus Metro
+   wrapper is the fragile part of a pnpm workspace. `apps/customer-mobile` uses a typed token
+   module plus `StyleSheet` — zero build risk, exhaustively typed, and the tokens are the design's
+   own values.
+7. ~~**Where are the existing UI/UX designs?**~~ **Resolved** — the customer app canvas
+   (`Ejua_Shop.dc.html`) is now the built design; its tokens live in
+   `apps/customer-mobile/src/theme/tokens.ts` and the reconciliation in
+   [`design/customer-app.md`](./design/customer-app.md).
+8. **First-order credit appetite** — see the ⚠ under Phase 14. Nothing else in the build is
+   blocked on it, but the shopper experience of a first purchase depends entirely on the answer.
 
 ---
 

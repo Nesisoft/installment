@@ -34,5 +34,14 @@ export default tseslint.config(
       'no-undef': 'off',
     },
   },
+  {
+    // Metro and Babel load these config files through Node's CommonJS require
+    // before any bundler is involved, so they cannot be ESM and cannot use
+    // `import`. The rule is right everywhere else in the workspace.
+    files: ['apps/*-mobile/metro.config.js', 'apps/*-mobile/babel.config.js'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
   prettier,
 );

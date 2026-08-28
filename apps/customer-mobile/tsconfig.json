@@ -1,0 +1,27 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "module": "esnext",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "types": ["react"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      // pnpm hoists @types/react 18 (for apps/customer-web) alongside this
+      // app's 19. Without pinning, TypeScript loads both and decides that
+      // ReactNode is not assignable to ReactNode.
+      "react": ["./node_modules/@types/react"],
+      "react-dom": ["./node_modules/@types/react-dom"]
+    }
+  },
+  "include": ["app/**/*.ts", "app/**/*.tsx", "src/**/*.ts", "src/**/*.tsx", "*.ts", "*.js"],
+  "exclude": ["node_modules", ".expo", "dist"]
+}

@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge, Card, CardContent, Input, Skeleton, cn } from '@installment/ui';
-import { formatGhs, type Product } from '@installment/api-types';
+import { formatGhs, type StorefrontProduct } from '@installment/api-types';
 import { Search, X } from 'lucide-react';
 import { useCategories, useProductSearch, useProducts } from '../lib/shop-api';
 import { EmptyState, ErrorState } from '../components/data-states';
 
-function ProductList({ products }: { products: Product[] }) {
+function ProductList({ products }: { products: StorefrontProduct[] }) {
   return (
     <ul className="space-y-3">
       {products.map((p) => (
@@ -16,9 +16,9 @@ function ProductList({ products }: { products: Product[] }) {
               <CardContent className="flex items-center justify-between gap-3 p-4">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{p.title}</p>
-                  {p.description ? (
+                  {p.store_display_name ? (
                     <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                      {p.description}
+                      {p.store_display_name}
                     </p>
                   ) : null}
                 </div>
