@@ -45,6 +45,7 @@ export const NAME_STATUS: Record<string, number> = {
   // Commerce. ProductNotFound and StoreNotFound are reachable by an anonymous
   // shopper on the public storefront — a stale link must not read as an outage.
   ProductNotFoundError: HttpStatus.NOT_FOUND,
+  PickupHubNotFoundError: HttpStatus.NOT_FOUND,
   StoreNotFoundError: HttpStatus.NOT_FOUND,
   CategoryNotFoundError: HttpStatus.NOT_FOUND,
   VariantNotFoundError: HttpStatus.NOT_FOUND,
@@ -94,6 +95,8 @@ export const NAME_STATUS: Record<string, number> = {
   // The stock moved under the request. A conflict with current state rather
   // than a bad request: the same call may succeed once stock returns.
   InsufficientStockError: HttpStatus.CONFLICT,
+  // Already reviewed: the customer's own earlier review is the conflict.
+  ReviewConflictError: HttpStatus.CONFLICT,
   // 422
   GhanaCardNotAttachedError: HttpStatus.UNPROCESSABLE_ENTITY,
   GhanaCardVerificationFailedError: HttpStatus.UNPROCESSABLE_ENTITY,
@@ -110,6 +113,11 @@ export const NAME_STATUS: Record<string, number> = {
   CategoryValidationError: HttpStatus.UNPROCESSABLE_ENTITY,
   ProductValidationError: HttpStatus.UNPROCESSABLE_ENTITY,
   NotPurchasableError: HttpStatus.UNPROCESSABLE_ENTITY,
+  // Not a permission failure to be fixed by signing in differently — the item
+  // simply is not in a state that can be reviewed yet (or is not theirs).
+  ReviewNotAllowedError: HttpStatus.UNPROCESSABLE_ENTITY,
+  // A push token the device supplied that we cannot store as given.
+  DeviceRegistrationError: HttpStatus.UNPROCESSABLE_ENTITY,
   EmptyCartError: HttpStatus.UNPROCESSABLE_ENTITY,
   // 502 — the SMS aggregator refused or was unreachable. Customer OTP login
   // sends synchronously, so this reaches a customer: it is an upstream fault,

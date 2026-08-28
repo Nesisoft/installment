@@ -29,6 +29,17 @@ export const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(16).default('dev-refresh-secret-change-me!!'),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   JWT_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
+  /**
+   * Public prefix product images, store logos and category art are served from,
+   * e.g. `https://cdn.ejua.gh/media`. Object-storage keys are resolved against
+   * it server-side so no client has to know the bucket layout, and swapping in
+   * signed URLs later changes one function rather than every app.
+   *
+   * Empty (the default) means every image URL comes back null, which the apps
+   * render as a placeholder tile — a deployment without storage configured
+   * degrades quietly instead of showing broken images.
+   */
+  MEDIA_BASE_URL: z.string().default(''),
   SMS_SENDER_ID: z.string().default('Installmt'),
   // Which SMS provider actually dispatches. `console` logs and delivers
   // nothing — fine locally, catastrophic in production, where customer auth is

@@ -35,6 +35,7 @@ import { CollectionsController } from './modules/collections.controller';
 import { MerchantPortalController } from './modules/merchant-portal.controller';
 import { MeController } from './modules/me.controller';
 import { MeCommerceController } from './modules/me-commerce.controller';
+import { MeShopperController } from './modules/me-shopper.controller';
 import { WebhookController } from './modules/webhook.controller';
 import { DomainExceptionFilter } from './common/domain-exception.filter';
 import { IdempotencyInterceptor } from './common/idempotency.interceptor';
@@ -89,6 +90,7 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
     MerchantPortalController,
     MeController,
     MeCommerceController,
+    MeShopperController,
     WebhookController,
   ],
   providers: [

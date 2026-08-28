@@ -75,6 +75,13 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     CartItem: drizzleSchema(s.cart_items),
     Order: drizzleSchema(s.orders),
     OrderItem: drizzleSchema(s.order_items),
+    // Commerce — the customer app (Phase 14)
+    PickupHub: drizzleSchema(s.pickup_hubs),
+    DeliveryZone: drizzleSchema(s.delivery_zones),
+    OrderEvent: drizzleSchema(s.order_events),
+    Shipment: drizzleSchema(s.shipments),
+    ProductReview: drizzleSchema(s.product_reviews),
+    PushDevice: drizzleSchema(s.push_devices),
   };
 
   // Composed view returned by ProductsService.getWithDetails.
@@ -133,6 +140,279 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
         },
       },
     ],
+  } as SchemaObject;
+
+  // --- Shopper read models (Phase 14) ---------------------------------------
+  // Hand-written rather than derived: these are projections assembled across
+  // several tables, so no single Drizzle table describes them.
+
+  const money = { type: 'integer', description: 'Integer pesewas (GHS x 100)' } as const;
+  const nullableNumber = { type: 'number', nullable: true } as const;
+  const nullableString = { type: 'string', nullable: true } as const;
+
+  models.StorefrontProduct = {
+    type: 'object',
+    description: 'A product as a shopping app renders a card: image, vendor, price, offer.',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      store_id: { type: 'string', format: 'uuid' },
+      merchant_id: { type: 'string', format: 'uuid' },
+      category_id: { type: 'string', format: 'uuid', nullable: true },
+      title: { type: 'string' },
+      base_price_pesewas: money,
+      compare_at_price_pesewas: { type: 'integer', nullable: true },
+      discount_percent: { type: 'integer', nullable: true },
+      deal_ends_at: { type: 'string', format: 'date-time', nullable: true },
+      currency: { type: 'string' },
+      primary_image_url: nullableString,
+      primary_image_alt: nullableString,
+      store_slug: { type: 'string' },
+      store_display_name: { type: 'string' },
+      store_logo_url: nullableString,
+      store_verified: { type: 'boolean' },
+      rating_avg: nullableNumber,
+      rating_count: { type: 'integer' },
+      sold_count: { type: 'integer' },
+      installment_eligible: { type: 'boolean' },
+      in_stock: { type: 'boolean' },
+      created_at: { type: 'string', format: 'date-time' },
+    },
+  } as SchemaObject;
+
+  models.PaginatedProducts = {
+    type: 'object',
+    properties: {
+      rows: { type: 'array', items: { $ref: '#/components/schemas/StorefrontProduct' } },
+      total: { type: 'integer' },
+    },
+  } as SchemaObject;
+
+  models.StorefrontStore = {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      slug: { type: 'string' },
+      display_name: { type: 'string' },
+      about: nullableString,
+      city: nullableString,
+      region: nullableString,
+      verified: { type: 'boolean' },
+      logo_url: nullableString,
+      banner_url: nullableString,
+      support_phone: nullableString,
+      joined_at: { type: 'string', format: 'date-time' },
+      product_count: { type: 'integer' },
+      rating_avg: nullableNumber,
+      rating_count: { type: 'integer' },
+      order_count: { type: 'integer' },
+      on_time_percent: nullableNumber,
+    },
+  } as SchemaObject;
+
+  models.StorefrontCategory = {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      parent_id: { type: 'string', format: 'uuid', nullable: true },
+      name: { type: 'string' },
+      slug: { type: 'string' },
+      position: { type: 'integer' },
+      image_url: nullableString,
+      accent_hex: nullableString,
+      product_count: { type: 'integer' },
+    },
+  } as SchemaObject;
+
+  models.StorefrontProductDetails = {
+    allOf: [
+      { $ref: '#/components/schemas/StorefrontProduct' },
+      {
+        type: 'object',
+        properties: {
+          description: nullableString,
+          attributes: { type: 'object' },
+          images: { type: 'array', items: { type: 'object' } },
+          variants: { type: 'array', items: { type: 'object' } },
+          variant_label: nullableString,
+          plan_template_ids: { type: 'array', items: { type: 'string', format: 'uuid' } },
+          store: { $ref: '#/components/schemas/StorefrontStore' },
+          category: { type: 'object', nullable: true },
+        },
+      },
+    ],
+  } as SchemaObject;
+
+  models.HomeFeed = {
+    type: 'object',
+    properties: {
+      categories: { type: 'array', items: { $ref: '#/components/schemas/StorefrontCategory' } },
+      deals: { type: 'array', items: { $ref: '#/components/schemas/StorefrontProduct' } },
+      deals_end_at: { type: 'string', format: 'date-time', nullable: true },
+      installment_picks: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/StorefrontProduct' },
+      },
+      newest: { type: 'array', items: { $ref: '#/components/schemas/StorefrontProduct' } },
+    },
+  } as SchemaObject;
+
+  models.PlanQuote = {
+    type: 'object',
+    description: "What a plan would cost, generated by the engine's own ScheduleGenerator.",
+    properties: {
+      plan_template_id: { type: 'string', format: 'uuid' },
+      name: { type: 'string' },
+      description: nullableString,
+      business_model: { type: 'string' },
+      number_of_installments: {
+        type: 'integer',
+        description: "Excludes the deposit row — the engine's own definition.",
+      },
+      installment_frequency_days: { type: 'integer' },
+      grace_period_days: { type: 'integer' },
+      down_payment_bps: { type: 'integer' },
+      interest_rate_bps: { type: 'integer' },
+      service_fee_flat_pesewas: money,
+      late_fee_bps_per_week: { type: 'integer' },
+      late_fee_cap_bps: { type: 'integer' },
+      min_amount_pesewas: money,
+      max_amount_pesewas: money,
+      down_payment_pesewas: money,
+      financed_amount_pesewas: money,
+      total_interest_pesewas: money,
+      total_fees_pesewas: money,
+      total_payable_pesewas: money,
+      per_installment_pesewas: money,
+      installments: { type: 'array', items: { type: 'object' } },
+      eligible: { type: 'boolean' },
+      ineligible_reason: nullableString,
+    },
+  } as SchemaObject;
+
+  models.DeliveryQuote = {
+    type: 'object',
+    properties: {
+      fulfilment_method: { type: 'string', enum: ['courier'] },
+      fee_pesewas: money,
+      eta_min_days: { type: 'integer' },
+      eta_max_days: { type: 'integer' },
+      eta_earliest: { type: 'string', format: 'date' },
+      eta_latest: { type: 'string', format: 'date' },
+      matched: { type: 'string', enum: ['city', 'region', 'national'] },
+    },
+  } as SchemaObject;
+
+  models.CreditStanding = {
+    type: 'object',
+    properties: {
+      approved_limit_pesewas: money,
+      in_use_pesewas: money,
+      available_pesewas: money,
+      on_time_payments: { type: 'integer' },
+      late_payments: { type: 'integer' },
+      total_payments: { type: 'integer' },
+      active_plans: { type: 'integer' },
+      has_limit: { type: 'boolean' },
+      last_reviewed_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  } as SchemaObject;
+
+  models.CustomerProfile = {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      first_name: { type: 'string' },
+      last_name: { type: 'string' },
+      email: { type: 'string' },
+      phone: { type: 'string' },
+      momo_phone: nullableString,
+      momo_provider: nullableString,
+      kyc_tier: { type: 'integer' },
+      ghana_card_verified: { type: 'boolean' },
+      consents: { type: 'object' },
+      credit: { $ref: '#/components/schemas/CreditStanding' },
+      counts: { type: 'object' },
+      created_at: { type: 'string', format: 'date-time' },
+    },
+  } as SchemaObject;
+
+  models.FeedInstallment = {
+    allOf: [
+      { $ref: '#/components/schemas/InstallmentSchedule' },
+      {
+        type: 'object',
+        description: 'An instalment carrying its plan, order and product context.',
+        properties: {
+          position: {
+            type: 'integer',
+            description: 'Position among the plan rows, deposit included.',
+          },
+          total_installments: { type: 'integer' },
+          payable_pesewas: money,
+          is_down_payment: { type: 'boolean' },
+          is_overdue: { type: 'boolean' },
+          plan: { type: 'object' },
+          merchant_name: nullableString,
+          order_id: { type: 'string', format: 'uuid', nullable: true },
+          order_number: nullableString,
+          item_title: nullableString,
+        },
+      },
+    ],
+  } as SchemaObject;
+
+  models.OrderTracking = {
+    type: 'object',
+    properties: {
+      order_id: { type: 'string', format: 'uuid' },
+      order_number: { type: 'string' },
+      status: { type: 'string' },
+      fulfilment_method: { type: 'string', enum: ['courier', 'pickup'] },
+      pickup_hub: { allOf: [{ $ref: '#/components/schemas/PickupHub' }], nullable: true },
+      shipment: { allOf: [{ $ref: '#/components/schemas/Shipment' }], nullable: true },
+      delivered_at: { type: 'string', format: 'date-time', nullable: true },
+      return_window_ends_at: { type: 'string', format: 'date-time', nullable: true },
+      events: { type: 'array', items: { type: 'object' } },
+    },
+  } as SchemaObject;
+
+  models.OrderWithPlan = {
+    allOf: [
+      { $ref: '#/components/schemas/OrderWithItems' },
+      {
+        type: 'object',
+        properties: {
+          plan: { allOf: [{ $ref: '#/components/schemas/CustomerPlan' }], nullable: true },
+          schedule: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/InstallmentSchedule' },
+          },
+          pickup_hub: { allOf: [{ $ref: '#/components/schemas/PickupHub' }], nullable: true },
+        },
+      },
+    ],
+  } as SchemaObject;
+
+  models.DecidedOrder = {
+    type: 'object',
+    description:
+      'A checked-out order and the credit decision made on it, so the app can render approval, decline or review without a second call.',
+    properties: {
+      order: { $ref: '#/components/schemas/OrderWithItems' },
+      outcome: {
+        type: 'string',
+        enum: ['paid_later', 'approved', 'declined', 'in_review', 'failed'],
+      },
+      application_id: { type: 'string', format: 'uuid', nullable: true },
+      plan: { allOf: [{ $ref: '#/components/schemas/CustomerPlan' }], nullable: true },
+      schedule: { type: 'array', items: { $ref: '#/components/schemas/InstallmentSchedule' } },
+      down_payment: {
+        allOf: [{ $ref: '#/components/schemas/InstallmentSchedule' }],
+        nullable: true,
+      },
+      approved_limit_pesewas: { type: 'integer', nullable: true },
+      message: nullableString,
+    },
   } as SchemaObject;
 
   return models;

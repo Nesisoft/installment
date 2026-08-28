@@ -23,8 +23,6 @@ const ppo = schema.product_plan_offers;
 const st = schema.stores;
 const cat = schema.categories;
 const rev = schema.product_reviews;
-const oi = schema.order_items;
-const ord = schema.orders;
 const sq = schema.search_queries;
 
 /** Order statuses that mean the customer actually took delivery of the goods. */
@@ -379,11 +377,11 @@ export class StorefrontService {
         image_key: cat.image_key,
         accent_hex: cat.accent_hex,
         product_count: sql<number>`(
-          SELECT COUNT(*)::int FROM ${p}
-          JOIN ${st} ON ${st.id} = ${p.store_id}
-          WHERE ${p.category_id} = ${cat.id}
-            AND ${p.status} = 'active' AND ${p.deleted_at} IS NULL
-            AND ${st.status} = 'active' AND ${st.deleted_at} IS NULL
+          SELECT COUNT(*)::int FROM products pr
+          JOIN stores s ON s.id = pr.store_id
+          WHERE pr.category_id = categories.id
+            AND pr.status = 'active' AND pr.deleted_at IS NULL
+            AND s.status = 'active' AND s.deleted_at IS NULL
         )`,
       })
       .from(cat)
@@ -424,21 +422,8 @@ export class StorefrontService {
 
     const [categories, deals, installmentPicks, newest] = await Promise.all([
       this.categories(),
-      this.selectCards(
-        and(live, sql`${p.deal_ends_at} IS NOT NULL AND ${p.deal_ends_at} > NOW()`),
-        [asc(p.deal_ends_at)],
-        8,
-        0,
-      ),
-      this.selectCards(
-        and(
-          live,
-          sql`EXISTS (SELECT 1 FROM ${ppo} WHERE ${ppo.product_id} = ${p.id} AND ${ppo.is_active})`,
-        ),
-        this.orderFor('popular'),
-        8,
-        0,
-      ),
+      this.selectCards(and(live, this.liveDealExpr()), [asc(p.deal_ends_at)], 8, 0),
+      this.selectCards(and(live, this.installmentEligibleExpr()), this.orderFor('popular'), 8, 0),
       this.selectCards(live, [desc(p.created_at)], 8, 0),
     ]);
 
@@ -473,7 +458,7 @@ export class StorefrontService {
     if (input.category_id) where.push(eq(p.category_id, input.category_id));
     if (input.category_slug) {
       where.push(
-        sql`${p.category_id} IN (SELECT id FROM ${cat} WHERE slug = ${input.category_slug})`,
+        sql`products.category_id IN (SELECT c.id FROM categories c WHERE c.slug = ${input.category_slug})`,
       );
     }
     if (input.store_id) where.push(eq(p.store_id, input.store_id));
@@ -484,14 +469,9 @@ export class StorefrontService {
     if (input.max_price_pesewas !== undefined) {
       where.push(lte(p.base_price_pesewas, input.max_price_pesewas));
     }
-    if (input.installment_only) {
-      where.push(
-        sql`EXISTS (SELECT 1 FROM ${ppo} WHERE ${ppo.product_id} = ${p.id} AND ${ppo.is_active})`,
-      );
-    }
+    if (input.installment_only) where.push(this.installmentEligibleExpr());
     if (input.in_stock) where.push(sql`${this.inStockExpr()}`);
-    if (input.deals_only)
-      where.push(sql`${p.deal_ends_at} IS NOT NULL AND ${p.deal_ends_at} > NOW()`);
+    if (input.deals_only) where.push(this.liveDealExpr());
 
     const term = input.q?.trim();
     if (term) {
@@ -499,19 +479,29 @@ export class StorefrontService {
       // word ("ank") produces no lexeme match at all, so a prefix fallback on
       // the title keeps short queries from returning an empty screen.
       where.push(
-        sql`(${p.search_tsv} @@ plainto_tsquery('english', ${term}) OR ${p.title} ILIKE ${'%' + term + '%'})`,
+        sql`(products.search_tsv @@ plainto_tsquery('english', ${term})
+             OR products.title ILIKE ${'%' + term + '%'})`,
       );
     }
 
     return and(...where.filter(Boolean));
   }
 
+  private liveDealExpr(): SQL {
+    return sql`products.deal_ends_at IS NOT NULL AND products.deal_ends_at > NOW()`;
+  }
+
+  private installmentEligibleExpr(): SQL {
+    return sql`EXISTS (SELECT 1 FROM product_plan_offers o
+      WHERE o.product_id = products.id AND o.is_active)`;
+  }
+
   private inStockExpr(): SQL {
     return sql`EXISTS (
-      SELECT 1 FROM ${pv}
-      JOIN ${inv} ON ${inv.variant_id} = ${pv.id}
-      WHERE ${pv.product_id} = ${p.id} AND ${pv.is_active}
-        AND ${inv.quantity_available} - ${inv.quantity_reserved} > 0
+      SELECT 1 FROM product_variants v
+      JOIN inventory i ON i.variant_id = v.id
+      WHERE v.product_id = products.id AND v.is_active
+        AND i.quantity_available - i.quantity_reserved > 0
     )`;
   }
 
@@ -532,7 +522,7 @@ export class StorefrontService {
         // without one, popularity is all there is to go on.
         return term?.trim()
           ? [
-              sql`ts_rank(${p.search_tsv}, plainto_tsquery('english', ${term.trim()})) DESC`,
+              sql`ts_rank(products.search_tsv, plainto_tsquery('english', ${term.trim()})) DESC`,
               sql`${this.soldCountExpr()} DESC`,
               desc(p.created_at),
             ]
@@ -541,14 +531,14 @@ export class StorefrontService {
   }
 
   private ratingAvgExpr(): SQL {
-    return sql`(SELECT AVG(${rev.rating})::numeric(3,2) FROM ${rev}
-      WHERE ${rev.product_id} = ${p.id} AND ${rev.status} = 'published')`;
+    return sql`(SELECT AVG(r.rating)::numeric(3,2) FROM product_reviews r
+      WHERE r.product_id = products.id AND r.status = 'published')`;
   }
 
   private soldCountExpr(): SQL {
-    return sql`(SELECT COALESCE(SUM(${oi.quantity}), 0)::int FROM ${oi}
-      JOIN ${ord} ON ${ord.id} = ${oi.order_id}
-      WHERE ${oi.product_id} = ${p.id} AND ${ord.status} IN (${SOLD_STATUS_LIST}))`;
+    return sql`(SELECT COALESCE(SUM(it.quantity), 0)::int FROM order_items it
+      JOIN orders o ON o.id = it.order_id
+      WHERE it.product_id = products.id AND o.status IN (${SOLD_STATUS_LIST}))`;
   }
 
   private async count(where: SQL | undefined): Promise<number> {
@@ -582,16 +572,15 @@ export class StorefrontService {
         store_display_name: st.display_name,
         store_logo_key: st.logo_key,
         store_verified_at: st.verified_at,
-        primary_image_key: sql<string | null>`(SELECT ${pi.storage_key} FROM ${pi}
-          WHERE ${pi.product_id} = ${p.id} ORDER BY ${pi.position}, ${pi.created_at} LIMIT 1)`,
-        primary_image_alt: sql<string | null>`(SELECT ${pi.alt_text} FROM ${pi}
-          WHERE ${pi.product_id} = ${p.id} ORDER BY ${pi.position}, ${pi.created_at} LIMIT 1)`,
+        primary_image_key: sql<string | null>`(SELECT im.storage_key FROM product_images im
+          WHERE im.product_id = products.id ORDER BY im.position, im.created_at LIMIT 1)`,
+        primary_image_alt: sql<string | null>`(SELECT im.alt_text FROM product_images im
+          WHERE im.product_id = products.id ORDER BY im.position, im.created_at LIMIT 1)`,
         rating_avg: sql<string | null>`${this.ratingAvgExpr()}`,
-        rating_count: sql<number>`(SELECT COUNT(*)::int FROM ${rev}
-          WHERE ${rev.product_id} = ${p.id} AND ${rev.status} = 'published')`,
+        rating_count: sql<number>`(SELECT COUNT(*)::int FROM product_reviews r
+          WHERE r.product_id = products.id AND r.status = 'published')`,
         sold_count: sql<number>`${this.soldCountExpr()}`,
-        installment_eligible: sql<boolean>`EXISTS (SELECT 1 FROM ${ppo}
-          WHERE ${ppo.product_id} = ${p.id} AND ${ppo.is_active})`,
+        installment_eligible: sql<boolean>`${this.installmentEligibleExpr()}`,
         in_stock: sql<boolean>`${this.inStockExpr()}`,
       })
       .from(p)
@@ -643,22 +632,22 @@ export class StorefrontService {
         banner_key: st.banner_key,
         support_phone: st.support_phone,
         created_at: st.created_at,
-        product_count: sql<number>`(SELECT COUNT(*)::int FROM ${p}
-          WHERE ${p.store_id} = ${st.id} AND ${p.status} = 'active' AND ${p.deleted_at} IS NULL)`,
-        rating_avg: sql<string | null>`(SELECT AVG(${rev.rating})::numeric(3,2) FROM ${rev}
-          WHERE ${rev.store_id} = ${st.id} AND ${rev.status} = 'published')`,
-        rating_count: sql<number>`(SELECT COUNT(*)::int FROM ${rev}
-          WHERE ${rev.store_id} = ${st.id} AND ${rev.status} = 'published')`,
-        order_count: sql<number>`(SELECT COUNT(*)::int FROM ${ord}
-          WHERE ${ord.store_id} = ${st.id} AND ${ord.status} IN (${SOLD_STATUS_LIST}))`,
+        product_count: sql<number>`(SELECT COUNT(*)::int FROM products pr
+          WHERE pr.store_id = stores.id AND pr.status = 'active' AND pr.deleted_at IS NULL)`,
+        rating_avg: sql<string | null>`(SELECT AVG(r.rating)::numeric(3,2) FROM product_reviews r
+          WHERE r.store_id = stores.id AND r.status = 'published')`,
+        rating_count: sql<number>`(SELECT COUNT(*)::int FROM product_reviews r
+          WHERE r.store_id = stores.id AND r.status = 'published')`,
+        order_count: sql<number>`(SELECT COUNT(*)::int FROM orders o
+          WHERE o.store_id = stores.id AND o.status IN (${SOLD_STATUS_LIST}))`,
         on_time_percent: sql<string | null>`(
           SELECT ROUND(100.0 * COUNT(*) FILTER (
-                   WHERE s.delivered_at IS NOT NULL
-                     AND (s.eta_at IS NULL OR s.delivered_at <= s.eta_at)
+                   WHERE sh.delivered_at IS NOT NULL
+                     AND (sh.eta_at IS NULL OR sh.delivered_at <= sh.eta_at)
                  ) / NULLIF(COUNT(*), 0))
-          FROM shipments s
-          JOIN ${ord} ON ${ord.id} = s.order_id
-          WHERE ${ord.store_id} = ${st.id} AND s.delivered_at IS NOT NULL
+          FROM shipments sh
+          JOIN orders o ON o.id = sh.order_id
+          WHERE o.store_id = stores.id AND sh.delivered_at IS NOT NULL
         )`,
       })
       .from(st)
