@@ -101,6 +101,11 @@ add `000N_*.sql` files for changes; never edit an applied migration. See
 [`docs/adr/0001-sql-first-migrations.md`](docs/adr/0001-sql-first-migrations.md)
 for the rationale.
 
+## Contributing
+
+Branch names, commit format and the checks to run before pushing are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every pull request: spins up Postgres 16 +
