@@ -10,5 +10,6 @@ export * from './collections';
 export * from './plans';
 export * from './stores';
 export * from './catalog';
+export * from './storefront';
 export * from './orders';
 export * from './http';

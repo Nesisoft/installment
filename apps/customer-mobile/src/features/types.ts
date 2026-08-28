@@ -1,157 +1,44 @@
 /**
  * Wire shapes the app reads.
  *
- * These mirror the projections `@installment/commerce` and `@installment/core`
- * return. They are declared here rather than imported from `@installment/api-types`
- * because that package mirrors *request* schemas and table rows, while these are
- * assembled read models — and because the app must not pull a package that
- * imports Drizzle into a Metro bundle.
+ * The storefront read models are re-exported from `@installment/api-types` so
+ * there is ONE definition of them shared with the web apps — they were briefly
+ * duplicated here, and a duplicated wire type is a wire type that drifts.
+ * Everything below the re-export is app-facing shape that the shared package
+ * does not carry yet.
  *
  * Field names are snake_case throughout: that is what the API sends, and
- * renaming at the boundary would only add a layer to get wrong.
+ * renaming at the boundary would only add a layer to get wrong. Every amount is
+ * integer pesewas; every timestamp is ISO-8601 (see `lib/dates` for the parsing
+ * trap).
  */
+
+// `export type { … }` re-exports without binding locally, and shapes below
+// reference PickupHub, so it is imported as well as re-exported.
+import type { PickupHub } from '@installment/api-types';
+
+export type {
+  DeliveryQuote,
+  HomeFeed,
+  PickupHub,
+  PlanQuote,
+  QuotedInstallment,
+  StorefrontCategory,
+  StorefrontImage as ProductImage,
+  StorefrontProduct,
+  StorefrontProductDetails,
+  StorefrontReview,
+  StorefrontStore,
+  StorefrontVariant as ProductVariant,
+  TrendingTerm,
+} from '@installment/api-types';
 
 export interface Paginated<T> {
   rows: T[];
   total: number;
 }
 
-export interface StorefrontProduct {
-  id: string;
-  store_id: string;
-  merchant_id: string;
-  category_id: string | null;
-  title: string;
-  base_price_pesewas: number;
-  compare_at_price_pesewas: number | null;
-  discount_percent: number | null;
-  deal_ends_at: string | null;
-  currency: string;
-  primary_image_url: string | null;
-  primary_image_alt: string | null;
-  store_slug: string;
-  store_display_name: string;
-  store_logo_url: string | null;
-  store_verified: boolean;
-  rating_avg: number | null;
-  rating_count: number;
-  sold_count: number;
-  installment_eligible: boolean;
-  in_stock: boolean;
-  created_at: string;
-}
-
-export interface StorefrontStore {
-  id: string;
-  slug: string;
-  display_name: string;
-  about: string | null;
-  city: string | null;
-  region: string | null;
-  verified: boolean;
-  logo_url: string | null;
-  banner_url: string | null;
-  support_phone: string | null;
-  joined_at: string;
-  product_count: number;
-  rating_avg: number | null;
-  rating_count: number;
-  order_count: number;
-  on_time_percent: number | null;
-}
-
-export interface StorefrontCategory {
-  id: string;
-  parent_id: string | null;
-  name: string;
-  slug: string;
-  position: number;
-  image_url: string | null;
-  accent_hex: string | null;
-  product_count: number;
-}
-
-export interface ProductVariant {
-  id: string;
-  sku: string;
-  option_values: Record<string, unknown>;
-  price_pesewas: number | null;
-  effective_price_pesewas: number;
-  is_active: boolean;
-  quantity_available: number;
-}
-
-export interface ProductImage {
-  id: string;
-  url: string | null;
-  alt_text: string | null;
-  position: number;
-}
-
-export interface StorefrontProductDetails extends StorefrontProduct {
-  description: string | null;
-  attributes: Record<string, unknown>;
-  images: ProductImage[];
-  variants: ProductVariant[];
-  variant_label: string | null;
-  plan_template_ids: string[];
-  store: StorefrontStore;
-  category: { id: string; name: string; slug: string } | null;
-}
-
-export interface HomeFeed {
-  categories: StorefrontCategory[];
-  deals: StorefrontProduct[];
-  deals_end_at: string | null;
-  installment_picks: StorefrontProduct[];
-  newest: StorefrontProduct[];
-}
-
-export interface StorefrontReview {
-  id: string;
-  rating: number;
-  title: string | null;
-  body: string | null;
-  author: string;
-  created_at: string;
-}
-
 // --- Instalment plans --------------------------------------------------------
-
-export interface QuotedInstallment {
-  sequence_number: number;
-  kind: 'down_payment' | 'installment';
-  amount_pesewas: number;
-  due_date: string;
-  grace_until_date: string;
-}
-
-export interface PlanQuote {
-  plan_template_id: string;
-  name: string;
-  description: string | null;
-  business_model: string;
-  /** Excludes the deposit — the engine's own definition. Count `installments` for display. */
-  number_of_installments: number;
-  installment_frequency_days: number;
-  grace_period_days: number;
-  down_payment_bps: number;
-  interest_rate_bps: number;
-  service_fee_flat_pesewas: number;
-  late_fee_bps_per_week: number;
-  late_fee_cap_bps: number;
-  min_amount_pesewas: number;
-  max_amount_pesewas: number;
-  down_payment_pesewas: number;
-  financed_amount_pesewas: number;
-  total_interest_pesewas: number;
-  total_fees_pesewas: number;
-  total_payable_pesewas: number;
-  per_installment_pesewas: number;
-  installments: QuotedInstallment[];
-  eligible: boolean;
-  ineligible_reason: string | null;
-}
 
 export interface CustomerPlan {
   id: string;
@@ -252,27 +139,6 @@ export interface Address {
   landmark: string | null;
   ghanapost_gps: string | null;
   is_default: boolean;
-}
-
-export interface PickupHub {
-  id: string;
-  name: string;
-  region: string;
-  city: string;
-  area: string | null;
-  detail: string | null;
-  is_active: boolean;
-  position: number;
-}
-
-export interface DeliveryQuote {
-  fulfilment_method: 'courier';
-  fee_pesewas: number;
-  eta_min_days: number;
-  eta_max_days: number;
-  eta_earliest: string;
-  eta_latest: string;
-  matched: 'city' | 'region' | 'national';
 }
 
 export interface OrderItem {
@@ -418,9 +284,4 @@ export interface ChargeResult {
   status: 'paid' | 'pending' | 'failed';
   reference: string;
   message?: string;
-}
-
-export interface TrendingTerm {
-  term: string;
-  searches: number;
 }
