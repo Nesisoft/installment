@@ -1,4 +1,5 @@
 import React from 'react';
+import type { ColorValue } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { color } from '../theme/tokens';
 
@@ -41,7 +42,11 @@ export type IconName =
 export interface IconProps {
   name: IconName;
   size?: number;
-  color?: string;
+  /**
+   * `ColorValue`, not `string`: React Navigation hands its tab tint through as
+   * one, and it can be an opaque platform colour rather than a hex string.
+   */
+  color?: ColorValue;
   strokeWidth?: number;
 }
 
@@ -67,14 +72,14 @@ export function Icon({
 }
 
 interface StrokeProps {
-  stroke: string;
+  stroke: ColorValue;
   strokeWidth: number;
   strokeLinecap: 'round';
   strokeLinejoin: 'round';
   fill: 'none';
 }
 
-function render(name: IconName, p: StrokeProps, stroke: string): React.ReactElement | null {
+function render(name: IconName, p: StrokeProps, stroke: ColorValue): React.ReactElement | null {
   switch (name) {
     case 'bell':
       return <Path {...p} d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0" />;

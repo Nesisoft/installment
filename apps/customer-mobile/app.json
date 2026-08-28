@@ -43,7 +43,8 @@
       ]
     ],
     "experiments": {
-      "typedRoutes": false
+      "typedRoutes": false,
+      "tsconfigPaths": false
     },
     "extra": {
       "apiBaseUrl": "http://localhost:3000"
