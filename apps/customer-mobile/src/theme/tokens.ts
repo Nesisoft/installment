@@ -149,3 +149,18 @@ export const shadow = {
 
 /** Height of the bottom tab bar, excluding the safe-area inset. */
 export const TAB_BAR_HEIGHT = 58;
+
+/**
+ * Absolute fill as a plain object.
+ *
+ * React Native 0.86 exports `StyleSheet.absoluteFill` as a registered style id,
+ * and dropped `absoluteFillObject` from the typed surface — an id cannot be
+ * spread into an inline style, so overlays declare the four edges here instead.
+ */
+export const fillParent = {
+  position: 'absolute',
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0,
+} as const;
