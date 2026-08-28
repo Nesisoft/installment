@@ -41,10 +41,27 @@ export const checkoutSchema = z
     shipping_address_id: z.string().uuid().optional(),
     /** Required for installment checkout — the plan the application is scored against. */
     plan_template_id: z.string().uuid().optional(),
+    /**
+     * How the customer takes delivery. Courier is priced from `delivery_zones`
+     * against the shipping address; pickup at a hub is free.
+     */
+    fulfilment_method: z.enum(['courier', 'pickup']).default('courier'),
+    /** Required for pickup — which hub to collect from. */
+    pickup_hub_id: z.string().uuid().optional(),
   })
   .refine((v) => v.payment_type !== 'installment' || !!v.plan_template_id, {
     message: 'installment checkout requires plan_template_id',
     path: ['plan_template_id'],
+  })
+  .refine((v) => v.fulfilment_method !== 'pickup' || !!v.pickup_hub_id, {
+    message: 'pickup checkout requires pickup_hub_id',
+    path: ['pickup_hub_id'],
+  })
+  .refine((v) => v.fulfilment_method !== 'courier' || !!v.shipping_address_id, {
+    // Courier delivery with nowhere to deliver to was previously accepted and
+    // then discovered by whoever tried to fulfil it.
+    message: 'courier delivery requires shipping_address_id',
+    path: ['shipping_address_id'],
   });
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
 

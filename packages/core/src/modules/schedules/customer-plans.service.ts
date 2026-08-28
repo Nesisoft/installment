@@ -807,12 +807,56 @@ export class CustomerPlansService {
     limit = 500,
   ): Promise<InstallmentScheduleRow[]> {
     const dueDate = asOf.toISOString().slice(0, 10);
-    return this.db
-      .select()
+    const rows = await this.db
+      .select({ row: sched })
       .from(sched)
-      .where(and(inArray(sched.status, ['pending', 'due']), lte(sched.due_date, dueDate)))
+      .innerJoin(cp, eq(cp.id, sched.customer_plan_id))
+      .where(
+        and(
+          inArray(sched.status, ['pending', 'due']),
+          lte(sched.due_date, dueDate),
+          // The customer can turn automatic collection off (the Installments
+          // screen offers the switch). Switching it off stops us reaching for
+          // their money unasked; it does not waive the instalment, which is why
+          // late-fee accrual and the reminder sweep both ignore this flag.
+          eq(cp.autopay_enabled, true),
+        ),
+      )
       .orderBy(sched.due_date)
       .limit(limit);
+    return rows.map((r) => r.row);
+  }
+
+  /**
+   * Turns automatic Mobile Money collection on or off for one of a customer's
+   * own plans. Scoped by customer id in the WHERE clause, so another customer's
+   * plan is indistinguishable from a missing one.
+   */
+  async setAutopay(
+    planId: string,
+    customerId: string,
+    enabled: boolean,
+    actor: PlanActor,
+  ): Promise<CustomerPlan> {
+    return runInTransaction(this.db, async (tx) => {
+      const rows = await tx
+        .update(cp)
+        .set({ autopay_enabled: enabled })
+        .where(and(eq(cp.id, planId), eq(cp.customer_id, customerId)))
+        .returning();
+      const plan = rows[0];
+      if (!plan) throw new CustomerPlanNotFoundError(planId);
+
+      await this.audit.append(tx, {
+        entityType: 'customer_plan',
+        entityId: planId,
+        eventType: enabled ? 'plan.autopay_enabled' : 'plan.autopay_disabled',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+      });
+
+      return plan;
+    });
   }
 
   /**

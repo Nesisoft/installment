@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { users, customers, customer_employment, employers, customer_card_authorizations, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, held_reserves, payouts, collections_cases, collections_actions, rule_definitions, categories, stores, products, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, refunds, permissions, role_permissions, roles, user_roles } from "./schema";
+import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, products, stores, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, customer_card_authorizations, refunds, product_reviews, wishlist_items, search_queries, pickup_hubs, order_events, shipments, customer_credit_standing, push_devices, permissions, role_permissions, roles, user_roles } from "./schema";
 
 export const customersRelations = relations(customers, ({one, many}) => ({
 	user: one(users, {
@@ -7,13 +7,18 @@ export const customersRelations = relations(customers, ({one, many}) => ({
 		references: [users.id]
 	}),
 	customer_employments: many(customer_employment),
-	customer_card_authorizations: many(customer_card_authorizations),
 	applications: many(applications),
 	credit_profiles: many(credit_profiles),
 	customer_plans: many(customer_plans),
 	carts: many(carts),
 	addresses: many(addresses),
+	customer_card_authorizations: many(customer_card_authorizations),
+	product_reviews: many(product_reviews),
+	wishlist_items: many(wishlist_items),
+	search_queries: many(search_queries),
 	orders: many(orders),
+	customer_credit_standings: many(customer_credit_standing),
+	push_devices: many(push_devices),
 }));
 
 export const usersRelations = relations(users, ({many}) => ({
@@ -44,13 +49,6 @@ export const employersRelations = relations(employers, ({many}) => ({
 	customer_employments: many(customer_employment),
 }));
 
-export const customer_card_authorizationsRelations = relations(customer_card_authorizations, ({one}) => ({
-	customer: one(customers, {
-		fields: [customer_card_authorizations.customer_id],
-		references: [customers.id]
-	}),
-}));
-
 export const applicationsRelations = relations(applications, ({one, many}) => ({
 	customer: one(customers, {
 		fields: [applications.customer_id],
@@ -72,11 +70,11 @@ export const applicationsRelations = relations(applications, ({one, many}) => ({
 export const merchantsRelations = relations(merchants, ({many}) => ({
 	applications: many(applications),
 	customer_plans: many(customer_plans),
-	held_reserves: many(held_reserves),
 	payouts: many(payouts),
-	stores: many(stores),
+	held_reserves: many(held_reserves),
 	products: many(products),
 	cart_items: many(cart_items),
+	stores: many(stores),
 	orders: many(orders),
 }));
 
@@ -86,7 +84,7 @@ export const plan_templatesRelations = relations(plan_templates, ({many}) => ({
 	product_plan_offers: many(product_plan_offers),
 }));
 
-export const credit_profilesRelations = relations(credit_profiles, ({one}) => ({
+export const credit_profilesRelations = relations(credit_profiles, ({one, many}) => ({
 	application: one(applications, {
 		fields: [credit_profiles.application_id],
 		references: [applications.id]
@@ -95,6 +93,7 @@ export const credit_profilesRelations = relations(credit_profiles, ({one}) => ({
 		fields: [credit_profiles.customer_id],
 		references: [customers.id]
 	}),
+	customer_credit_standings: many(customer_credit_standing),
 }));
 
 export const customer_plansRelations = relations(customer_plans, ({one, many}) => ({
@@ -126,8 +125,8 @@ export const customer_plansRelations = relations(customer_plans, ({one, many}) =
 	payment_attempts: many(payment_attempts),
 	held_reserves: many(held_reserves),
 	collections_cases: many(collections_cases),
-	orders: many(orders),
 	refunds: many(refunds),
+	orders: many(orders),
 }));
 
 export const installment_scheduleRelations = relations(installment_schedule, ({one, many}) => ({
@@ -151,6 +150,13 @@ export const payment_attemptsRelations = relations(payment_attempts, ({one}) => 
 	}),
 }));
 
+export const payoutsRelations = relations(payouts, ({one}) => ({
+	merchant: one(merchants, {
+		fields: [payouts.merchant_id],
+		references: [merchants.id]
+	}),
+}));
+
 export const held_reservesRelations = relations(held_reserves, ({one}) => ({
 	customer_plan: one(customer_plans, {
 		fields: [held_reserves.customer_plan_id],
@@ -158,13 +164,6 @@ export const held_reservesRelations = relations(held_reserves, ({one}) => ({
 	}),
 	merchant: one(merchants, {
 		fields: [held_reserves.merchant_id],
-		references: [merchants.id]
-	}),
-}));
-
-export const payoutsRelations = relations(payouts, ({one}) => ({
-	merchant: one(merchants, {
-		fields: [payouts.merchant_id],
 		references: [merchants.id]
 	}),
 }));
@@ -203,27 +202,6 @@ export const rule_definitionsRelations = relations(rule_definitions, ({one}) => 
 	}),
 }));
 
-export const categoriesRelations = relations(categories, ({one, many}) => ({
-	category: one(categories, {
-		fields: [categories.parent_id],
-		references: [categories.id],
-		relationName: "categories_parent_id_categories_id"
-	}),
-	categories: many(categories, {
-		relationName: "categories_parent_id_categories_id"
-	}),
-	products: many(products),
-}));
-
-export const storesRelations = relations(stores, ({one, many}) => ({
-	merchant: one(merchants, {
-		fields: [stores.merchant_id],
-		references: [merchants.id]
-	}),
-	products: many(products),
-	orders: many(orders),
-}));
-
 export const productsRelations = relations(products, ({one, many}) => ({
 	category: one(categories, {
 		fields: [products.category_id],
@@ -241,6 +219,30 @@ export const productsRelations = relations(products, ({one, many}) => ({
 	product_images: many(product_images),
 	product_plan_offers: many(product_plan_offers),
 	order_items: many(order_items),
+	product_reviews: many(product_reviews),
+	wishlist_items: many(wishlist_items),
+}));
+
+export const categoriesRelations = relations(categories, ({one, many}) => ({
+	products: many(products),
+	category: one(categories, {
+		fields: [categories.parent_id],
+		references: [categories.id],
+		relationName: "categories_parent_id_categories_id"
+	}),
+	categories: many(categories, {
+		relationName: "categories_parent_id_categories_id"
+	}),
+}));
+
+export const storesRelations = relations(stores, ({one, many}) => ({
+	products: many(products),
+	merchant: one(merchants, {
+		fields: [stores.merchant_id],
+		references: [merchants.id]
+	}),
+	product_reviews: many(product_reviews),
+	orders: many(orders),
 }));
 
 export const product_variantsRelations = relations(product_variants, ({one, many}) => ({
@@ -309,7 +311,24 @@ export const cart_itemsRelations = relations(cart_items, ({one}) => ({
 	}),
 }));
 
+export const order_itemsRelations = relations(order_items, ({one, many}) => ({
+	order: one(orders, {
+		fields: [order_items.order_id],
+		references: [orders.id]
+	}),
+	product: one(products, {
+		fields: [order_items.product_id],
+		references: [products.id]
+	}),
+	product_variant: one(product_variants, {
+		fields: [order_items.variant_id],
+		references: [product_variants.id]
+	}),
+	product_reviews: many(product_reviews),
+}));
+
 export const ordersRelations = relations(orders, ({one, many}) => ({
+	order_items: many(order_items),
 	application: one(applications, {
 		fields: [orders.application_id],
 		references: [applications.id]
@@ -326,6 +345,10 @@ export const ordersRelations = relations(orders, ({one, many}) => ({
 		fields: [orders.merchant_id],
 		references: [merchants.id]
 	}),
+	pickup_hub: one(pickup_hubs, {
+		fields: [orders.pickup_hub_id],
+		references: [pickup_hubs.id]
+	}),
 	address: one(addresses, {
 		fields: [orders.shipping_address_id],
 		references: [addresses.id]
@@ -334,21 +357,14 @@ export const ordersRelations = relations(orders, ({one, many}) => ({
 		fields: [orders.store_id],
 		references: [stores.id]
 	}),
-	order_items: many(order_items),
+	order_events: many(order_events),
+	shipments: many(shipments),
 }));
 
-export const order_itemsRelations = relations(order_items, ({one}) => ({
-	order: one(orders, {
-		fields: [order_items.order_id],
-		references: [orders.id]
-	}),
-	product: one(products, {
-		fields: [order_items.product_id],
-		references: [products.id]
-	}),
-	product_variant: one(product_variants, {
-		fields: [order_items.variant_id],
-		references: [product_variants.id]
+export const customer_card_authorizationsRelations = relations(customer_card_authorizations, ({one}) => ({
+	customer: one(customers, {
+		fields: [customer_card_authorizations.customer_id],
+		references: [customers.id]
 	}),
 }));
 
@@ -360,6 +376,79 @@ export const refundsRelations = relations(refunds, ({one}) => ({
 	installment_schedule: one(installment_schedule, {
 		fields: [refunds.schedule_id],
 		references: [installment_schedule.id]
+	}),
+}));
+
+export const product_reviewsRelations = relations(product_reviews, ({one}) => ({
+	customer: one(customers, {
+		fields: [product_reviews.customer_id],
+		references: [customers.id]
+	}),
+	order_item: one(order_items, {
+		fields: [product_reviews.order_item_id],
+		references: [order_items.id]
+	}),
+	product: one(products, {
+		fields: [product_reviews.product_id],
+		references: [products.id]
+	}),
+	store: one(stores, {
+		fields: [product_reviews.store_id],
+		references: [stores.id]
+	}),
+}));
+
+export const wishlist_itemsRelations = relations(wishlist_items, ({one}) => ({
+	customer: one(customers, {
+		fields: [wishlist_items.customer_id],
+		references: [customers.id]
+	}),
+	product: one(products, {
+		fields: [wishlist_items.product_id],
+		references: [products.id]
+	}),
+}));
+
+export const search_queriesRelations = relations(search_queries, ({one}) => ({
+	customer: one(customers, {
+		fields: [search_queries.customer_id],
+		references: [customers.id]
+	}),
+}));
+
+export const pickup_hubsRelations = relations(pickup_hubs, ({many}) => ({
+	orders: many(orders),
+}));
+
+export const order_eventsRelations = relations(order_events, ({one}) => ({
+	order: one(orders, {
+		fields: [order_events.order_id],
+		references: [orders.id]
+	}),
+}));
+
+export const shipmentsRelations = relations(shipments, ({one}) => ({
+	order: one(orders, {
+		fields: [shipments.order_id],
+		references: [orders.id]
+	}),
+}));
+
+export const customer_credit_standingRelations = relations(customer_credit_standing, ({one}) => ({
+	customer: one(customers, {
+		fields: [customer_credit_standing.customer_id],
+		references: [customers.id]
+	}),
+	credit_profile: one(credit_profiles, {
+		fields: [customer_credit_standing.last_decision_id],
+		references: [credit_profiles.id]
+	}),
+}));
+
+export const push_devicesRelations = relations(push_devices, ({one}) => ({
+	customer: one(customers, {
+		fields: [push_devices.customer_id],
+		references: [customers.id]
 	}),
 }));
 

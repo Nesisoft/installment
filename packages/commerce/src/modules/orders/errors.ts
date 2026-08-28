@@ -71,3 +71,11 @@ export class InvalidOrderTransitionError extends Error {
     this.name = 'InvalidOrderTransitionError';
   }
 }
+
+/** The pickup hub named at checkout does not exist, or is no longer active. */
+export class PickupHubNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Pickup hub "${id}" not found`);
+    this.name = 'PickupHubNotFoundError';
+  }
+}
