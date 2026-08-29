@@ -246,6 +246,90 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
    * back to tidy up.
    */
   /**
+   * A merchant's view of their own orders.
+   *
+   * The tenant boundary is the whole point of these: the fulfilment routes act
+   * on an order by id, so if the read side leaked another merchant's orders a
+   * merchant could enumerate and ship them.
+   */
+  describe('merchant order reads', () => {
+    async function orderFor(): Promise<{
+      merchantId: string;
+      orderId: string;
+      customerId: string;
+    }> {
+      const customerId = await freshCustomer();
+      const { merchantId, storeId } = await merchantWithStore();
+      const v = await variant(storeId, 2500);
+      await cart.addItem(customerId, { variant_id: v, quantity: 1 });
+      const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+      return { merchantId, orderId: order!.id, customerId };
+    }
+
+    it('lists a merchant its own orders, with items', async () => {
+      const { merchantId, orderId } = await orderFor();
+
+      const { rows, total } = await orders.listForMerchant(merchantId);
+
+      expect(total).toBe(1);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.id).toBe(orderId);
+      expect(rows[0]!.items.length).toBeGreaterThan(0);
+    });
+
+    it('never shows one merchant another merchant’s orders', async () => {
+      await orderFor();
+      const { merchantId: other } = await merchantWithStore();
+
+      const { rows, total } = await orders.listForMerchant(other);
+
+      expect(rows).toEqual([]);
+      expect(total).toBe(0);
+    });
+
+    it('reads a single order the merchant owns', async () => {
+      const { merchantId, orderId } = await orderFor();
+
+      const found = await orders.getForMerchant(merchantId, orderId);
+
+      expect(found.id).toBe(orderId);
+    });
+
+    it('answers not-found for an order belonging to someone else', async () => {
+      // Not a permission error: a merchant must not be able to tell the
+      // difference between another merchant's order and one that never existed.
+      const { orderId } = await orderFor();
+      const { merchantId: other } = await merchantWithStore();
+
+      await expect(orders.getForMerchant(other, orderId)).rejects.toThrow(OrderNotFoundError);
+    });
+
+    it('filters by status', async () => {
+      const { merchantId } = await orderFor();
+
+      expect((await orders.listForMerchant(merchantId, { status: 'pending_payment' })).total).toBe(
+        1,
+      );
+      expect((await orders.listForMerchant(merchantId, { status: 'delivered' })).total).toBe(0);
+    });
+
+    it('paginates, reporting the full count alongside the page', async () => {
+      const { merchantId, storeId } = await merchantWithStore();
+      for (let i = 0; i < 3; i++) {
+        const customerId = await freshCustomer();
+        const v = await variant(storeId, 1500);
+        await cart.addItem(customerId, { variant_id: v, quantity: 1 });
+        await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+      }
+
+      const page = await orders.listForMerchant(merchantId, { limit: 2, offset: 0 });
+
+      expect(page.rows).toHaveLength(2);
+      expect(page.total).toBe(3);
+    });
+  });
+
+  /**
    * Customer-initiated payment. Orders deliberately do not use payment_attempts
    * (see order-payment.service), so the provider reference lives on the order
    * and is the only thing tying an asynchronous charge.success back to it.

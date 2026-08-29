@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import {
   FulfilmentService,
+  OrdersService,
   markDeliveredSchema,
   markOutForDeliverySchema,
   markShippedSchema,
@@ -68,6 +69,7 @@ export class MerchantPortalController {
     private readonly merchants: MerchantsService,
     private readonly planTemplates: PlanTemplatesService,
     private readonly fulfilment: FulfilmentService,
+    private readonly orders: OrdersService,
   ) {}
 
   // --- Fulfilment -----------------------------------------------------------
@@ -76,6 +78,33 @@ export class MerchantPortalController {
   // which puts it in the WHERE clause — so another merchant's order is
   // indistinguishable from one that does not exist, the same rule the rest of
   // the scoped surface follows.
+
+  /**
+   * A merchant's own orders.
+   *
+   * The fulfilment routes below let a merchant ship and deliver; until this
+   * there was no way for them to SEE what they had sold, so the whole loop was
+   * only reachable by someone who already knew an order's uuid. The merchant id
+   * comes from MerchantScopeGuard and goes into the WHERE clause, never a check
+   * after the fact — another merchant's order reads as one that does not exist.
+   */
+  @Get('orders')
+  @ApiOperation({ summary: 'List my orders' })
+  @ApiModel('OrderWithItems', { array: true })
+  listOrders(@Query() query: Record<string, string>, @CurrentMerchantId() merchantId?: string) {
+    return this.orders.listForMerchant(merchantId!, {
+      status: query.status || undefined,
+      limit: numOrUndefined(query.limit),
+      offset: numOrUndefined(query.offset),
+    });
+  }
+
+  @Get('orders/:id')
+  @ApiOperation({ summary: 'One of my orders' })
+  @ApiModel('OrderWithItems')
+  getOrder(@Param('id') id: string, @CurrentMerchantId() merchantId?: string) {
+    return this.orders.getForMerchant(merchantId!, id);
+  }
 
   /**
    * "We are packing it." Optional — marking an order shipped moves it through

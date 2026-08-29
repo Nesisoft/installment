@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, lte } from 'drizzle-orm';
+import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import {
   AuditLogger,
@@ -814,6 +814,80 @@ export class OrdersService {
       else byOrder.set(item.order_id, [item]);
     }
     return rows.map((order) => ({ ...order, items: byOrder.get(order.id) ?? [] }));
+  }
+
+  /**
+   * A merchant's own orders, newest first.
+   *
+   * The fulfilment endpoints added in #41 let a merchant ship and deliver, but
+   * nothing let them SEE what they had sold — so the loop was only reachable by
+   * someone who already knew an order's uuid. This is the read half.
+   *
+   * `merchant_id` is always in the WHERE clause rather than checked after the
+   * fact, so another merchant's order is indistinguishable from one that does
+   * not exist. That is the same rule the rest of the scoped surface follows.
+   */
+  async listForMerchant(
+    merchantId: string,
+    opts: { status?: string; limit?: number; offset?: number } = {},
+  ): Promise<{ rows: OrderWithItems[]; total: number }> {
+    const limit = Math.min(Math.max(opts.limit ?? 25, 1), 100);
+    const offset = Math.max(opts.offset ?? 0, 0);
+    const where = opts.status
+      ? and(eq(o.merchant_id, merchantId), eq(o.status, opts.status))
+      : eq(o.merchant_id, merchantId);
+
+    const [{ count } = { count: 0 }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(o)
+      .where(where);
+
+    const rows = await this.db
+      .select()
+      .from(o)
+      .where(where)
+      .orderBy(desc(o.created_at))
+      .limit(limit)
+      .offset(offset);
+    if (rows.length === 0) return { rows: [], total: count };
+
+    const items = await this.db
+      .select()
+      .from(oi)
+      .where(
+        inArray(
+          oi.order_id,
+          rows.map((r) => r.id),
+        ),
+      )
+      .orderBy(oi.created_at);
+    const byOrder = new Map<string, OrderItem[]>();
+    for (const item of items) {
+      const bucket = byOrder.get(item.order_id);
+      if (bucket) bucket.push(item);
+      else byOrder.set(item.order_id, [item]);
+    }
+    return {
+      rows: rows.map((order) => ({ ...order, items: byOrder.get(order.id) ?? [] })),
+      total: count,
+    };
+  }
+
+  /** One of a merchant's own orders. Scoped the same way as the list. */
+  async getForMerchant(merchantId: string, orderId: string): Promise<OrderWithItems> {
+    const [order] = await this.db
+      .select()
+      .from(o)
+      .where(and(eq(o.id, orderId), eq(o.merchant_id, merchantId)))
+      .limit(1);
+    if (!order) throw new OrderNotFoundError(orderId);
+
+    const items = await this.db
+      .select()
+      .from(oi)
+      .where(eq(oi.order_id, orderId))
+      .orderBy(oi.created_at);
+    return { ...order, items };
   }
 
   // ------------------------------------------------------------- internal
