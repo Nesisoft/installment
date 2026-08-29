@@ -260,6 +260,17 @@ export interface CreditStanding {
 
 export type MomoProvider = 'mtn' | 'vod' | 'tgo';
 
+/**
+ * A hosted card checkout. The card never reaches us — the customer completes
+ * the payment on the provider's page and the order settles by webhook, so the
+ * app learns the outcome by polling the order, not from this response.
+ */
+export interface CardCheckoutSession {
+  reference: string;
+  authorization_url: string;
+  access_code: string;
+}
+
 export interface CustomerProfile {
   id: string;
   first_name: string;

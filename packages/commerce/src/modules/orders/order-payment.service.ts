@@ -17,6 +17,16 @@ export interface OrderChargeClient {
     reference: string;
     metadata?: Record<string, unknown>;
   }): Promise<{ data: { reference: string; status: string; display_text?: string } }>;
+
+  createPaymentLink(req: {
+    email: string;
+    amount: number;
+    currency: 'GHS';
+    reference: string;
+    callback_url?: string;
+    channels?: ('card' | 'mobile_money' | 'bank' | 'ussd' | 'bank_transfer' | 'qr')[];
+    metadata?: Record<string, unknown>;
+  }): Promise<{ data: { reference: string; access_code: string; authorization_url: string } }>;
 }
 
 export interface PayOrderInput {
@@ -25,6 +35,21 @@ export interface PayOrderInput {
   email: string;
   phone: string;
   provider: 'mtn' | 'tgo' | 'vod';
+}
+
+export interface PayOrderByCardInput {
+  orderId: string;
+  customerId: string;
+  email: string;
+  /** Where Paystack sends the browser once the customer is done. */
+  callbackUrl?: string;
+}
+
+export interface CardCheckoutSession {
+  reference: string;
+  /** The hosted page to open. The card never touches our servers. */
+  authorization_url: string;
+  access_code: string;
 }
 
 export type OrderChargeStatus = 'paid' | 'pending' | 'failed';
@@ -104,6 +129,56 @@ export class OrderPaymentService {
       return { status: 'pending', reference, message: response.data.display_text };
     }
     return { status: 'failed', reference, message: response.data.display_text ?? status };
+  }
+
+  /**
+   * Opens a hosted card checkout for a pay-in-full order.
+   *
+   * Cards are not charged the way Mobile Money is. A MoMo charge is a push to a
+   * handset the customer already holds, so it can be initiated server-side from
+   * a phone number. A card needs the PAN, the CVV and — in Ghana, for 3-D Secure
+   * — an issuer's own challenge page. Handling any of that ourselves would put
+   * cardholder data through our servers and pull the whole system into PCI DSS
+   * scope for no benefit. So this returns Paystack's hosted page and the
+   * customer completes the payment there.
+   *
+   * Settlement needs nothing new. The reference is the same stable
+   * `ORD-<order id>` the MoMo path uses, so the existing `charge.success`
+   * webhook resolves it through `settleByPaymentReference` exactly as before —
+   * which also means a customer who abandons the page simply leaves the order
+   * unpaid, to be swept by the same TTL cron.
+   *
+   * Restricted to the card channel deliberately: offering Mobile Money here too
+   * would present a worse version of a journey the app already does natively,
+   * and split one payment method across two paths.
+   */
+  async payWithCard(input: PayOrderByCardInput, _actor: PlanActor): Promise<CardCheckoutSession> {
+    const order = await this.orders.get(input.customerId, input.orderId);
+    if (order.payment_type !== 'full' || order.status !== 'pending_payment') {
+      throw new OrderNotPayableError(input.orderId, order.status);
+    }
+
+    const reference = OrderPaymentService.referenceFor(order.id);
+    // Same ordering as the MoMo path, for the same reason: if this process dies
+    // after the customer pays, the webhook still has something to resolve
+    // the money against.
+    await this.db.update(o).set({ payment_reference: reference }).where(eq(o.id, order.id));
+
+    const response = await this.paystack.createPaymentLink({
+      email: input.email,
+      amount: order.total_pesewas,
+      currency: 'GHS',
+      reference,
+      callback_url: input.callbackUrl,
+      channels: ['card'],
+      metadata: { order_id: order.id, order_number: order.order_number },
+    });
+
+    return {
+      reference,
+      authorization_url: response.data.authorization_url,
+      access_code: response.data.access_code,
+    };
   }
 
   /**

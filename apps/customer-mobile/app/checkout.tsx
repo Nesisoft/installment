@@ -8,6 +8,8 @@ import {
   View,
 } from 'react-native';
 import { router } from 'expo-router';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import {
   apiErrorMessage,
   apiErrorStatus,
@@ -35,6 +37,7 @@ import {
   useCart,
   useCheckout,
   useCreateAddress,
+  usePayOrderCard,
   usePayOrderMomo,
 } from '../src/features/shop';
 import { usePayInstallmentMomo } from '../src/features/account';
@@ -463,13 +466,17 @@ function DecisionSheet({
    * the same. Registration therefore stores only a phone number, so there is no
    * `momo_phone` on file and the charge has to carry its own.
    */
+  /** Mobile Money is a push to this handset; a card is a hosted page. */
+  const [method, setMethod] = useState<'momo' | 'card'>('momo');
+  const payCard = usePayOrderCard(decision.order.id);
+
   const [momoPhone, setMomoPhone] = useState('');
   const [momoProvider, setMomoProvider] = useState<MomoProvider | null>(null);
   const momoReady = momoPhone.replace(/\D/g, '').length >= 9 && momoProvider !== null;
 
   // A separate logical attempt from the checkout, so a separate key.
   const payKey = useRef(newIdempotencyKey('deposit'));
-  const busy = payInstallment.isPending || payOrder.isPending;
+  const busy = payInstallment.isPending || payOrder.isPending || payCard.isPending;
 
   function toConfirmation(): void {
     onDismiss();
@@ -479,6 +486,23 @@ function DecisionSheet({
   async function pay(): Promise<void> {
     setError(null);
     try {
+      if (method === 'card') {
+        // The card never reaches us. We open the provider's page, and the order
+        // settles by webhook — so success is not this call returning, it is the
+        // confirmation screen's poll seeing the order turn paid. Which also
+        // means dismissing the page is not an error: the order simply stays
+        // unpaid until the customer tries again or the TTL sweep cancels it.
+        const session = await payCard.mutateAsync({
+          callbackUrl: Linking.createURL('/payment-complete'),
+        });
+        await WebBrowser.openAuthSessionAsync(
+          session.authorization_url,
+          Linking.createURL('/payment-complete'),
+        );
+        toConfirmation();
+        return;
+      }
+
       const momo = { phone: normaliseGhPhone(momoPhone), provider: momoProvider ?? undefined };
       if (decision.outcome === 'paid_later') {
         await payOrder.mutateAsync({ ...momo, idempotencyKey: payKey.current });
@@ -587,53 +611,86 @@ function DecisionSheet({
 
         {(approved && decision.down_payment) || payNow ? (
           <>
-            <View style={styles.momoFields}>
-              <Text variant="eyebrow" tone="onDarkFaint">
-                MOBILE MONEY NUMBER
-              </Text>
-              <View style={styles.momoRow}>
-                <Text variant="bodyMedium" tone="onDarkMuted">
-                  +233
-                </Text>
-                <View style={styles.momoDivider} />
-                <TextInput
-                  value={momoPhone}
-                  onChangeText={setMomoPhone}
-                  placeholder="24 000 0000"
-                  placeholderTextColor={color.onDarkFaint}
-                  keyboardType="phone-pad"
-                  style={styles.momoInput}
-                  accessibilityLabel="The Mobile Money number to charge"
-                />
-              </View>
-              <View style={styles.momoProviders}>
-                {MOMO_PROVIDERS.map((p) => (
-                  <Pressable
-                    key={p.value}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: momoProvider === p.value }}
-                    accessibilityLabel={p.label}
-                    onPress={() => setMomoProvider(p.value)}
-                    style={[styles.momoProvider, momoProvider === p.value && styles.momoProviderOn]}
-                  >
-                    <Text
-                      variant="smallMedium"
-                      tone={momoProvider === p.value ? 'onDark' : 'onDarkMuted'}
-                    >
-                      {p.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+            <View style={styles.payMethodRow}>
+              {[
+                { value: 'momo' as const, label: 'Mobile Money' },
+                { value: 'card' as const, label: 'Card' },
+              ].map((m) => (
+                <Pressable
+                  key={m.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: method === m.value }}
+                  accessibilityLabel={`Pay by ${m.label}`}
+                  onPress={() => setMethod(m.value)}
+                  style={[styles.payMethodTab, method === m.value && styles.payMethodTabOn]}
+                >
+                  <Text variant="smallMedium" tone={method === m.value ? 'onDark' : 'onDarkMuted'}>
+                    {m.label}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
+
+            {method === 'card' ? (
+              <Text variant="tiny" tone="onDarkFaint">
+                We will open a secure page to take your card. Your card details never reach Ejua.
+              </Text>
+            ) : null}
+
+            {method === 'momo' ? (
+              <View style={styles.momoFields}>
+                <Text variant="eyebrow" tone="onDarkFaint">
+                  MOBILE MONEY NUMBER
+                </Text>
+                <View style={styles.momoRow}>
+                  <Text variant="bodyMedium" tone="onDarkMuted">
+                    +233
+                  </Text>
+                  <View style={styles.momoDivider} />
+                  <TextInput
+                    value={momoPhone}
+                    onChangeText={setMomoPhone}
+                    placeholder="24 000 0000"
+                    placeholderTextColor={color.onDarkFaint}
+                    keyboardType="phone-pad"
+                    style={styles.momoInput}
+                    accessibilityLabel="The Mobile Money number to charge"
+                  />
+                </View>
+                <View style={styles.momoProviders}>
+                  {MOMO_PROVIDERS.map((p) => (
+                    <Pressable
+                      key={p.value}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: momoProvider === p.value }}
+                      accessibilityLabel={p.label}
+                      onPress={() => setMomoProvider(p.value)}
+                      style={[
+                        styles.momoProvider,
+                        momoProvider === p.value && styles.momoProviderOn,
+                      ]}
+                    >
+                      <Text
+                        variant="smallMedium"
+                        tone={momoProvider === p.value ? 'onDark' : 'onDarkMuted'}
+                      >
+                        {p.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
             <Button
-              label="Approve on my phone"
+              label={method === 'card' ? 'Pay by card' : 'Approve on my phone'}
               loading={busy}
-              disabled={!momoReady}
+              disabled={method === 'momo' && !momoReady}
               onPress={() => void pay()}
             />
             <Text variant="tiny" tone="onDarkFaint" center>
-              You will get a Mobile Money prompt. Enter your PIN to finish.
+              {method === 'card'
+                ? 'You will finish on our provider’s secure page, then come back here.'
+                : 'You will get a Mobile Money prompt. Enter your PIN to finish.'}
             </Text>
           </>
         ) : declined ? (
@@ -846,6 +903,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  payMethodRow: { flexDirection: 'row', gap: space.sm },
+  payMethodTab: {
+    flex: 1,
+    height: 46,
+    borderRadius: radius.sm,
+    backgroundColor: color.darkRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  payMethodTabOn: { borderColor: color.accent, backgroundColor: color.darkHover },
   momoFields: { gap: space.sm },
   momoRow: {
     flexDirection: 'row',

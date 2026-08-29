@@ -173,6 +173,44 @@ export class MeCommerceController {
   }
 
   /**
+   * Opens a hosted card checkout for one of my orders.
+   *
+   * Cards do not work the way Mobile Money does. A MoMo charge is a push to a
+   * handset the customer already holds, so the server can start it from a phone
+   * number alone. A card needs the PAN, the CVV and an issuer 3-D Secure
+   * challenge — none of which may pass through our servers without pulling the
+   * whole system into PCI DSS scope. So this hands back Paystack's hosted page
+   * and the customer completes the payment there.
+   *
+   * Not `@Idempotent()`, and deliberately so: this starts no charge and moves no
+   * money. It mints a checkout session against a reference derived from the
+   * order id, so calling it twice returns the same reference and the customer
+   * simply lands on the same page — which is what someone who backgrounds the
+   * app and comes back should get.
+   */
+  @Post('orders/:id/pay-card')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Open a hosted card checkout for one of my orders' })
+  async payOrderCard(
+    @Param('id') id: string,
+    @Body() body: { callback_url?: string },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const customer = await this.customers.findByUserId(user.id);
+    if (!customer) throw new CustomerNotFoundError(user.id);
+
+    return this.orderPayments.payWithCard(
+      {
+        orderId: id,
+        customerId: customer.id,
+        email: customer.email,
+        callbackUrl: body?.callback_url?.trim() || undefined,
+      },
+      this.actorFor(customer.id),
+    );
+  }
+
+  /**
    * Lets a customer cancel their own unpaid order.
    *
    * This is the common way stock comes back: someone checks out, never pays,

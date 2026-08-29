@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { newIdempotencyKey, useApi } from '@installment/mobile-kit';
 import type {
+  CardCheckoutSession,
   Address,
   Cart,
   ChargeResult,
@@ -194,6 +195,30 @@ export function usePayOrderMomo(orderId: string) {
       void qc.invalidateQueries({ queryKey: ['order', orderId] });
       void qc.invalidateQueries({ queryKey: ['orders'] });
     },
+  });
+}
+
+/**
+ * Opens a hosted card checkout for a pay-in-full order.
+ *
+ * Returns Paystack's page rather than charging: a card needs the PAN, the CVV
+ * and an issuer 3-D Secure challenge, none of which may touch our servers. The
+ * caller opens `authorization_url`, and the order settles by webhook — so the
+ * confirmation screen's existing poll is what actually reports success.
+ *
+ * No idempotency key, unlike the MoMo mutations: this starts no charge. The
+ * reference is derived from the order, so calling it twice returns the same
+ * session and the customer lands back on the same page.
+ */
+export function usePayOrderCard(orderId: string) {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (args: { callbackUrl?: string } = {}) =>
+      (
+        await api.post<CardCheckoutSession>(`/me/orders/${orderId}/pay-card`, {
+          ...(args.callbackUrl ? { callback_url: args.callbackUrl } : {}),
+        })
+      ).data,
   });
 }
 
