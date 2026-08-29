@@ -82,6 +82,28 @@ validation rule tightened for one caller can break a flow in another app that no
 It needs Postgres and Redis — `./scripts/local-stack.sh up` gives you both without Docker, or
 `pnpm db:up` if you have Docker.
 
+## Build the workspace before running an app
+
+`apps/api/tsconfig.json` has no `paths` redirect, so `@installment/core` and `@installment/commerce`
+resolve to their built `dist/*.d.ts`, not to source. A checkout that has never been built — or one
+pulled across a change that added a package — fails `nest start` with dozens of "has no exported
+member" errors that look like missing code and are only a missing build:
+
+```bash
+pnpm install && pnpm build
+```
+
+When an app you are not working on breaks the build, `turbo` aborts the whole run — potentially
+before your dependencies are built, leaving you exactly as stuck as before. Build only what you
+need:
+
+```bash
+pnpm build --filter=@installment/api...     # the API and everything it depends on
+```
+
+`apps/customer-mobile` needs none of this: Metro reads `@installment/mobile-kit` and
+`@installment/api-types` straight from TypeScript source.
+
 ## Migrations are immutable
 
 A migration that has been applied is never edited — add `000N_*.sql` instead. See
