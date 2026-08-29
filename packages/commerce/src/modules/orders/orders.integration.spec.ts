@@ -253,13 +253,28 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
   describe('customer MoMo payment', () => {
     function stubPaystack(status: string) {
       const calls: { reference: string; amount: number }[] = [];
+      const links: { reference: string; amount: number; channels?: string[] }[] = [];
       const client = {
         chargeMobileMoney: async (req: { reference: string; amount: number }) => {
           calls.push({ reference: req.reference, amount: req.amount });
           return { data: { reference: req.reference, status, display_text: 'Approve it' } };
         },
+        createPaymentLink: async (req: {
+          reference: string;
+          amount: number;
+          channels?: string[];
+        }) => {
+          links.push({ reference: req.reference, amount: req.amount, channels: req.channels });
+          return {
+            data: {
+              reference: req.reference,
+              access_code: 'acc_test',
+              authorization_url: `https://checkout.paystack.com/${req.reference}`,
+            },
+          };
+        },
       };
-      return { client, calls };
+      return { client, calls, links };
     }
 
     async function payableOrder(qty = 2) {
@@ -335,6 +350,92 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
       const { client } = stubPaystack('success');
       const payments = new OrderPaymentService(db, orders, client);
       expect(await payments.settleByPaymentReference('NOT-AN-ORDER-REF', ACTOR)).toBe(false);
+    });
+
+    /**
+     * Cards go through a hosted page rather than a server-side charge: a card
+     * needs the PAN, the CVV and an issuer 3-D Secure challenge, none of which
+     * may touch our servers without pulling the system into PCI DSS scope.
+     * What matters is that this changes only how the money is COLLECTED — the
+     * reference, and therefore settlement, is identical to the MoMo path.
+     */
+    it('opens a hosted card checkout for the order total', async () => {
+      const { customerId, order } = await payableOrder();
+      const { client, links } = stubPaystack('success');
+      const payments = new OrderPaymentService(db, orders, client);
+
+      const session = await payments.payWithCard(
+        { orderId: order.id, customerId, email: 'ama@example.gh' },
+        ACTOR,
+      );
+
+      expect(session.authorization_url).toContain('checkout.paystack.com');
+      expect(links).toHaveLength(1);
+      expect(links[0]!.amount).toBe(order.total_pesewas);
+    });
+
+    it('offers only the card channel, because MoMo is charged natively in-app', async () => {
+      // Left to Paystack's default the hosted page would also offer Mobile
+      // Money — a worse version of a journey the app already has, settling down
+      // a second path.
+      const { customerId, order } = await payableOrder();
+      const { client, links } = stubPaystack('success');
+      const payments = new OrderPaymentService(db, orders, client);
+
+      await payments.payWithCard({ orderId: order.id, customerId, email: 'ama@example.gh' }, ACTOR);
+
+      expect(links[0]!.channels).toEqual(['card']);
+    });
+
+    it('uses the same reference as the MoMo path, so one webhook settles both', async () => {
+      const { customerId, order } = await payableOrder();
+      const { client } = stubPaystack('success');
+      const payments = new OrderPaymentService(db, orders, client);
+
+      const session = await payments.payWithCard(
+        { orderId: order.id, customerId, email: 'ama@example.gh' },
+        ACTOR,
+      );
+
+      expect(session.reference).toBe(OrderPaymentService.referenceFor(order.id));
+    });
+
+    it('settles through the existing charge.success path once the customer pays', async () => {
+      const { customerId, variantId, order } = await payableOrder();
+      const { client } = stubPaystack('success');
+      const payments = new OrderPaymentService(db, orders, client);
+
+      const { reference } = await payments.payWithCard(
+        { orderId: order.id, customerId, email: 'ama@example.gh' },
+        ACTOR,
+      );
+      // Nothing is paid yet — the customer is still on Paystack's page.
+      expect((await orders.get(customerId, order.id)).status).toBe('pending_payment');
+
+      expect(await payments.settleByPaymentReference(reference, ACTOR)).toBe(true);
+
+      expect((await orders.get(customerId, order.id)).status).toBe('paid');
+      // The reservation is released by the same confirmPayment the MoMo path runs.
+      expect((await inventory.getByVariant(variantId)).quantity_reserved).toBe(0);
+    });
+
+    it('refuses a card checkout for an order that is not awaiting payment', async () => {
+      const { customerId, order } = await payableOrder(1);
+      const { client } = stubPaystack('success');
+      const payments = new OrderPaymentService(db, orders, client);
+      await payments.settleByPaymentReference(
+        (
+          await payments.payWithCard(
+            { orderId: order.id, customerId, email: 'ama@example.gh' },
+            ACTOR,
+          )
+        ).reference,
+        ACTOR,
+      );
+
+      await expect(
+        payments.payWithCard({ orderId: order.id, customerId, email: 'ama@example.gh' }, ACTOR),
+      ).rejects.toThrow(OrderNotPayableError);
     });
 
     it('refuses to charge an order that is not awaiting payment', async () => {

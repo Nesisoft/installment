@@ -82,12 +82,25 @@ export interface VerifyTransactionData {
   authorization?: PaystackAuthorization;
 }
 
+/**
+ * Payment channels Paystack may offer on the hosted page.
+ *
+ * Worth restricting rather than leaving to Paystack's default of "everything":
+ * this app charges Mobile Money natively, in-app, with no page to leave — so
+ * offering MoMo on the hosted page too would present a worse version of a
+ * journey the customer already has, and split the same payment method across
+ * two code paths that settle differently.
+ */
+export type PaystackChannel = 'card' | 'mobile_money' | 'bank' | 'ussd' | 'bank_transfer' | 'qr';
+
 export interface CreatePaymentLinkRequest {
   email: string;
   amount: number;
   currency: Currency;
   reference: string;
   callback_url?: string;
+  /** Omit to accept Paystack's account-level default. */
+  channels?: PaystackChannel[];
   metadata?: Record<string, unknown>;
 }
 
@@ -259,6 +272,7 @@ export class PaystackClient {
       currency: req.currency,
       reference: req.reference,
       callback_url: req.callback_url,
+      ...(req.channels?.length ? { channels: req.channels } : {}),
       metadata: req.metadata,
     });
   }
