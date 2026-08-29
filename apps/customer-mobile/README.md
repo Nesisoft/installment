@@ -86,6 +86,34 @@ curl -s http://<LAN-IP>:3000/health
 curl -s http://<LAN-IP>:3000/storefront/home | grep -o 'http://[^"]*jpg'
 ```
 
+### A development build, when Expo Go is not enough
+
+Expo Go runs the app inside a prebuilt host whose native libraries are Expo's, not ours. A
+development build compiles the native side from _this app's_ dependency versions, which makes it both
+the fix for anything Expo Go cannot host and the way to tell whether a native crash follows the app
+or stays with Expo Go.
+
+Needs JDK 17 and the Android SDK (Android Studio is the simplest route), and `adb devices` showing
+the handset:
+
+```bash
+cd apps/customer-mobile
+npx expo run:android      # prebuild -> gradle -> install -> Metro
+```
+
+After the first build, `npx expo start` and opening the installed app is enough.
+
+The networking is identical to Expo Go — Metro over the LAN, `hostUri` derivation, the same
+`PUBLIC_API_URL` for images. Plain `http://` to your machine works because the generated **debug**
+manifest carries `usesCleartextTraffic="true"`; the release manifest does not, so a standalone build
+pointed at an `http://` API would fail every request on Android 9+ with nothing in the diff to blame.
+Give production an `https://` origin, or add `expo-build-properties`.
+
+Two side effects of `prebuild`, which `run:android` calls for you: it generates `android/`
+(gitignored — the native projects are generated, never authored) and it rewrites the `android` and
+`ios` scripts in `package.json` to `expo run:*`. That second one is a tracked file, so check it before
+committing.
+
 ### Expo Go
 
 Expo Go supports only the current SDK, so it must be an SDK 57 build (57.x). Phone and laptop on the
