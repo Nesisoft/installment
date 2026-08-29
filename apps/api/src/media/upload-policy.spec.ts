@@ -3,7 +3,9 @@ import {
   UPLOAD_PURPOSES,
   UploadNotAllowedError,
   deriveUploadKey,
+  keyBelongsTo,
   requestUploadSchema,
+  uploadKeyPrefix,
 } from './upload-policy';
 
 const MAX = 10_485_760;
@@ -144,5 +146,55 @@ describe('UPLOAD_PURPOSES', () => {
         expect(type, `${purpose} accepts ${type}`).not.toMatch(/html|javascript|svg|xml/);
       }
     }
+  });
+});
+
+/**
+ * The same rule from the other side. Keys are derived here and never chosen by
+ * a client — but the endpoints that *attach* a key to a row take it back from
+ * the client, and without a check a seller could point their own listing at a
+ * competitor's photograph. The object is public, so it would render perfectly.
+ */
+describe('keyBelongsTo', () => {
+  const OTHER = 'bbbbbbbb-bbbb-bbbb-bbbb-000000000002';
+
+  /** The prefixed form, which is what a client actually hands back. */
+  function issued(ownerId: string): string {
+    return `public/${derive({ purpose: 'product_image', content_type: 'image/jpeg' }, ownerId).key}`;
+  }
+
+  it('accepts a key this merchant was issued', () => {
+    expect(keyBelongsTo('product_image', issued(MERCHANT), MERCHANT)).toBe(true);
+  });
+
+  it('refuses another merchant’s key', () => {
+    expect(keyBelongsTo('product_image', issued(OTHER), MERCHANT)).toBe(false);
+  });
+
+  it('refuses a key that only looks like the prefix', () => {
+    // A neighbouring merchant id that starts with ours would pass a naive
+    // `includes` or a prefix test with no trailing separator.
+    expect(keyBelongsTo('product_image', `public/products/${MERCHANT}-evil/x.jpg`, MERCHANT)).toBe(
+      false,
+    );
+  });
+
+  it('refuses the unprefixed form, which is not what is stored', () => {
+    expect(keyBelongsTo('product_image', `products/${MERCHANT}/x.jpg`, MERCHANT)).toBe(false);
+  });
+
+  it('refuses a private key offered to a public purpose', () => {
+    expect(keyBelongsTo('product_image', `private/kyc/${MERCHANT}/card.jpg`, MERCHANT)).toBe(false);
+  });
+
+  it('matches nothing rather than the whole folder when there is no owner', () => {
+    expect(keyBelongsTo('product_image', `public/products/${MERCHANT}/x.jpg`, undefined)).toBe(
+      false,
+    );
+  });
+
+  it('has no owner segment for a platform-owned purpose', () => {
+    expect(uploadKeyPrefix('category_image', undefined)).toBe('public/categories/');
+    expect(keyBelongsTo('category_image', 'public/categories/x.jpg', undefined)).toBe(true);
   });
 });

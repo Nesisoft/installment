@@ -148,3 +148,39 @@ export function deriveUploadKey(
     contentType,
   };
 }
+
+/**
+ * The prefix every key for `purpose` and `ownerId` sits under, as stored.
+ *
+ * Note the visibility segment: {@link deriveUploadKey} returns the key without
+ * it and the driver prepends it, so what a client hands back — and what ends up
+ * in `product_images.storage_key` — is the prefixed form. Built from the same
+ * `UPLOAD_PURPOSES` row so the folder cannot be changed in one place only.
+ */
+export function uploadKeyPrefix(purpose: UploadPurpose, ownerId: string | undefined): string {
+  const rule = UPLOAD_PURPOSES[purpose];
+  const segments = [rule.visibility, rule.folder, rule.owner === 'none' ? undefined : ownerId];
+  return `${segments.filter(Boolean).join('/')}/`;
+}
+
+/**
+ * Whether `key` is one this owner was actually issued.
+ *
+ * Keys are derived server-side and never chosen by a client — but the endpoints
+ * that *attach* a key to a row take it back from the client, which reopens the
+ * same door from the other side. Without this a seller could point their own
+ * listing at a competitor's photograph: the object is public, so it would
+ * render perfectly, and the listing would show someone else's product as if it
+ * were theirs.
+ *
+ * Conservative by construction — an owned purpose with no owner matches
+ * nothing, rather than matching the whole folder.
+ */
+export function keyBelongsTo(
+  purpose: UploadPurpose,
+  key: string,
+  ownerId: string | undefined,
+): boolean {
+  if (UPLOAD_PURPOSES[purpose].owner !== 'none' && !ownerId) return false;
+  return key.startsWith(uploadKeyPrefix(purpose, ownerId));
+}
