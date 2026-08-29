@@ -174,16 +174,23 @@ export const RULE_LIBRARY: RuleBlueprint[] = [
       }),
   }),
   defineRule({
-    id: 'score.paystack_history',
+    id: 'score.successful_charges',
     category: 'score',
-    description: 'Established Paystack transaction history',
+    // NOT the customer's payment history at large. `BehaviorCollector` joins
+    // `payment_attempts` to this customer's own plans, so what this counts is
+    // instalment charges WE collected successfully. The old name,
+    // `score.paystack_history` over a `paystackTransactionCount` field, read as
+    // though a shopper with a busy Paystack life scored well here. They do not,
+    // and anyone tuning the rule on that reading would have been tuning
+    // something else entirely.
+    description: 'Instalment charges we have collected from this customer',
     defaultConfig: { multiplier: 25, cap: 100 },
     build:
       ({ multiplier, cap }) =>
       (f) => ({
         passed: true,
         points: Math.min(
-          Math.round(Math.log2(f.behavior.paystackTransactionCount + 1) * multiplier),
+          Math.round(Math.log2(f.behavior.successfulChargeCount + 1) * multiplier),
           cap,
         ),
       }),

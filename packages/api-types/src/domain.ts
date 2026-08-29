@@ -166,7 +166,8 @@ export interface FeatureVector {
     consecutiveOnTime: number;
   };
   behavior: {
-    paystackTransactionCount: number;
+    /** Instalment charges we collected successfully — not the customer's wider payment life. */
+    successfulChargeCount: number;
     momoTransactionShare: number;
     averageTransactionGhs: number;
     failedChargeRate90d: number;

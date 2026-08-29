@@ -36,7 +36,7 @@ export class BehaviorCollector implements Collector<BehaviorSignals> {
     const attempts90 = failed90 + Number(r.succeeded90);
 
     return {
-      paystackTransactionCount: succeeded,
+      successfulChargeCount: succeeded,
       momoTransactionShare: succeeded > 0 ? Number(r.momo) / succeeded : 0,
       averageTransactionGhs: Number(r.avgAmount) / 100,
       failedChargeRate90d: attempts90 > 0 ? failed90 / attempts90 : 0,
@@ -45,7 +45,7 @@ export class BehaviorCollector implements Collector<BehaviorSignals> {
 
   defaults(): BehaviorSignals {
     return {
-      paystackTransactionCount: 0,
+      successfulChargeCount: 0,
       momoTransactionShare: 0,
       averageTransactionGhs: 0,
       failedChargeRate90d: 0,

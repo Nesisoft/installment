@@ -33,7 +33,7 @@ export interface FeatureVector {
     consecutiveOnTime: number;
   };
   behavior: {
-    paystackTransactionCount: number;
+    successfulChargeCount: number;
     momoTransactionShare: number;    // 0..1
     averageTransactionGhs: number;
     failedChargeRate90d: number;     // 0..1
@@ -231,11 +231,11 @@ export const SCORING_RULES: Rule[] = [
 
   // ─── Payment behavior (20% = up to 200 points) ───
   {
-    id: 'score.paystack_history',
+    id: 'score.successful_charges',
     category: 'score',
     description: 'Established Paystack transaction history',
     evaluate: (f) => {
-      const count = f.behavior.paystackTransactionCount;
+      const count = f.behavior.successfulChargeCount;
       // Logarithmic scale, capped
       const points = Math.min(Math.round(Math.log2(count + 1) * 25), 100);
       return { passed: true, points };

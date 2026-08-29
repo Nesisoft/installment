@@ -41,7 +41,7 @@ function newShopper(over: Partial<{ [K in keyof FeatureVector]: Partial<FeatureV
       consecutiveOnTime: 0,
     },
     behavior: {
-      paystackTransactionCount: 0,
+      successfulChargeCount: 0,
       momoTransactionShare: 0,
       averageTransactionGhs: 0,
       failedChargeRate90d: 0,
@@ -195,10 +195,20 @@ describe('thin-file starter limit', () => {
      * A customer with a record is judged on the record. The starter limit is a
      * substitute for evidence, and once evidence exists the substitute would
      * only ever lower the bar.
+     *
+     * Note the outcome: not `declined`, but whatever their own repayment earns
+     * them. Here a single completed plan with a perfect record clears the
+     * subprime floor and is approved on its own merits — see the ladder specs.
      */
-    it('does not apply to someone who has borrowed before', () => {
-      const d = engine.score(newShopper({ repayment: { completedPlansCount: 1 } }), NOW);
-      expect(d.outcome).toBe('declined');
+    it('does not apply to someone who has bought from us before', () => {
+      const d = engine.score(
+        newShopper({
+          repayment: { completedPlansCount: 1, onTimePaymentRate: 1, consecutiveOnTime: 3 },
+        }),
+        NOW,
+      );
+      expect(d.outcome).not.toBe('approved');
+      expect(d.score).toBeGreaterThan(275);
     });
   });
 
@@ -221,7 +231,7 @@ describe('thin-file starter limit', () => {
       const scored = newShopper({
         repayment: { completedPlansCount: 3, onTimePaymentRate: 1, consecutiveOnTime: 9 },
         tenure: { accountAgeDays: 400 },
-        behavior: { paystackTransactionCount: 40, momoTransactionShare: 0.5 },
+        behavior: { successfulChargeCount: 40, momoTransactionShare: 0.5 },
       });
       const tight = new ScoringEngine(DEFAULT_RULESET, { maxFinancedGhs: 1 });
       const loose = new ScoringEngine(DEFAULT_RULESET, { maxFinancedGhs: 100_000 });

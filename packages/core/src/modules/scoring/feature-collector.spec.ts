@@ -44,7 +44,7 @@ const repayment: FeatureVector['repayment'] = {
   consecutiveOnTime: 6,
 };
 const behavior: FeatureVector['behavior'] = {
-  paystackTransactionCount: 20,
+  successfulChargeCount: 20,
   momoTransactionShare: 0.5,
   averageTransactionGhs: 300,
   failedChargeRate90d: 0,

@@ -26,7 +26,7 @@ function prime(): FeatureVector {
       consecutiveOnTime: 12,
     },
     behavior: {
-      paystackTransactionCount: 100,
+      successfulChargeCount: 100,
       momoTransactionShare: 0.5,
       averageTransactionGhs: 200,
       failedChargeRate90d: 0,
@@ -180,23 +180,23 @@ describe('ScoringEngine — scoring rule math', () => {
     ).toBe(100);
   });
 
-  it('paystack_history uses a capped log2 scale', () => {
+  it('successful_charges uses a capped log2 scale', () => {
     expect(
       pointsOf(
-        engine.score(make({ behavior: { paystackTransactionCount: 0 } }), NOW),
-        'score.paystack_history',
+        engine.score(make({ behavior: { successfulChargeCount: 0 } }), NOW),
+        'score.successful_charges',
       ),
     ).toBe(0);
     expect(
       pointsOf(
-        engine.score(make({ behavior: { paystackTransactionCount: 3 } }), NOW),
-        'score.paystack_history',
+        engine.score(make({ behavior: { successfulChargeCount: 3 } }), NOW),
+        'score.successful_charges',
       ),
     ).toBe(50);
     expect(
       pointsOf(
-        engine.score(make({ behavior: { paystackTransactionCount: 100000 } }), NOW),
-        'score.paystack_history',
+        engine.score(make({ behavior: { successfulChargeCount: 100000 } }), NOW),
+        'score.successful_charges',
       ),
     ).toBe(100);
   });
@@ -270,7 +270,7 @@ describe('ScoringEngine — bands, limits, outcomes', () => {
       identity: { kycTier: 1 },
       repayment: { completedPlansCount: 3, onTimePaymentRate: 0.8, consecutiveOnTime: 2 },
       employment: { employerLinked: false, payrollDeductionConsent: false },
-      behavior: { paystackTransactionCount: 16, failedChargeRate90d: 0.1 },
+      behavior: { successfulChargeCount: 16, failedChargeRate90d: 0.1 },
       tenure: { accountAgeDays: 200, distinctDevicesLast90Days: 1 },
       request: { orderAmountGhs: 500 },
     });
@@ -301,7 +301,7 @@ describe('ScoringEngine — bands, limits, outcomes', () => {
       employment: { employerLinked: false, payrollDeductionConsent: false },
       identity: { kycTier: 1 },
       repayment: { completedPlansCount: 3, onTimePaymentRate: 0.8, consecutiveOnTime: 2 },
-      behavior: { paystackTransactionCount: 16, failedChargeRate90d: 0.1 },
+      behavior: { successfulChargeCount: 16, failedChargeRate90d: 0.1 },
       tenure: { accountAgeDays: 200 },
       request: { orderAmountGhs: 4000, planMaxGhs: 5000 },
     });
@@ -324,7 +324,7 @@ describe('ScoringEngine — bands, limits, outcomes', () => {
       },
       employment: { payrollDeductionConsent: false }, // limit 2500 base near_prime
       identity: { kycTier: 1 },
-      behavior: { paystackTransactionCount: 16, failedChargeRate90d: 0.1 },
+      behavior: { successfulChargeCount: 16, failedChargeRate90d: 0.1 },
       tenure: { accountAgeDays: 200 },
       exposure: { outstandingBalanceGhs: 1800 }, // limit → 700
       request: { orderAmountGhs: 2500, planMaxGhs: 5000 },
@@ -343,7 +343,7 @@ describe('ScoringEngine — bands, limits, outcomes', () => {
         consecutiveOnTime: 0,
         priorDefaultsAllTime: 1,
       },
-      behavior: { paystackTransactionCount: 0, momoTransactionShare: 0, failedChargeRate90d: 0.1 },
+      behavior: { successfulChargeCount: 0, momoTransactionShare: 0, failedChargeRate90d: 0.1 },
       tenure: { accountAgeDays: 0, deviceFingerprintKnown: false },
       employment: { employerLinked: false, payrollDeductionConsent: false },
       request: { orderAmountGhs: 100 },
