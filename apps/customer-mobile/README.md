@@ -46,29 +46,27 @@ npx expo start -c
 
 ### Which API URL
 
-**Two** variables carry it, in two different files, read by two different tools. Expo reads
-`apps/customer-mobile/.env`; Nest reads the repo-root `.env`. Neither walks into the other.
+The app **works this out itself**. Metro already knows your machine's address — it is how the phone
+fetched the bundle in the first place — and Expo hands it to the client as `hostUri`, so
+`src/lib/api-url.ts` derives `http://<that host>:3000`. Emulator, simulator, physical device and web
+preview are all covered with no configuration and no `.env`.
 
-| Variable              | File                        | What it does                         | If left at `localhost` on a device            |
-| --------------------- | --------------------------- | ------------------------------------ | --------------------------------------------- |
-| `EXPO_PUBLIC_API_URL` | `apps/customer-mobile/.env` | Every API call the app makes         | Nothing loads                                 |
-| `PUBLIC_API_URL`      | repo-root `.env`            | The origin baked into **image URLs** | **Silent:** app works, every picture is blank |
+`EXPO_PUBLIC_API_URL` remains as an **override** for what a derivation cannot know: a staging API, a
+colleague's machine, a different port (or `EXPO_PUBLIC_API_PORT` for just the port). Set it and it
+wins outright.
 
-`localhost` on a handset means the handset. Set `EXPO_PUBLIC_API_URL` to match how you run it:
+One case is deliberately _not_ derived: `expo start --tunnel` proxies **Metro**, not the API, so an
+ngrok-style host is refused rather than guessed at. Set `EXPO_PUBLIC_API_URL` explicitly there — and
+remember the phone still has to reach your API directly, which a tunnel does nothing for.
 
-| Target                    | Value                                                                      |
-| ------------------------- | -------------------------------------------------------------------------- |
-| Android emulator          | `http://10.0.2.2:3000` (the host loopback as the emulator sees it)         |
-| iOS simulator             | `http://localhost:3000`                                                    |
-| Physical device (Expo Go) | `http://<your-LAN-ip>:3000`                                                |
-| `expo start --web`        | `http://localhost:3000`, and add `http://localhost:8081` to `CORS_ORIGINS` |
+**The other half is not the app's to derive.** Two variables carry the API address, in two files,
+read by two tools that do not see each other:
 
-Four things that cost real time here:
+| Variable              | File                        | What it does                          | Left at `localhost` on a device               |
+| --------------------- | --------------------------- | ------------------------------------- | --------------------------------------------- |
+| `EXPO_PUBLIC_API_URL` | `apps/customer-mobile/.env` | Optional override for the app's calls | Derived from Metro — fine                     |
+| `PUBLIC_API_URL`      | repo-root `.env`            | The origin baked into **image URLs**  | **Silent:** app works, every picture is blank |
 
-- **Do not `cp .env.example .env` for a handset.** The example ships `10.0.2.2`, which exists only
-  inside the Android emulator's NAT. On a real phone those packets are dropped rather than refused,
-  so you get a 20-second hang and then "We couldn't reach Ejua" on every screen — which reads as a
-  flaky network, not a wrong address. Write the file with your LAN IP directly.
 - **`PUBLIC_API_URL` is the silent one.** It feeds the storage driver's public prefix, which becomes
   `MEDIA_BASE_URL`, which is what every `primary_image_url`, store logo and cart thumbnail is built
   from. Leave it at `localhost` and the app works perfectly except that every image is a flat
@@ -76,11 +74,10 @@ Four things that cost real time here:
   log. It is read once at boot, so restart the API after changing it. Do **not** "fix" images by
   setting `MEDIA_BASE_URL` instead: the driver appends `/media` itself but `MEDIA_BASE_URL` is used
   verbatim, so you would trade a connection refusal for a 404.
-- **Restart Metro with `-c` after editing `.env`.** `EXPO_PUBLIC_*` is inlined into the bundle at
-  transform time, not read at runtime, so a running dev server keeps serving the old value.
-- **Open TCP 3000 and 8081** on the host firewall, and check the app's fallback if nothing seems to
-  apply: with no `.env`, `config.ts` falls through to `app.json`'s `extra.apiBaseUrl`, which is
-  `http://localhost:3000` — the `10.0.2.2` default further down that expression is unreachable.
+- **If you do set the override, restart Metro with `-c`.** `EXPO_PUBLIC_*` is inlined into the bundle
+  at transform time, not read at runtime, so a running dev server keeps serving the old value.
+- **Open TCP 3000 and 8081** on the host firewall. A release build has no Metro and therefore no
+  `hostUri`; there the fallback is `app.json`'s `extra.apiBaseUrl`.
 
 Verify both hops before touching the phone. Every URL printed must contain your LAN IP:
 
