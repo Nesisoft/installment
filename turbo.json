@@ -7,6 +7,13 @@
       "outputs": ["dist/**", "drizzle/schema.ts", "drizzle/relations.ts"]
     },
     "dev": {
+      // The backend packages publish their types from dist/, not src/, so a
+      // watcher started against a stale dist reads last week's declarations and
+      // reports methods that plainly exist in the source as missing. Every
+      // other task already built its dependencies; dev was the one that did
+      // not, which is exactly why `pnpm test` always worked and `pnpm dev`
+      // broke the first time somebody pulled and ran it.
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     },
