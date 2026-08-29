@@ -156,6 +156,21 @@ export default function CheckoutScreen(): React.ReactElement {
     }
   }
 
+  /**
+   * Nothing to buy — bounce rather than render an empty checkout.
+   *
+   * In an effect, not in the render body. `router.replace` updates the
+   * navigation container's state, and doing that while React is rendering this
+   * component is the "Cannot update a component while rendering a different
+   * component" warning: React is midway through a render pass and a different
+   * component's state changes underneath it. The redirect is a side effect of
+   * the cart being empty, so it belongs where side effects go.
+   */
+  const cartIsEmpty = Boolean(cart.data && cart.data.items.length === 0 && !decision);
+  useEffect(() => {
+    if (cartIsEmpty) router.replace('/cart');
+  }, [cartIsEmpty]);
+
   if (!signedIn) {
     return (
       <Screen>
@@ -165,9 +180,9 @@ export default function CheckoutScreen(): React.ReactElement {
     );
   }
 
-  if (cart.data && cart.data.items.length === 0 && !decision) {
-    // Nothing to buy — bounce rather than render an empty checkout.
-    router.replace('/cart');
+  if (cartIsEmpty) {
+    // The redirect itself happens in the effect above — navigating here would
+    // be a state update during render. Show the spinner the bounce lands on.
     return (
       <Screen>
         <Header title="Checkout" back />
