@@ -1,0 +1,220 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  InventoryService,
+  ProductsService,
+  StoresService,
+  addImageSchema,
+  addVariantSchema,
+  adjustStockSchema,
+  createProductSchema,
+  setPlanOffersSchema,
+  setStockSchema,
+  updateProductSchema,
+} from '@installment/commerce';
+import { CurrentMerchantId } from '../auth/decorators';
+import { ApiModel } from '../common/api-model';
+import { ApiZodBody } from '../common/api-zod';
+import { MerchantScopeGuard } from '../auth/merchant-scope.guard';
+import { numOrUndefined } from '../auth/current-actor';
+import { keyBelongsTo } from '../media/upload-policy';
+
+/**
+ * A merchant's own catalogue.
+ *
+ * Until this, product writes lived only under `/admin/products` behind
+ * `catalog:write` — so a seller could not add or edit their own stock at all,
+ * and back-office staff had to do it for them against any store in the
+ * marketplace. Everything here is the same service, narrowed to the caller.
+ *
+ * The narrowing is a WHERE clause, never a check after the read: the merchant
+ * id comes from MerchantScopeGuard and is passed as a scope into the service,
+ * so another merchant's product answers 404 rather than 403. A 403 would
+ * confirm the product exists, which turns uuid enumeration into a catalogue
+ * leak — and a competitor's unreleased stock is exactly what is worth leaking.
+ *
+ * Image bytes never pass through here. The phone or the browser asks
+ * `/merchant/uploads` for a presigned PUT, uploads straight to the bucket, and
+ * then posts the returned key to `POST products/:id/images`.
+ */
+@ApiTags('merchant-catalog')
+@ApiBearerAuth()
+@UseGuards(MerchantScopeGuard)
+@Controller('merchant')
+export class MerchantCatalogController {
+  constructor(
+    private readonly products: ProductsService,
+    private readonly inventory: InventoryService,
+    private readonly stores: StoresService,
+  ) {}
+
+  private actor(merchantId: string) {
+    return { actorId: merchantId, actorType: 'merchant' as const };
+  }
+
+  /**
+   * The merchant's own store. One per merchant — the `stores_merchant_id_key`
+   * unique constraint says so — which is why nothing below asks the caller
+   * which store they mean.
+   */
+  @Get('store')
+  @ApiOperation({ summary: 'My store' })
+  @ApiModel('Store')
+  async store(@CurrentMerchantId() merchantId: string) {
+    const store = await this.stores.getByMerchant(merchantId);
+    if (!store) throw new NotFoundException('No store has been created for this merchant yet');
+    return store;
+  }
+
+  @Get('products')
+  @ApiOperation({ summary: 'My products' })
+  @ApiModel('Product', { array: true })
+  listProducts(@Query() query: Record<string, string>, @CurrentMerchantId() merchantId: string) {
+    // merchant_id is set from the guard, not read from the query — a
+    // `?merchant_id=` in the URL is ignored rather than honoured.
+    return this.products.list({
+      merchant_id: merchantId,
+      category_id: query.category_id,
+      status: query.status,
+      limit: numOrUndefined(query.limit),
+      offset: numOrUndefined(query.offset),
+    });
+  }
+
+  /**
+   * Lists a product into the caller's own store.
+   *
+   * `store_id` is filled from the merchant's store rather than taken from the
+   * body, and the service is scoped as well: two independent reasons a product
+   * cannot land in somebody else's shop.
+   */
+  @Post('products')
+  @ApiOperation({ summary: 'List a new product in my store' })
+  @ApiZodBody(createProductSchema)
+  @ApiModel('ProductDetails', { created: true })
+  @HttpCode(201)
+  async createProduct(@Body() body: unknown, @CurrentMerchantId() merchantId: string) {
+    const store = await this.stores.getByMerchant(merchantId);
+    if (!store) throw new NotFoundException('No store has been created for this merchant yet');
+    const input = { ...(body as Record<string, unknown>), store_id: store.id };
+    return this.products.create(input, this.actor(merchantId), { merchantId });
+  }
+
+  @Get('products/:id')
+  @ApiOperation({ summary: 'One of my products' })
+  @ApiModel('ProductDetails')
+  getProduct(@Param('id') id: string, @CurrentMerchantId() merchantId: string) {
+    return this.products.getWithDetails(id, { merchantId });
+  }
+
+  @Patch('products/:id')
+  @ApiOperation({ summary: 'Edit one of my products' })
+  @ApiZodBody(updateProductSchema)
+  @ApiModel('Product')
+  updateProduct(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentMerchantId() merchantId: string,
+  ) {
+    return this.products.update(id, body, this.actor(merchantId), { merchantId });
+  }
+
+  @Post('products/:id/variants')
+  @ApiOperation({ summary: 'Add a variant to one of my products' })
+  @ApiZodBody(addVariantSchema)
+  @ApiModel('ProductVariant', { created: true })
+  @HttpCode(201)
+  addVariant(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentMerchantId() merchantId: string,
+  ) {
+    return this.products.addVariant(id, body, this.actor(merchantId), { merchantId });
+  }
+
+  /**
+   * Records a photo already uploaded through `/merchant/uploads`, by its key.
+   *
+   * The key comes back from the client, which reopens from the other side the
+   * door `upload-policy` closes by deriving keys server-side — so it is checked
+   * against the prefix this merchant's uploads are issued under. Without that a
+   * seller could point their own listing at a competitor's photograph: product
+   * images are public, so it would render perfectly.
+   */
+  @Post('products/:id/images')
+  @ApiOperation({ summary: 'Attach an uploaded photo to one of my products' })
+  @ApiZodBody(addImageSchema)
+  @ApiModel('ProductImage', { created: true })
+  @HttpCode(201)
+  addImage(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentMerchantId() merchantId: string,
+  ) {
+    const key = (body as { storage_key?: unknown } | null)?.storage_key;
+    if (typeof key === 'string' && !keyBelongsTo('product_image', key, merchantId)) {
+      throw new BadRequestException('storage_key was not issued to this merchant');
+    }
+    return this.products.addImage(id, body, this.actor(merchantId), { merchantId });
+  }
+
+  @Put('products/:id/plan-offers')
+  @ApiOperation({ summary: 'Choose which instalment plans one of my products offers' })
+  @ApiZodBody(setPlanOffersSchema)
+  @HttpCode(200)
+  setPlanOffers(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentMerchantId() merchantId: string,
+  ) {
+    return this.products.setPlanOffers(id, body, this.actor(merchantId), { merchantId });
+  }
+
+  // --- Stock ----------------------------------------------------------------
+
+  @Get('variants/:variantId/inventory')
+  @ApiOperation({ summary: 'Stock on one of my variants' })
+  @ApiModel('Inventory')
+  getInventory(@Param('variantId') variantId: string, @CurrentMerchantId() merchantId: string) {
+    return this.inventory.getByVariant(variantId, { merchantId });
+  }
+
+  @Put('variants/:variantId/inventory')
+  @ApiOperation({ summary: 'Set stock on one of my variants' })
+  @ApiZodBody(setStockSchema)
+  @ApiModel('Inventory')
+  @HttpCode(200)
+  setStock(
+    @Param('variantId') variantId: string,
+    @Body() body: unknown,
+    @CurrentMerchantId() merchantId: string,
+  ) {
+    return this.inventory.setStock(variantId, body, { merchantId });
+  }
+
+  @Post('variants/:variantId/inventory/adjust')
+  @ApiOperation({ summary: 'Adjust stock on one of my variants' })
+  @ApiZodBody(adjustStockSchema)
+  @ApiModel('Inventory')
+  @HttpCode(200)
+  adjustStock(
+    @Param('variantId') variantId: string,
+    @Body() body: unknown,
+    @CurrentMerchantId() merchantId: string,
+  ) {
+    return this.inventory.adjust(variantId, body, { merchantId });
+  }
+}

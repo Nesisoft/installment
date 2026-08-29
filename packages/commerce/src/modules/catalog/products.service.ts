@@ -70,6 +70,20 @@ export interface ProductActor {
 }
 
 /**
+ * Narrows an operation to one merchant's own catalogue.
+ *
+ * Optional because the admin surface is deliberately unscoped — back-office
+ * staff edit any store's products. When it is set the merchant id goes into the
+ * WHERE clause rather than into a check afterwards, so another merchant's
+ * product is indistinguishable from one that does not exist: a 404, never a
+ * 403. A 403 would confirm the product is real, which is a slow catalogue leak
+ * for anyone willing to enumerate uuids.
+ */
+export interface ProductScope {
+  merchantId?: string;
+}
+
+/**
  * Products and their nested variants / images / installment plan offers, plus
  * the inventory row bootstrapped per variant. `create` accepts the whole
  * "upload a product" payload in one transaction (roadmap Phase 11 DoD).
@@ -80,14 +94,26 @@ export class ProductsService {
     private readonly audit: AuditLogger,
   ) {}
 
-  async create(rawInput: unknown, actor: ProductActor): Promise<ProductDetails> {
+  async create(
+    rawInput: unknown,
+    actor: ProductActor,
+    scope: ProductScope = {},
+  ): Promise<ProductDetails> {
     const input: CreateProductInput = createProductSchema.parse(rawInput);
 
     const id = await runInTransaction(this.db, async (tx) => {
       const storeRows = await tx
         .select({ id: st.id, merchant_id: st.merchant_id })
         .from(st)
-        .where(and(eq(st.id, input.store_id), isNull(st.deleted_at)))
+        .where(
+          and(
+            eq(st.id, input.store_id),
+            isNull(st.deleted_at),
+            // Scoping the store lookup is what stops a merchant listing a
+            // product into somebody else's shop by passing their store_id.
+            ...(scope.merchantId ? [eq(st.merchant_id, scope.merchantId)] : []),
+          ),
+        )
         .limit(1);
       const store = storeRows[0];
       if (!store) throw new ProductValidationError(`Store "${input.store_id}" not found`);
@@ -142,7 +168,7 @@ export class ProductsService {
       return productId;
     });
 
-    return this.getWithDetails(id);
+    return this.getWithDetails(id, scope);
   }
 
   async list(rawInput: unknown = {}): Promise<Product[]> {
@@ -174,19 +200,21 @@ export class ProductsService {
       .offset(input.offset);
   }
 
-  async get(id: string): Promise<Product> {
+  async get(id: string, scope: ProductScope = {}): Promise<Product> {
     const rows = await this.db
       .select(productCols)
       .from(p)
-      .where(and(eq(p.id, id), isNull(p.deleted_at)))
+      .where(and(eq(p.id, id), isNull(p.deleted_at), ...ownedBy(scope)))
       .limit(1);
     const row = rows[0];
     if (!row) throw new ProductNotFoundError(id);
     return row;
   }
 
-  async getWithDetails(id: string): Promise<ProductDetails> {
-    const product = await this.get(id);
+  async getWithDetails(id: string, scope: ProductScope = {}): Promise<ProductDetails> {
+    // Scoped once, here: everything below is keyed on a product id this caller
+    // has already been shown to own.
+    const product = await this.get(id, scope);
 
     const variantRows = await this.db
       .select()
@@ -212,14 +240,19 @@ export class ProductsService {
     };
   }
 
-  async update(id: string, rawPatch: unknown, actor: ProductActor): Promise<Product> {
+  async update(
+    id: string,
+    rawPatch: unknown,
+    actor: ProductActor,
+    scope: ProductScope = {},
+  ): Promise<Product> {
     const patch: UpdateProductInput = updateProductSchema.parse(rawPatch);
 
     return runInTransaction(this.db, async (tx) => {
       const rows = await tx
         .update(p)
         .set({ ...patch })
-        .where(and(eq(p.id, id), isNull(p.deleted_at)))
+        .where(and(eq(p.id, id), isNull(p.deleted_at), ...ownedBy(scope)))
         .returning(productCols);
       const row = rows[0];
       if (!row) throw new ProductNotFoundError(id);
@@ -241,10 +274,11 @@ export class ProductsService {
     productId: string,
     rawInput: unknown,
     actor: ProductActor,
+    scope: ProductScope = {},
   ): Promise<ProductVariant> {
     const input: AddVariantInput = addVariantSchema.parse(rawInput);
     return runInTransaction(this.db, async (tx) => {
-      await this.assertProduct(tx, productId);
+      await this.assertProduct(tx, productId, scope);
       const variantId = await this.insertVariantTx(tx, productId, input);
       await this.audit.append(tx, {
         entityType: 'product',
@@ -259,10 +293,15 @@ export class ProductsService {
     });
   }
 
-  async addImage(productId: string, rawInput: unknown, actor: ProductActor): Promise<ProductImage> {
+  async addImage(
+    productId: string,
+    rawInput: unknown,
+    actor: ProductActor,
+    scope: ProductScope = {},
+  ): Promise<ProductImage> {
     const input: AddImageInput = addImageSchema.parse(rawInput);
     return runInTransaction(this.db, async (tx) => {
-      await this.assertProduct(tx, productId);
+      await this.assertProduct(tx, productId, scope);
       const rows = await tx
         .insert(pi)
         .values({
@@ -288,12 +327,13 @@ export class ProductsService {
     productId: string,
     rawInput: unknown,
     actor: ProductActor,
+    scope: ProductScope = {},
   ): Promise<string[]> {
     const input: SetPlanOffersInput = setPlanOffersSchema.parse(rawInput);
     const planIds = dedupe(input.plan_template_ids);
 
     return runInTransaction(this.db, async (tx) => {
-      await this.assertProduct(tx, productId);
+      await this.assertProduct(tx, productId, scope);
       if (planIds.length) await this.assertPlanTemplates(tx, planIds);
 
       await tx.delete(ppo).where(eq(ppo.product_id, productId));
@@ -348,11 +388,15 @@ export class ProductsService {
     return variantId;
   }
 
-  private async assertProduct(tx: Pick<Database, 'select'>, id: string): Promise<void> {
+  private async assertProduct(
+    tx: Pick<Database, 'select'>,
+    id: string,
+    scope: ProductScope = {},
+  ): Promise<void> {
     const rows = await tx
       .select({ id: p.id })
       .from(p)
-      .where(and(eq(p.id, id), isNull(p.deleted_at)))
+      .where(and(eq(p.id, id), isNull(p.deleted_at), ...ownedBy(scope)))
       .limit(1);
     if (!rows[0]) throw new ProductNotFoundError(id);
   }
@@ -369,4 +413,9 @@ export class ProductsService {
 
 function dedupe(ids: string[]): string[] {
   return [...new Set(ids)];
+}
+
+/** Spreadable so an unscoped (admin) call adds nothing to the WHERE at all. */
+function ownedBy(scope: ProductScope) {
+  return scope.merchantId ? [eq(p.merchant_id, scope.merchantId)] : [];
 }

@@ -33,6 +33,7 @@ import { LedgerController } from './modules/ledger.controller';
 import { RefundsController } from './modules/refunds.controller';
 import { CollectionsController } from './modules/collections.controller';
 import { MerchantPortalController } from './modules/merchant-portal.controller';
+import { MerchantCatalogController } from './modules/merchant-catalog.controller';
 import { MeController } from './modules/me.controller';
 import { MeCommerceController } from './modules/me-commerce.controller';
 import { MeShopperController } from './modules/me-shopper.controller';
@@ -94,6 +95,7 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
     RefundsController,
     CollectionsController,
     MerchantPortalController,
+    MerchantCatalogController,
     MeController,
     MeCommerceController,
     MeShopperController,
