@@ -7,6 +7,7 @@ import {
   Chip,
   EmptyState,
   ErrorState,
+  GRID_WIDTH,
   Header,
   Icon,
   Loading,
@@ -209,6 +210,7 @@ export default function BrowseScreen(): React.ReactElement {
             <QuotedProductCard
               key={p.id}
               product={p}
+              width={GRID_WIDTH}
               saved={saved.has(p.id)}
               onToggleSave={
                 signedIn

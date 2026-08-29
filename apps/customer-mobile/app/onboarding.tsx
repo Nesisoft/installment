@@ -1,12 +1,5 @@
 import React, { useRef, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiErrorMessage } from '@installment/mobile-kit';
@@ -101,7 +94,13 @@ export default function OnboardingScreen(): React.ReactElement {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      // 'padding' on BOTH platforms. The usual Android advice is to leave this
+      // undefined and let windowSoftInputMode=adjustResize do the work — but
+      // this app is edge-to-edge (mandatory from Android 16), and an
+      // edge-to-edge window does not resize for the keyboard. It draws behind
+      // it instead, which put the phone and OTP fields under the keyboard with
+      // no way to see what you were typing.
+      behavior="padding"
       style={[
         styles.root,
         { paddingTop: insets.top + space.xl, paddingBottom: insets.bottom + space.xl },
@@ -158,7 +157,7 @@ export default function OnboardingScreen(): React.ReactElement {
         {step === 'phone' ? (
           <>
             <Text variant="eyebrow" tone="onDarkFaint">
-              MOBILE MONEY NUMBER
+              PHONE NUMBER
             </Text>
             <View style={styles.phoneRow}>
               <Text variant="bodyMedium" tone="onDarkMuted">
@@ -174,7 +173,7 @@ export default function OnboardingScreen(): React.ReactElement {
                 autoComplete="tel"
                 textContentType="telephoneNumber"
                 style={styles.phoneInput}
-                accessibilityLabel="Your Mobile Money number"
+                accessibilityLabel="Your phone number"
                 onSubmitEditing={() => void submitPhone()}
               />
             </View>
