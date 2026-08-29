@@ -220,4 +220,38 @@ describe.skipIf(!RUN_DB)('FulfilmentService (integration)', () => {
     // Someone else's order is simply not there.
     expect(await fulfilment.tracking(orderId, randomUUID())).toBeNull();
   });
+
+  /**
+   * Guards the uuid array binding, not the grouping. `latestEvents` filtered
+   * with `sql\`${oe.order_id} = ANY(${ids})\``, which Drizzle binds as ONE
+   * untyped parameter — Postgres reads it as text and the statement dies with
+   * 22P02 comparing `uuid = ANY(text)`. The identical shape took down every
+   * instalment quote in the catalogue before it was found, and only real
+   * Postgres can tell the difference.
+   */
+  it('returns the latest event per order for several orders at once', async () => {
+    const a = await paidOrder();
+    const b = await paidOrder();
+    await fulfilment.markShipped(a.orderId, {}, ACTOR, { merchantId: a.merchantId });
+    // Delivered at an explicitly later moment, so "latest" is decided by the
+    // clock rather than by which row Postgres happens to return first: shipping
+    // writes `order.fulfilling` and `order.shipped` in one transaction, and they
+    // share an `occurred_at` to the microsecond.
+    await fulfilment.markDelivered(
+      a.orderId,
+      { delivered_at: new Date(Date.now() + 86_400_000).toISOString() },
+      ACTOR,
+      { merchantId: a.merchantId },
+    );
+
+    const latest = await fulfilment.latestEvents([a.orderId, b.orderId, randomUUID()]);
+
+    expect(latest.get(a.orderId)?.event_type).toBe('order.delivered');
+    expect(latest.get(b.orderId)?.event_type).toBe('order.paid');
+    expect(latest.size).toBe(2);
+  });
+
+  it('answers an empty map for no ids rather than querying for none', async () => {
+    expect((await fulfilment.latestEvents([])).size).toBe(0);
+  });
 });

@@ -2,10 +2,12 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@installment/web-kit';
 import { Button, cn } from '@installment/ui';
 import {
+  CalendarClock,
   FileText,
   LayoutDashboard,
   LogOut,
   Receipt,
+  ShoppingBag,
   Store,
   Wallet,
   type LucideIcon,
@@ -20,7 +22,12 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/orders', label: 'Orders', icon: Store },
+  // Orders and Plans are separate on purpose: an order is a thing somebody
+  // bought and the seller has to send; a plan is the instalment agreement the
+  // engine runs against it. One nav entry covering both is how the fulfilment
+  // queue ended up unreachable.
+  { to: '/orders', label: 'Orders', icon: ShoppingBag },
+  { to: '/plans', label: 'Plans', icon: CalendarClock },
   { to: '/settlements', label: 'Settlements', icon: Wallet },
   { to: '/statements', label: 'Statements', icon: FileText },
   { to: '/templates', label: 'Templates', icon: Receipt },
@@ -95,8 +102,10 @@ export function AppShell() {
         </main>
       </div>
 
-      {/* Mobile bottom tab bar */}
-      <nav className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-5 border-t border-border bg-card lg:hidden">
+      {/* Mobile bottom tab bar. Six entries at 390px leave ~65px each, so the
+          labels are a size down and centred in their own cell — at the shell's
+          original five they ran into one another. */}
+      <nav className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-border bg-card lg:hidden">
         {NAV.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
@@ -104,13 +113,13 @@ export function AppShell() {
             end={to === '/'}
             className={({ isActive }) =>
               cn(
-                'flex flex-col items-center gap-1 py-2 text-[11px] font-medium transition-colors',
+                'flex min-w-0 flex-col items-center gap-1 px-0.5 py-2 text-[10px] font-medium leading-tight transition-colors',
                 isActive ? 'text-primary' : 'text-muted-foreground',
               )
             }
           >
-            <Icon className="size-5" />
-            {label}
+            <Icon className="size-5 shrink-0" />
+            <span className="w-full truncate text-center">{label}</span>
           </NavLink>
         ))}
       </nav>

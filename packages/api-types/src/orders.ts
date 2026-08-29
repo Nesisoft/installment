@@ -46,3 +46,36 @@ export const checkoutSchema = z
     path: ['plan_template_id'],
   });
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
+
+// --- Fulfilment -------------------------------------------------------------
+//
+// Mirrors packages/commerce/src/modules/fulfilment/dto.ts. Everything is
+// optional there and optional here for the same reason: a seller handing a
+// parcel to a rider often knows nothing but "it has gone", and demanding a
+// tracking code they do not have either blocks the update or invites a made-up
+// one.
+
+export const markShippedSchema = z.object({
+  courier_name: z.string().trim().max(120).optional(),
+  courier_phone: z.string().trim().max(20).optional(),
+  rider_name: z.string().trim().max(120).optional(),
+  tracking_code: z.string().trim().max(120).optional(),
+  eta_at: z.string().datetime({ offset: true }).optional(),
+  note: z.string().trim().max(300).optional(),
+});
+export type MarkShippedInput = z.infer<typeof markShippedSchema>;
+
+export const markOutForDeliverySchema = z.object({
+  rider_name: z.string().trim().max(120).optional(),
+  courier_phone: z.string().trim().max(20).optional(),
+  eta_at: z.string().datetime({ offset: true }).optional(),
+  note: z.string().trim().max(300).optional(),
+});
+export type MarkOutForDeliveryInput = z.infer<typeof markOutForDeliverySchema>;
+
+export const markDeliveredSchema = z.object({
+  delivered_at: z.string().datetime({ offset: true }).optional(),
+  received_by: z.string().trim().max(120).optional(),
+  note: z.string().trim().max(300).optional(),
+});
+export type MarkDeliveredInput = z.infer<typeof markDeliveredSchema>;

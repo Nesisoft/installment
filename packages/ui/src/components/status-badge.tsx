@@ -33,6 +33,14 @@ const TONE_BY_STATUS: Record<string, BadgeTone> = {
   counter_offer: 'info',
   restructured: 'info',
 
+  // order lifecycle: money in, then the fulfilment ladder
+  pending_payment: 'warning',
+  pending_approval: 'warning',
+  financing_active: 'success',
+  fulfilling: 'info',
+  shipped: 'info',
+  out_for_delivery: 'info',
+
   // needs attention
   manual_review: 'warning',
   retry_scheduled: 'warning',
@@ -47,6 +55,8 @@ const TONE_BY_STATUS: Record<string, BadgeTone> = {
   // negative / terminal-bad
   declined: 'danger',
   failed: 'danger',
+  payment_failed: 'danger',
+  returned: 'muted',
   defaulted: 'danger',
   in_collections: 'danger',
   cancelled: 'muted',
