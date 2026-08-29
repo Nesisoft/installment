@@ -4,18 +4,28 @@ Standing instructions for Claude Code in this repository. `CONTRIBUTING.md` hold
 that apply to everyone — branch names, commit format, migrations, money and time. This file holds
 the ones that exist because of how _this_ collaboration has actually gone wrong.
 
-## After a merge, sync local `main`
+## Finish every piece of work the same way: branch, PR, merge, pull
 
-The moment a PR is merged, bring the local checkout back to the merged state before doing anything
-else:
+Work is not done when the code is written. It is done when it is on `main` and the local checkout is
+back on that state. Run the whole cycle, every time, without being asked:
+
+1. **Branch** off current `main`, named per `CONTRIBUTING.md` (`<type>/<scope>-<description>`).
+2. **Verify** — the full CI sequence below, including the integration suites.
+3. **Push and open a PR.** Every change goes through one, however small. A one-line documentation fix
+   still gets a PR, because the PR body is what becomes the squash commit message on `main`.
+4. **Merge it once CI is green** — squash, with a title and body written for someone reading
+   `git log` in a year.
+5. **Pull `main` back down immediately.**
 
 ```bash
 git checkout main
 git fetch origin main
-git reset --hard origin/main   # or: git pull --ff-only origin main
+git pull --ff-only origin main   # or: git reset --hard origin/main
 ```
 
-Why it matters: PRs here are **squash-merged**. The squash creates a new commit on `main` with no
+Do not leave a merged PR unpulled, and do not start the next piece of work from a stale checkout.
+
+Why step 5 matters: PRs here are **squash-merged**. The squash creates a new commit on `main` with no
 parent link back to the branch, so a local `main` left behind is not merely stale — it is on a
 lineage that will never fast-forward cleanly, and the next branch cut from it starts from the wrong
 base. It also makes `git branch --no-merged main` report already-merged branches as unmerged, which
@@ -23,6 +33,11 @@ is genuinely confusing to read.
 
 Delete the merged branch once its content is verified to be in `main`. Verify by content, not by
 ancestry — `git diff origin/main origin/<branch>` should show only lines a later PR superseded.
+Deleting a remote branch may be refused (HTTP 403) depending on the session's credentials; when that
+happens, say so and hand over the exact command rather than leaving the branch unmentioned.
+
+If several PRs are open at once, merge them oldest first, pulling `main` between each, so every merge
+lands on the state the next one will sit against.
 
 ## Do not fan out large numbers of parallel agents
 
