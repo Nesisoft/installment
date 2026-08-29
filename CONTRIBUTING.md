@@ -49,17 +49,38 @@ reading the diff: what changed, why it had to change, and what you did to convin
 works. Call out anything that changes a wire shape, a database column or a business rule —
 those are the things that break other people.
 
-## Before you push
+PRs are **squash-merged**, so the PR body becomes the commit message on `main` — write it for
+someone reading `git log` in a year, not just for today's reviewer.
+
+Once it is merged, resync your checkout and drop the branch:
 
 ```bash
-pnpm format        # writes
-pnpm lint
-pnpm typecheck
-pnpm test
+git checkout main && git fetch origin main && git pull --ff-only origin main
+git push origin --delete <branch> && git remote prune origin
 ```
 
-CI runs all of these plus `pnpm build` and the integration suite against real Postgres and Redis.
-`./scripts/local-stack.sh up` gives you both without Docker.
+Squashing means the branch tip is never an ancestor of `main`, so a local `main` left behind will
+not fast-forward and `git branch --no-merged main` will list already-merged branches as unmerged.
+Turning on **Settings → General → Automatically delete head branches** handles the second command
+for you.
+
+## Before you push
+
+Run what CI runs, in the order CI runs it — not a subset:
+
+```bash
+pnpm format        # writes; CI runs format:check and fails on a diff
+pnpm lint
+pnpm typecheck
+pnpm build
+pnpm test
+pnpm --filter @installment/core --filter @installment/commerce test:integration
+```
+
+That last line is the one people skip, and it is the one that catches cross-module regressions: a
+validation rule tightened for one caller can break a flow in another app that no unit test touches.
+It needs Postgres and Redis — `./scripts/local-stack.sh up` gives you both without Docker, or
+`pnpm db:up` if you have Docker.
 
 ## Migrations are immutable
 
