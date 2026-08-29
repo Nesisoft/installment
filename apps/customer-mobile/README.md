@@ -114,6 +114,53 @@ Two side effects of `prebuild`, which `run:android` calls for you: it generates 
 `ios` scripts in `package.json` to `expo run:*`. That second one is a tracked file, so check it before
 committing.
 
+### Expo Go crashing on launch: check its version first
+
+Expo Go is a **prebuilt host**. Its native libraries are compiled into the APK from the Play Store,
+and your JS bundle drives them across JSI — a native ABI contract. The JS half of a native module has
+to match the version its native half was built from, and Expo Go's native half is whatever shipped in
+the build you installed, not whatever your SDK patch resolves to.
+
+When they disagree, Expo Go does not report an error. It dies with a native `SIGSEGV` inside
+`__memcpy_aarch64_simd`, called from the offending library — and the tombstone contains **no
+JavaScript frames at all**, so nothing in it points at a version.
+
+Worked example, from the real thing:
+
+```
+Expo Go 57.0.2   ->  worklets 0.10.0, reanimated 4.5.0
+Expo Go 57.0.9   ->  worklets 0.10.1, reanimated 4.5.1
+this app (SDK 57.0.17) -> worklets 0.10.1, reanimated 4.5.1
+```
+
+Expo Go 57.0.2 crashed on every launch; **installing Expo Go 57.0.9 fixed it with no code change.**
+
+**Keep the JS at the SDK's own versions and keep Expo Go current** — that is the direction to resolve
+it from. Pinning the JS _down_ to an old Expo Go works too, but it strands the app on stale native
+modules and breaks again the moment anyone updates the Play Store app.
+
+To confirm a mismatch, read the Expo Go version from the crash dialog and compare its manifest to what
+you have installed:
+
+```bash
+npm pack expo@57.0.9 && tar -xzOf expo-57.0.9.tgz package/bundledNativeModules.json
+```
+
+`npx expo install --check` will **not** catch this. It compares against the `expo` package in your
+`node_modules`, not against the Expo Go on the handset — so it reports everything correct while the
+app crashes on launch.
+
+Note that nothing in this app imports `react-native-reanimated` or `react-native-worklets`. They
+arrive as an optional peer of `expo-router`, and `auto-install-peers=true` in `.npmrc` reinstalls them
+whatever `package.json` says — so removing them is not available as a workaround, and a bundle that
+looks unchanged after removing them is that setting at work, not evidence they were absent.
+
+### Running it in Expo Go
+
+```bash
+pnpm --filter @installment/customer-mobile start -- -c    # -c clears the transform cache
+```
+
 ### Expo Go
 
 Expo Go supports only the current SDK, so it must be an SDK 57 build (57.x). Phone and laptop on the
