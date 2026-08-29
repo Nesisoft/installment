@@ -96,6 +96,18 @@ export const envSchema = z.object({
   STORAGE_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(10_485_760),
   /** How long an upload URL stays valid. Short: it is a bearer token for a write. */
   STORAGE_UPLOAD_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  /**
+   * The credit line offered to a customer with no borrowing history, in cedis,
+   * measured on what the plan FINANCES rather than what the order costs.
+   *
+   * It exists because without it nobody new can be approved at all: every rule
+   * worth points needs a history to have points about, so a verified, blameless
+   * first-time shopper scores 275 against a 350 floor. This is the deliberate
+   * appetite for being wrong about someone we know nothing about, and it is an
+   * environment variable rather than a constant so it can be tightened the
+   * afternoon losses say so, without a deploy. `0` switches the policy off.
+   */
+  CREDIT_STARTER_MAX_FINANCED_GHS: z.coerce.number().int().min(0).default(250),
   SMS_SENDER_ID: z.string().default('Installmt'),
   // Which SMS provider actually dispatches. `console` logs and delivers
   // nothing — fine locally, catastrophic in production, where customer auth is

@@ -89,7 +89,11 @@ export class ScoringService {
   ): Promise<{ app: Application; features: FeatureVector }> {
     const app = await this.applications.get(applicationId);
     const planRows = await this.db
-      .select({ min: pt.min_amount_pesewas, max: pt.max_amount_pesewas })
+      .select({
+        min: pt.min_amount_pesewas,
+        max: pt.max_amount_pesewas,
+        downPaymentBps: pt.down_payment_bps,
+      })
       .from(pt)
       .where(eq(pt.id, app.plan_template_id))
       .limit(1);
@@ -102,6 +106,7 @@ export class ScoringService {
       planTemplateId: app.plan_template_id,
       planMinGhs: plan.min / 100,
       planMaxGhs: plan.max / 100,
+      downPaymentBps: plan.downPaymentBps,
     };
     const features = await this.collector.collect(app.customer_id, request);
     return { app, features };

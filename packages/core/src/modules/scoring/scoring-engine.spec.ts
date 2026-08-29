@@ -56,6 +56,7 @@ function prime(): FeatureVector {
       planTemplateId: 'p1',
       planMinGhs: 100,
       planMaxGhs: 5000,
+      downPaymentBps: 4000,
     },
   };
 }

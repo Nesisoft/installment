@@ -42,6 +42,7 @@ import {
   RedisLock,
   RulesetLoader,
   ScheduleStateService,
+  DEFAULT_RULESET,
   ScoringEngine,
   ScoringService,
   CustomerCreditService,
@@ -318,9 +319,20 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
     },
     {
       provide: ScoringService,
-      useFactory: (db: Database, applications: ApplicationsService) =>
-        new ScoringService(db, FeatureCollector.fromDb(db), new ScoringEngine(), applications),
-      inject: [DRIZZLE, ApplicationsService],
+      useFactory: (
+        db: Database,
+        applications: ApplicationsService,
+        config: ConfigService<Env, true>,
+      ) =>
+        new ScoringService(
+          db,
+          FeatureCollector.fromDb(db),
+          new ScoringEngine(DEFAULT_RULESET, {
+            maxFinancedGhs: config.get('CREDIT_STARTER_MAX_FINANCED_GHS', { infer: true }),
+          }),
+          applications,
+        ),
+      inject: [DRIZZLE, ApplicationsService, ConfigService],
     },
     {
       provide: RulesetLoader,

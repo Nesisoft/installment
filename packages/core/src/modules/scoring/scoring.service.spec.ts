@@ -81,7 +81,11 @@ describe('ScoringService.dryRun', () => {
     const transaction = vi.fn();
     const db = {
       select: () => ({
-        from: () => ({ where: () => ({ limit: async () => [{ min: 1_000, max: 1_000_000 }] }) }),
+        from: () => ({
+          where: () => ({
+            limit: async () => [{ min: 1_000, max: 1_000_000, downPaymentBps: 4_000 }],
+          }),
+        }),
       }),
       insert,
       transaction,
@@ -97,6 +101,7 @@ describe('ScoringService.dryRun', () => {
       planTemplateId: 'plan-1',
       planMinGhs: 10,
       planMaxGhs: 10_000,
+      downPaymentBps: 4_000,
     });
     expect(decision.outcome).toBe('declined'); // unverified Ghana Card gates out
     expect(insert).not.toHaveBeenCalled();
@@ -120,6 +125,7 @@ describe('ScoringService.scoreFeatures', () => {
         planTemplateId: 'plan-1',
         planMinGhs: 10,
         planMaxGhs: 10_000,
+        downPaymentBps: 4_000,
       },
     };
     const decision = svc.scoreFeatures(features);
