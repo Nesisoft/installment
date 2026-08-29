@@ -15,6 +15,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   InventoryService,
+  MediaService,
   ProductsService,
   StoresService,
   addImageSchema,
@@ -59,6 +60,7 @@ export class MerchantCatalogController {
     private readonly products: ProductsService,
     private readonly inventory: InventoryService,
     private readonly stores: StoresService,
+    private readonly media: MediaService,
   ) {}
 
   private actor(merchantId: string) {
@@ -81,17 +83,28 @@ export class MerchantCatalogController {
 
   @Get('products')
   @ApiOperation({ summary: 'My products' })
-  @ApiModel('Product', { array: true })
-  listProducts(@Query() query: Record<string, string>, @CurrentMerchantId() merchantId: string) {
+  @ApiModel('MerchantProductRow', { array: true })
+  async listProducts(
+    @Query() query: Record<string, string>,
+    @CurrentMerchantId() merchantId: string,
+  ) {
     // merchant_id is set from the guard, not read from the query — a
     // `?merchant_id=` in the URL is ignored rather than honoured.
-    return this.products.list({
+    const rows = await this.products.list({
       merchant_id: merchantId,
       category_id: query.category_id,
       status: query.status,
       limit: numOrUndefined(query.limit),
       offset: numOrUndefined(query.offset),
     });
+    // Resolved here rather than in the browser: `storage_key` is a bucket path,
+    // and every client that rebuilt the URL itself would have to be changed the
+    // day this moves behind a CDN or starts signing.
+    const keys = await this.products.primaryImageKeys(rows.map((r) => r.id));
+    return rows.map((row) => ({
+      ...row,
+      primary_image_url: this.media.url(keys.get(row.id)),
+    }));
   }
 
   /**
@@ -115,9 +128,13 @@ export class MerchantCatalogController {
 
   @Get('products/:id')
   @ApiOperation({ summary: 'One of my products' })
-  @ApiModel('ProductDetails')
-  getProduct(@Param('id') id: string, @CurrentMerchantId() merchantId: string) {
-    return this.products.getWithDetails(id, { merchantId });
+  @ApiModel('MerchantProductDetails')
+  async getProduct(@Param('id') id: string, @CurrentMerchantId() merchantId: string) {
+    const product = await this.products.getWithDetails(id, { merchantId });
+    return {
+      ...product,
+      images: product.images.map((image) => ({ ...image, url: this.media.url(image.storage_key) })),
+    };
   }
 
   @Patch('products/:id')
@@ -157,9 +174,9 @@ export class MerchantCatalogController {
   @Post('products/:id/images')
   @ApiOperation({ summary: 'Attach an uploaded photo to one of my products' })
   @ApiZodBody(addImageSchema)
-  @ApiModel('ProductImage', { created: true })
+  @ApiModel('MerchantProductImage', { created: true })
   @HttpCode(201)
-  addImage(
+  async addImage(
     @Param('id') id: string,
     @Body() body: unknown,
     @CurrentMerchantId() merchantId: string,
@@ -168,7 +185,8 @@ export class MerchantCatalogController {
     if (typeof key === 'string' && !keyBelongsTo('product_image', key, merchantId)) {
       throw new BadRequestException('storage_key was not issued to this merchant');
     }
-    return this.products.addImage(id, body, this.actor(merchantId), { merchantId });
+    const image = await this.products.addImage(id, body, this.actor(merchantId), { merchantId });
+    return { ...image, url: this.media.url(image.storage_key) };
   }
 
   @Put('products/:id/plan-offers')

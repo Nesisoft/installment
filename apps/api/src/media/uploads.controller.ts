@@ -55,7 +55,7 @@ export class MerchantUploadsController {
     description:
       'The returned key is derived server-side and scoped to the calling merchant. PUT the file ' +
       'to `url` with exactly the returned headers, then send `key` to the endpoint that stores it ' +
-      '(e.g. POST /admin/products/:id/images).',
+      '(POST /merchant/products/:id/images), which checks the key was issued to this merchant.',
   })
   @ApiZodBody(requestUploadSchema)
   request(@Body() body: unknown, @CurrentMerchantId() merchantId?: string) {

@@ -187,6 +187,29 @@ export class ProductsService {
       .offset(input.offset);
   }
 
+  /**
+   * The first image key for each of several products, in one query.
+   *
+   * For a catalogue list, where a seller scanning thirty rows wants to see the
+   * photograph rather than read the title. Kept out of {@link list} because the
+   * storefront and the admin console both call it and neither wants the extra
+   * round trip; kept out of a per-row lookup because thirty rows would be
+   * thirty queries.
+   */
+  async primaryImageKeys(productIds: string[]): Promise<Map<string, string>> {
+    if (productIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({ product_id: pi.product_id, storage_key: pi.storage_key })
+      .from(pi)
+      .where(inArray(pi.product_id, productIds))
+      .orderBy(pi.position, pi.created_at);
+    const first = new Map<string, string>();
+    for (const row of rows) {
+      if (!first.has(row.product_id)) first.set(row.product_id, row.storage_key);
+    }
+    return first;
+  }
+
   /** Public full-text search over active products (title weighted above body). */
   async search(rawInput: unknown): Promise<Product[]> {
     const input: SearchProductsInput = searchProductsSchema.parse(rawInput);

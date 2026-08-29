@@ -591,6 +591,27 @@ export interface ProductDetails extends Product {
   plan_template_ids: string[];
 }
 
+/**
+ * The merchant portal's own read models.
+ *
+ * Identical to the admin ones but for resolved URLs: `storage_key` is a bucket
+ * path, and a client that rebuilt the URL itself would have to change the day
+ * storage moves behind a CDN or starts signing. `null` where the deployment has
+ * no storage configured — which renders as the placeholder tile rather than a
+ * broken image.
+ */
+export interface MerchantProductImage extends ProductImage {
+  url: string | null;
+}
+
+export interface MerchantProductRow extends Product {
+  primary_image_url: string | null;
+}
+
+export interface MerchantProductDetails extends Omit<ProductDetails, 'images'> {
+  images: MerchantProductImage[];
+}
+
 // --- Commerce (cart & addresses) --------------------------------------------
 
 export interface Address {
