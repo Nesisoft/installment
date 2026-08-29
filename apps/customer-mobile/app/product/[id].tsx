@@ -668,7 +668,10 @@ function ctaCopy(
   purchasable: boolean,
 ): { label: string; sublabel?: string } {
   if (!purchasable) return { label: 'Out of stock' };
-  if (!quote) return { label: 'Add to cart' };
+  // This button navigates to checkout, so it must never read "Add to cart" —
+  // the icon button beside it is the one that adds. Reached when a product
+  // offers no instalment plan, or while the quote is still loading.
+  if (!quote) return { label: 'Buy now' };
 
   const per = ghs(quote.per_installment_pesewas);
   const every = cadence(quote.installment_frequency_days);

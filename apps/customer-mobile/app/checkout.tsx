@@ -43,12 +43,30 @@ import { cadence, ghs } from '../src/lib/format';
 import { arrivalWindow } from '../src/lib/dates';
 import { DEFAULT_CITY, DEFAULT_REGION } from '../src/lib/config';
 import { color, radius, space } from '../src/theme/tokens';
-import type { DecidedOrder } from '../src/features/types';
+import type { DecidedOrder, MomoProvider } from '../src/features/types';
 
 type Fulfilment = 'courier' | 'pickup';
 type PaymentChoice = 'installment' | 'full';
 
 const FOOTER_HEIGHT = 96;
+
+/**
+ * The three networks Paystack settles Ghanaian Mobile Money through. `tgo` is
+ * AirtelTigo and `vod` is Telecel (formerly Vodafone) — the provider codes are
+ * the API's, the labels are what a customer calls them.
+ */
+const MOMO_PROVIDERS: { value: MomoProvider; label: string }[] = [
+  { value: 'mtn', label: 'MTN' },
+  { value: 'tgo', label: 'AirtelTigo' },
+  { value: 'vod', label: 'Telecel' },
+];
+
+/** `24 000 0000` / `024 000 0000` -> `+233240000000`, which is what the API takes. */
+function normaliseGhPhone(input: string): string {
+  const digits = input.replace(/\D/g, '');
+  const local = digits.startsWith('233') ? digits.slice(3) : digits.replace(/^0/, '');
+  return `+233${local}`;
+}
 
 export default function CheckoutScreen(): React.ReactElement {
   const { signedIn } = useAuth();
@@ -255,7 +273,15 @@ export default function CheckoutScreen(): React.ReactElement {
 
             <SectionLabel style={styles.sectionGap}>2 · How you pay</SectionLabel>
 
-            {plan ? (
+            {/* Every figure below is derived from the cart total, so none of it
+                may render before the cart has loaded. `subtotal` falls back to 0
+                while the query is in flight, which made "Pay in full" show the
+                delivery fee alone — GHS 15 on a GHS 655 order — and quoted the
+                instalment plan against that same GHS 15. A wrong price on the
+                screen where someone commits is worse than a spinner. */}
+            {cart.isPending ? <Loading /> : null}
+
+            {!cart.isPending && plan ? (
               <Pressable
                 accessibilityRole="radio"
                 accessibilityState={{ selected: payment === 'installment' }}
@@ -311,25 +337,27 @@ export default function CheckoutScreen(): React.ReactElement {
               </Pressable>
             ) : null}
 
-            <Pressable
-              accessibilityRole="radio"
-              accessibilityState={{ selected: payment === 'full' }}
-              accessibilityLabel={`Pay ${ghs(total)} in full on Mobile Money`}
-              onPress={() => setPayment('full')}
-            >
-              <Card style={payment === 'full' ? styles.payCardOn : styles.payCard}>
-                <View style={styles.payHead}>
-                  <Radio selected={payment === 'full'} />
-                  <View style={styles.payText}>
-                    <Text variant="smallMedium">Pay in full · Mobile Money</Text>
-                    <Text variant="tiny" tone="muted">
-                      One prompt on your phone
-                    </Text>
+            {!cart.isPending ? (
+              <Pressable
+                accessibilityRole="radio"
+                accessibilityState={{ selected: payment === 'full' }}
+                accessibilityLabel={`Pay ${ghs(total)} in full on Mobile Money`}
+                onPress={() => setPayment('full')}
+              >
+                <Card style={payment === 'full' ? styles.payCardOn : styles.payCard}>
+                  <View style={styles.payHead}>
+                    <Radio selected={payment === 'full'} />
+                    <View style={styles.payText}>
+                      <Text variant="smallMedium">Pay in full · Mobile Money</Text>
+                      <Text variant="tiny" tone="muted">
+                        One prompt on your phone
+                      </Text>
+                    </View>
+                    <Text variant="bodyMedium">{ghs(total)}</Text>
                   </View>
-                  <Text variant="bodyMedium">{ghs(total)}</Text>
-                </View>
-              </Card>
-            </Pressable>
+                </Card>
+              </Pressable>
+            ) : null}
 
             <SectionLabel style={styles.sectionGap}>3 · Order summary</SectionLabel>
             <Card style={styles.summary}>
@@ -426,6 +454,19 @@ function DecisionSheet({
   const payOrder = usePayOrderMomo(decision.order.id);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Mobile Money details are collected HERE, not at sign-up.
+   *
+   * A MoMo number is payment credentials. Asking for it to open an account
+   * gathers sensitive data from people who may never pay that way, and the
+   * account phone is a login identity — a different thing that happens to look
+   * the same. Registration therefore stores only a phone number, so there is no
+   * `momo_phone` on file and the charge has to carry its own.
+   */
+  const [momoPhone, setMomoPhone] = useState('');
+  const [momoProvider, setMomoProvider] = useState<MomoProvider | null>(null);
+  const momoReady = momoPhone.replace(/\D/g, '').length >= 9 && momoProvider !== null;
+
   // A separate logical attempt from the checkout, so a separate key.
   const payKey = useRef(newIdempotencyKey('deposit'));
   const busy = payInstallment.isPending || payOrder.isPending;
@@ -438,11 +479,13 @@ function DecisionSheet({
   async function pay(): Promise<void> {
     setError(null);
     try {
+      const momo = { phone: normaliseGhPhone(momoPhone), provider: momoProvider ?? undefined };
       if (decision.outcome === 'paid_later') {
-        await payOrder.mutateAsync({ idempotencyKey: payKey.current });
+        await payOrder.mutateAsync({ ...momo, idempotencyKey: payKey.current });
       } else if (decision.down_payment) {
         await payInstallment.mutateAsync({
           scheduleId: decision.down_payment.id,
+          ...momo,
           idempotencyKey: payKey.current,
         });
       }
@@ -544,7 +587,51 @@ function DecisionSheet({
 
         {(approved && decision.down_payment) || payNow ? (
           <>
-            <Button label="Approve on my phone" loading={busy} onPress={() => void pay()} />
+            <View style={styles.momoFields}>
+              <Text variant="eyebrow" tone="onDarkFaint">
+                MOBILE MONEY NUMBER
+              </Text>
+              <View style={styles.momoRow}>
+                <Text variant="bodyMedium" tone="onDarkMuted">
+                  +233
+                </Text>
+                <View style={styles.momoDivider} />
+                <TextInput
+                  value={momoPhone}
+                  onChangeText={setMomoPhone}
+                  placeholder="24 000 0000"
+                  placeholderTextColor={color.onDarkFaint}
+                  keyboardType="phone-pad"
+                  style={styles.momoInput}
+                  accessibilityLabel="The Mobile Money number to charge"
+                />
+              </View>
+              <View style={styles.momoProviders}>
+                {MOMO_PROVIDERS.map((p) => (
+                  <Pressable
+                    key={p.value}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: momoProvider === p.value }}
+                    accessibilityLabel={p.label}
+                    onPress={() => setMomoProvider(p.value)}
+                    style={[styles.momoProvider, momoProvider === p.value && styles.momoProviderOn]}
+                  >
+                    <Text
+                      variant="smallMedium"
+                      tone={momoProvider === p.value ? 'onDark' : 'onDarkMuted'}
+                    >
+                      {p.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <Button
+              label="Approve on my phone"
+              loading={busy}
+              disabled={!momoReady}
+              onPress={() => void pay()}
+            />
             <Text variant="tiny" tone="onDarkFaint" center>
               You will get a Mobile Money prompt. Enter your PIN to finish.
             </Text>
@@ -759,6 +846,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  momoFields: { gap: space.sm },
+  momoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    backgroundColor: color.darkRaised,
+    borderRadius: radius.md,
+    paddingHorizontal: space.lg,
+    height: 54,
+  },
+  momoDivider: { width: 1, height: 20, backgroundColor: color.darkHover },
+  momoInput: { flex: 1, color: color.onDark, fontSize: 17, fontFamily: 'Outfit_500Medium' },
+  momoProviders: { flexDirection: 'row', gap: space.sm },
+  momoProvider: {
+    flex: 1,
+    height: 42,
+    borderRadius: radius.sm,
+    backgroundColor: color.darkRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  momoProviderOn: { borderColor: color.accent, backgroundColor: color.darkHover },
   depositCard: { backgroundColor: color.darkRaised, gap: space.sm },
   depositRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   formTitle: { marginBottom: space.lg },
