@@ -27,6 +27,9 @@ logs/
 .redis/
 *.pid
 
+# Expo's per-checkout scratch (device pairings, dev-server state).
+.expo/
+
 # Uploads written by STORAGE_DRIVER=local. Development scratch, never source.
 .media/
 
