@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Database } from '@installment/db';
 import { ScheduleGenerator, type GeneratedSchedule } from './schedule-generator';
@@ -84,7 +84,13 @@ export class PlanQuoteService {
     ];
     if (input.plan_template_id) where.push(eq(pt.id, input.plan_template_id));
     if (input.plan_template_ids?.length) {
-      where.push(sql`${pt.id} = ANY(${input.plan_template_ids})`);
+      // `inArray`, not `= ANY(...)`. Drizzle binds a JS array as ONE parameter,
+      // which node-postgres sends untyped; Postgres then reads it as text and
+      // fails the whole statement with 22P02 comparing `uuid = ANY(text)`. That
+      // surfaced as a 400 on every product page — the instalment preview is the
+      // point of the screen — because the product always sends the templates it
+      // offers. `inArray` expands to one placeholder per id, each typed.
+      where.push(inArray(pt.id, input.plan_template_ids));
     }
 
     const templates = await this.db
