@@ -30,6 +30,14 @@ logs/
 # Expo's per-checkout scratch (device pairings, dev-server state).
 .expo/
 
+# Native projects are GENERATED, not authored — `expo prebuild` (and
+# `expo run:android`, which calls it) writes them from app.json and the config
+# plugins. Committing them means the generated copy and its source can disagree,
+# and every SDK bump becomes a merge. The app has no hand-written native code,
+# so regeneration is always safe. Delete them and re-run prebuild if they drift.
+apps/*/android/
+apps/*/ios/
+
 # Uploads written by STORAGE_DRIVER=local. Development scratch, never source.
 .media/
 
