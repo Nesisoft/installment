@@ -17,7 +17,7 @@ import {
 import { formatGhs } from '@installment/api-types';
 import { BadgeCheck, Layers, ShieldCheck, Wallet } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useMerchantBalances, useMerchantPlans, useMerchantProfile } from '../lib/merchant-api';
+import { useMerchantOrders, useMerchantProfile, useMerchantBalances } from '../lib/merchant-api';
 import { formatDate } from '../lib/format';
 import { PageHeader } from '../components/page-header';
 import { EmptyState, ErrorState, LoadingState } from '../components/data-states';
@@ -56,7 +56,7 @@ function StatCard({
 export function DashboardPage() {
   const profile = useMerchantProfile();
   const balances = useMerchantBalances();
-  const recent = useMerchantPlans({ limit: 5 });
+  const recent = useMerchantOrders({ limit: 5 });
 
   const b = balances.data;
   const stats: { label: string; value: ReactNode; hint: string; icon: LucideIcon }[] = [
@@ -119,34 +119,36 @@ export function DashboardPage() {
             <LoadingState />
           ) : recent.isError ? (
             <ErrorState error={recent.error} onRetry={() => void recent.refetch()} />
-          ) : (recent.data ?? []).length === 0 ? (
+          ) : (recent.data?.rows ?? []).length === 0 ? (
             <EmptyState message="No orders yet." />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Order</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Outstanding</TableHead>
+                  <TableHead>Total</TableHead>
+                  <TableHead>Payment</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
+                  <TableHead>Placed</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(recent.data ?? []).map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-mono text-xs">
-                      <Link to={`/orders/${p.id}`} className="hover:underline">
-                        {p.id.slice(0, 8)}…
+                {(recent.data?.rows ?? []).map((o) => (
+                  <TableRow key={o.id}>
+                    <TableCell className="font-medium">
+                      <Link to={`/orders/${o.id}`} className="hover:underline">
+                        {o.order_number}
                       </Link>
                     </TableCell>
-                    <TableCell>{formatGhs(p.order_amount_pesewas)}</TableCell>
-                    <TableCell>{formatGhs(p.outstanding_pesewas)}</TableCell>
+                    <TableCell>{formatGhs(o.total_pesewas)}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {o.payment_type === 'installment' ? 'Instalments' : 'Pay now'}
+                    </TableCell>
                     <TableCell>
-                      <StatusBadge status={p.status} />
+                      <StatusBadge status={o.status} />
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {formatDate(p.created_at)}
+                      {formatDate(o.placed_at ?? o.created_at)}
                     </TableCell>
                   </TableRow>
                 ))}

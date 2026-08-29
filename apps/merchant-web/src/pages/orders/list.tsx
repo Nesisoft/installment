@@ -13,18 +13,28 @@ import {
 } from '@installment/ui';
 import { formatGhs } from '@installment/api-types';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useMerchantPlans } from '../../lib/merchant-api';
+import { useMerchantOrders } from '../../lib/merchant-api';
 import { formatDate } from '../../lib/format';
 import { PageHeader } from '../../components/page-header';
 import { EmptyState, ErrorState, LoadingState } from '../../components/data-states';
 
+/**
+ * Ordered the way a seller thinks about their day: the two states that mean
+ * "money is in, go and pack it" first, then the rest of the ladder, then the
+ * ones that ended badly.
+ */
 const STATUS = [
-  { value: '', label: 'All statuses' },
-  { value: 'active', label: 'Active' },
+  { value: '', label: 'All orders' },
+  { value: 'paid', label: 'Paid — to pack' },
+  { value: 'financing_active', label: 'Financed — to pack' },
+  { value: 'fulfilling', label: 'Packing' },
+  { value: 'shipped', label: 'Shipped' },
+  { value: 'delivered', label: 'Delivered' },
   { value: 'completed', label: 'Completed' },
-  { value: 'defaulted', label: 'Defaulted' },
+  { value: 'pending_payment', label: 'Awaiting payment' },
+  { value: 'pending_approval', label: 'Awaiting approval' },
   { value: 'cancelled', label: 'Cancelled' },
-  { value: 'restructured', label: 'Restructured' },
+  { value: 'returned', label: 'Returned' },
 ];
 const PAGE_SIZE = 25;
 
@@ -33,19 +43,20 @@ export function OrdersListPage() {
   const [status, setStatus] = useState('');
   const [offset, setOffset] = useState(0);
 
-  const { data, isPending, isError, error, refetch, isFetching } = useMerchantPlans({
+  const { data, isPending, isError, error, refetch, isFetching } = useMerchantOrders({
     ...(status ? { status } : {}),
     limit: PAGE_SIZE,
     offset,
   });
-  const rows = data ?? [];
-  const hasNext = rows.length === PAGE_SIZE;
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const hasNext = offset + rows.length < total;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Orders"
-        description="Installment plans created from your orders."
+        description="What people have bought from you, and where each one has got to."
         actions={
           <select
             className="h-9 rounded-md border border-input bg-card px-3 text-sm"
@@ -76,29 +87,33 @@ export function OrdersListPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Order</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Outstanding</TableHead>
-                <TableHead>Model</TableHead>
+                <TableHead className="hidden sm:table-cell">Items</TableHead>
+                <TableHead>Total</TableHead>
+                <TableHead className="hidden lg:table-cell">Payment</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead className="hidden sm:table-cell">Placed</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((p) => (
+              {rows.map((o) => (
                 <TableRow
-                  key={p.id}
+                  key={o.id}
                   className="cursor-pointer"
-                  onClick={() => navigate(`/orders/${p.id}`)}
+                  onClick={() => navigate(`/orders/${o.id}`)}
                 >
-                  <TableCell className="font-mono text-xs">{p.id.slice(0, 8)}…</TableCell>
-                  <TableCell>{formatGhs(p.order_amount_pesewas)}</TableCell>
-                  <TableCell>{formatGhs(p.outstanding_pesewas)}</TableCell>
-                  <TableCell className="text-muted-foreground">{p.business_model}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={p.status} />
+                  <TableCell className="font-medium">{o.order_number}</TableCell>
+                  <TableCell className="hidden max-w-[18rem] truncate text-muted-foreground sm:table-cell">
+                    {summariseItems(o.items)}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {formatDate(p.created_at)}
+                  <TableCell>{formatGhs(o.total_pesewas)}</TableCell>
+                  <TableCell className="hidden text-muted-foreground lg:table-cell">
+                    {o.payment_type === 'installment' ? 'Instalments' : 'Pay now'}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={o.status} />
+                  </TableCell>
+                  <TableCell className="hidden text-muted-foreground sm:table-cell">
+                    {formatDate(o.placed_at ?? o.created_at)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -107,26 +122,39 @@ export function OrdersListPage() {
         )}
       </Card>
 
-      <div className="flex items-center justify-end gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={offset === 0 || isFetching}
-          onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
-        >
-          <ChevronLeft />
-          Previous
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!hasNext || isFetching}
-          onClick={() => setOffset((o) => o + PAGE_SIZE)}
-        >
-          Next
-          <ChevronRight />
-        </Button>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {total === 0 ? '' : `${offset + 1}–${offset + rows.length} of ${total}`}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={offset === 0 || isFetching}
+            onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
+          >
+            <ChevronLeft />
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!hasNext || isFetching}
+            onClick={() => setOffset((o) => o + PAGE_SIZE)}
+          >
+            Next
+            <ChevronRight />
+          </Button>
+        </div>
       </div>
     </div>
   );
+}
+
+/** "Kente scarf ×2" or "Kente scarf ×2 + 2 more" — enough to recognise the order. */
+function summariseItems(items: { title: string; quantity: number }[]): string {
+  const first = items[0];
+  if (!first) return '—';
+  const head = first.quantity > 1 ? `${first.title} ×${first.quantity}` : first.title;
+  return items.length > 1 ? `${head} + ${items.length - 1} more` : head;
 }

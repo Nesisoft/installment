@@ -28,6 +28,7 @@ import type {
   PaymentProvider,
   RiskBand,
   CartStatus,
+  FulfilmentMethod,
   OrderSource,
   OrderStatus,
   PaymentType,
@@ -668,6 +669,17 @@ export interface Order {
   placed_at: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
+  updated_at: string;
+  /** Provider reference for the charge, once one has been attempted. */
+  payment_reference: string | null;
+  fulfilment_method: FulfilmentMethod;
+  /** Set when `fulfilment_method` is `pickup`. */
+  pickup_hub_id: string | null;
+  /** Days the buyer has to return after delivery; the merchant's payout clock. */
+  return_window_days: number;
+  delivered_at: string | null;
+  /** Stamped at delivery from `return_window_days`, never recomputed. */
+  return_window_ends_at: string | null;
 }
 
 export interface OrderItem {

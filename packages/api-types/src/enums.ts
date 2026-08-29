@@ -152,6 +152,13 @@ export type OrderStatus =
   | 'returned'
   | 'defaulted';
 
+/**
+ * How the order reaches the buyer. Not an order *status* — an order that is
+ * collected from a hub still walks the same shipped → delivered ladder, it just
+ * says "Collected" at the end.
+ */
+export type FulfilmentMethod = 'courier' | 'pickup';
+
 // RBAC permissions (packages/core/src/shared/auth/permissions.ts +
 // packages/commerce/src/permissions.ts).
 export const PERMISSIONS = [

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import {
   AuditLogger,
@@ -201,13 +201,25 @@ export class FulfilmentService {
     };
   }
 
-  /** The most recent event on each of several orders, for the orders list. */
+  /**
+   * The most recent event on each of several orders, for the orders list.
+   *
+   * "Most recent" is by `occurred_at` alone, and events written in one
+   * transaction share it to the microsecond — so for an order whose last two
+   * events landed together (shipping writes `order.fulfilling` and
+   * `order.shipped` at once) which of the two comes back is not defined.
+   * Fine for a "where has it got to" hint, not a basis for any decision.
+   */
   async latestEvents(orderIds: string[]): Promise<Map<string, OrderEvent>> {
     if (orderIds.length === 0) return new Map();
     const rows = await this.db
       .select()
       .from(oe)
-      .where(sql`${oe.order_id} = ANY(${orderIds})`)
+      // `inArray`, not `= ANY(...)`: Drizzle binds a JS array as one parameter,
+      // node-postgres sends it untyped, and Postgres reads it as text — so the
+      // statement dies with 22P02 comparing `uuid = ANY(text)`. The same shape
+      // took every instalment quote down before it was found.
+      .where(inArray(oe.order_id, orderIds))
       .orderBy(desc(oe.occurred_at));
     const latest = new Map<string, OrderEvent>();
     for (const row of rows) if (!latest.has(row.order_id)) latest.set(row.order_id, row);
