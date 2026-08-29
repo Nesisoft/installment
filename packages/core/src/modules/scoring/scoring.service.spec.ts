@@ -29,7 +29,7 @@ const SLICES = {
     consecutiveOnTime: 0,
   } as FeatureVector['repayment'],
   behavior: {
-    paystackTransactionCount: 0,
+    successfulChargeCount: 0,
     momoTransactionShare: 0,
     averageTransactionGhs: 0,
     failedChargeRate90d: 0,

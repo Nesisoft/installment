@@ -10,15 +10,21 @@ import type {
 } from './types';
 
 /**
- * How much a customer with no history at all may borrow on a first order.
+ * How much a customer with no record with us may be lent on a first order.
  *
- * Every scoring rule that carries real weight — on-time rate, consecutive
- * payments, Paystack history, account age — is zero by definition on day one,
- * and together they are 450 of the available points. A verified, blameless
- * first-time shopper therefore scores 275, lands in `unscorable`, and is
- * declined. That is not a bug in the rules; it is the absence of a policy for
- * people who have not borrowed before, and without one the marketplace can
- * never approve its own first customer.
+ * Nothing in this engine reads a credit bureau. Every signal comes from our own
+ * tables — plans they finished, instalments they paid on time, charges we
+ * collected, how long they have been a customer — so the score is precisely
+ * "how well have they repaid US", and it has nothing to say about somebody who
+ * has not bought from us yet.
+ *
+ * That is the right model with a missing entry point. Every rule carrying real
+ * weight — on-time rate, consecutive payments, charges collected, account age —
+ * is zero by definition on day one, and together they are 450 of the available
+ * points. A verified, blameless first-time shopper therefore scores 275, lands
+ * in `unscorable`, and is declined; without a policy for people who have not
+ * bought from us before, the marketplace can never approve its own first
+ * customer.
  *
  * The cap is on the amount the plan FINANCES, not on what the order costs. The
  * two are different numbers and the difference is the whole exposure: a GHS 400
@@ -182,6 +188,22 @@ export class ScoringEngine {
     if (band === 'prime' && orderFits) return 'approved';
     if (band === 'near_prime' && orderFits) return 'approved_tier_2';
 
+    /**
+     * Someone who has finished a plan with us and never defaulted is not a thin
+     * file, whatever band the score puts them in — and `limit` already IS our
+     * appetite for that band, so an order inside it does not need a human to
+     * agree a second time.
+     *
+     * Without this, paying us back perfectly made the SECOND purchase harder
+     * than the first: the starter limit approves order one, then a customer with
+     * one completed plan sits at ~458 — subprime — and order two went to manual
+     * review, until the score climbed past 500 on the third. Approved, reviewed,
+     * approved, at exactly the moment a satisfied first-time buyer comes back.
+     */
+    if (band === 'subprime' && orderFits && this.hasProvenRepayment(f)) {
+      return 'approved_tier_2';
+    }
+
     // Order exceeds limit → counter-offer if we can reasonably restructure.
     if (!orderFits && limit > 0 && limit >= f.request.orderAmountGhs * 0.5) {
       return 'counter_offer';
@@ -194,6 +216,23 @@ export class ScoringEngine {
 
     if (band === 'subprime') return 'manual_review';
     return 'declined';
+  }
+
+  /**
+   * They have completed at least one plan and have never defaulted on us.
+   *
+   * `priorDefaultsAllTime`, not the twelve-month gate — a default from two years
+   * ago is still the strongest thing we know about them, and the gate that lets
+   * it through is about recency, not forgiveness.
+   *
+   * Note what this does NOT re-check: whether they paid on time. That is already
+   * priced into the band, through `score.on_time_rate` and
+   * `score.consecutive_on_time`. Someone who completed a plan paying every
+   * instalment late scores below the subprime floor and is declined before
+   * reaching here, so checking it again would be counting it twice.
+   */
+  private hasProvenRepayment(f: FeatureVector): boolean {
+    return f.repayment.completedPlansCount >= 1 && f.repayment.priorDefaultsAllTime === 0;
   }
 
   private buildCounterOffer(f: FeatureVector, limit: number): CounterOffer {

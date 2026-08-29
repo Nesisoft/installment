@@ -149,7 +149,7 @@ describe.skipIf(!RUN_DB)('Scoring collectors (integration)', () => {
       const id = await newCustomerId();
       const sig = await new BehaviorCollector(db).collect(id);
       expect(sig).toEqual({
-        paystackTransactionCount: 0,
+        successfulChargeCount: 0,
         momoTransactionShare: 0,
         averageTransactionGhs: 0,
         failedChargeRate90d: 0,
