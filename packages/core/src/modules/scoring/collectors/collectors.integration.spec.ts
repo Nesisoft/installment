@@ -240,6 +240,7 @@ describe.skipIf(!RUN_DB)('Scoring collectors (integration)', () => {
         planTemplateId,
         planMinGhs: 10,
         planMaxGhs: 100_000,
+        downPaymentBps: 4_000,
       };
       const v = await FeatureCollector.fromDb(db).collect(id, request);
 

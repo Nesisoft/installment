@@ -24,6 +24,7 @@ const REQUEST: FeatureVector['request'] = {
   planTemplateId: '33333333-3333-3333-3333-333333333333',
   planMinGhs: 10,
   planMaxGhs: 100_000,
+  downPaymentBps: 4_000,
 };
 
 const identity: FeatureVector['identity'] = {

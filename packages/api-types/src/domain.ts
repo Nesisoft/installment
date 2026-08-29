@@ -196,6 +196,14 @@ export interface FeatureVector {
     planTemplateId: string;
     planMinGhs: number;
     planMaxGhs: number;
+    /**
+     * The chosen plan's deposit, in basis points. Carried because the money at
+     * risk is what the plan *finances*, not what the order costs: at 4000 bps a
+     * GHS 400 order lends GHS 240, and at 0 bps the same order lends the whole
+     * GHS 400. A policy capped on the order amount would quietly take two-thirds
+     * more exposure on the zero-deposit template.
+     */
+    downPaymentBps: number;
   };
 }
 
