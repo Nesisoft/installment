@@ -1,8 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@installment/web-kit';
 import type {
+  AddImageInput,
+  AddVariantInput,
+  CreateProductInput,
   CustomerPlan,
   InstallmentScheduleRow,
+  Inventory,
   MarkDeliveredInput,
   MarkOutForDeliveryInput,
   MarkShippedInput,
@@ -10,11 +14,21 @@ import type {
   MerchantBalances,
   MerchantHeldReserveRow,
   MerchantPayoutsPage,
+  MerchantProductDetails,
+  MerchantProductImage,
+  MerchantProductRow,
   MerchantStatement,
   Order,
   OrderWithItems,
   PlanSettlementView,
   PlanTemplate,
+  PresignedUpload,
+  Product,
+  ProductDetails,
+  ProductVariant,
+  SetPlanOffersInput,
+  Store,
+  UpdateProductInput,
 } from '@installment/api-types';
 
 export function useMerchantProfile() {
@@ -176,6 +190,142 @@ export function useFulfilOrder(id: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['merchant', 'order', id] });
       void qc.invalidateQueries({ queryKey: ['merchant', 'orders'] });
+    },
+  });
+}
+
+// --- Catalogue -------------------------------------------------------------
+//
+// Everything here is scoped to the caller by the API, not by a filter this app
+// remembers to send: `/merchant/products` returns this merchant's products
+// because the guard says so, and another merchant's id in a path answers 404.
+// The portal never has to be trusted to ask the right question.
+
+export function useMerchantStore() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'store'],
+    queryFn: async () => (await api.get<Store>('/merchant/store')).data,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+export function useMerchantProducts(params: { status?: string; limit?: number; offset?: number }) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'products', params],
+    queryFn: async () =>
+      (await api.get<MerchantProductRow[]>('/merchant/products', { params })).data,
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useMerchantProduct(id: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'product', id],
+    queryFn: async () => (await api.get<MerchantProductDetails>(`/merchant/products/${id}`)).data,
+    enabled: Boolean(id),
+  });
+}
+
+/** Invalidates both the product and the list — a rename must not leave the list stale. */
+function useProductMutation<TArgs, TResult>(
+  id: string | undefined,
+  run: (api: ReturnType<typeof useApi>, args: TArgs) => Promise<TResult>,
+) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: TArgs) => run(api, args),
+    onSuccess: () => {
+      if (id) void qc.invalidateQueries({ queryKey: ['merchant', 'product', id] });
+      void qc.invalidateQueries({ queryKey: ['merchant', 'products'] });
+    },
+  });
+}
+
+/** `store_id` is omitted on purpose: the API fills it from the caller's own store. */
+export type CreateMerchantProductInput = Omit<CreateProductInput, 'store_id'>;
+
+export function useCreateProduct() {
+  return useProductMutation<CreateMerchantProductInput, ProductDetails>(
+    undefined,
+    async (api, body) => (await api.post<ProductDetails>('/merchant/products', body)).data,
+  );
+}
+
+export function useUpdateProduct(id: string) {
+  return useProductMutation<UpdateProductInput, Product>(
+    id,
+    async (api, patch) => (await api.patch<Product>(`/merchant/products/${id}`, patch)).data,
+  );
+}
+
+export function useAddVariant(id: string) {
+  return useProductMutation<AddVariantInput, ProductVariant>(
+    id,
+    async (api, body) =>
+      (await api.post<ProductVariant>(`/merchant/products/${id}/variants`, body)).data,
+  );
+}
+
+export function useAddProductImage(id: string) {
+  return useProductMutation<AddImageInput, MerchantProductImage>(
+    id,
+    async (api, body) =>
+      (await api.post<MerchantProductImage>(`/merchant/products/${id}/images`, body)).data,
+  );
+}
+
+export function useSetPlanOffers(id: string) {
+  return useProductMutation<SetPlanOffersInput, string[]>(
+    id,
+    async (api, body) =>
+      (await api.put<string[]>(`/merchant/products/${id}/plan-offers`, body)).data,
+  );
+}
+
+export function useSetStock(productId: string) {
+  return useProductMutation<{ variantId: string; quantity_available: number }, Inventory>(
+    productId,
+    async (api, { variantId, quantity_available }) =>
+      (
+        await api.put<Inventory>(`/merchant/variants/${variantId}/inventory`, {
+          quantity_available,
+        })
+      ).data,
+  );
+}
+
+/**
+ * Uploads a photo and returns the storage key to attach to a product.
+ *
+ * Two steps, and the second one deliberately does not go through our own API:
+ * the browser PUTs the bytes straight at the URL the server signed, so a 6 MB
+ * photograph never passes through the API process. `headers` must be sent
+ * verbatim — the content type is part of what was signed, so changing it
+ * invalidates the signature rather than merely mislabelling the object.
+ */
+export function useUploadProductPhoto() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (file: File): Promise<string> => {
+      const { data: presigned } = await api.post<PresignedUpload>('/merchant/uploads', {
+        purpose: 'product_image',
+        content_type: file.type,
+        content_length: file.size,
+      });
+      const response = await fetch(presigned.url, {
+        method: presigned.method,
+        headers: presigned.headers,
+        body: file,
+      });
+      if (!response.ok) {
+        throw new Error(`The photo could not be uploaded (${response.status}).`);
+      }
+      return presigned.key;
     },
   });
 }

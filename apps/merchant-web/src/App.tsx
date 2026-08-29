@@ -8,6 +8,10 @@ import { OrdersListPage } from './pages/orders/list';
 import { OrderDetailPage } from './pages/orders/detail';
 import { PlansListPage } from './pages/plans/list';
 import { PlanDetailPage } from './pages/plans/detail';
+import { ProductsListPage } from './pages/products/list';
+import { NewProductPage } from './pages/products/new';
+import { ProductDetailPage } from './pages/products/detail';
+import { MorePage } from './pages/more';
 import { SettlementsPage } from './pages/settlements';
 import { StatementsPage } from './pages/statements';
 import { PlanTemplatesPage } from './pages/plan-templates';
@@ -28,6 +32,11 @@ export function App() {
           <Route path="/orders/:id" element={<OrderDetailPage />} />
           <Route path="/plans" element={<PlansListPage />} />
           <Route path="/plans/:id" element={<PlanDetailPage />} />
+          <Route path="/products" element={<ProductsListPage />} />
+          {/* Before /products/:id, or "new" is read as a product id. */}
+          <Route path="/products/new" element={<NewProductPage />} />
+          <Route path="/products/:id" element={<ProductDetailPage />} />
+          <Route path="/more" element={<MorePage />} />
           <Route path="/settlements" element={<SettlementsPage />} />
           <Route path="/statements" element={<StatementsPage />} />
           <Route path="/templates" element={<PlanTemplatesPage />} />

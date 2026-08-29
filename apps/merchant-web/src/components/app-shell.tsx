@@ -6,6 +6,8 @@ import {
   FileText,
   LayoutDashboard,
   LogOut,
+  MoreHorizontal,
+  Package,
   Receipt,
   ShoppingBag,
   Store,
@@ -14,24 +16,51 @@ import {
 } from 'lucide-react';
 import { useMerchantProfile } from '../lib/merchant-api';
 
-interface NavItem {
+export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
+  /** What it is for, shown on the "More" page where there is room to say. */
+  hint?: string;
 }
 
-const NAV: NavItem[] = [
+export const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   // Orders and Plans are separate on purpose: an order is a thing somebody
   // bought and the seller has to send; a plan is the instalment agreement the
   // engine runs against it. One nav entry covering both is how the fulfilment
   // queue ended up unreachable.
-  { to: '/orders', label: 'Orders', icon: ShoppingBag },
-  { to: '/plans', label: 'Plans', icon: CalendarClock },
-  { to: '/settlements', label: 'Settlements', icon: Wallet },
-  { to: '/statements', label: 'Statements', icon: FileText },
-  { to: '/templates', label: 'Templates', icon: Receipt },
+  {
+    to: '/orders',
+    label: 'Orders',
+    icon: ShoppingBag,
+    hint: 'What people bought, and what to send',
+  },
+  { to: '/products', label: 'Products', icon: Package, hint: 'What you have listed for sale' },
+  { to: '/settlements', label: 'Settlements', icon: Wallet, hint: 'What the marketplace owes you' },
+  { to: '/plans', label: 'Plans', icon: CalendarClock, hint: 'Instalment agreements in repayment' },
+  {
+    to: '/statements',
+    label: 'Statements',
+    icon: FileText,
+    hint: 'Monthly summaries to print or export',
+  },
+  {
+    to: '/templates',
+    label: 'Templates',
+    icon: Receipt,
+    hint: 'The instalment plans you may offer',
+  },
 ];
+
+/**
+ * The phone's bottom bar holds five, which is what fits legibly at 390px.
+ * Everything past the fourth goes behind "More" rather than being squeezed —
+ * seven cells of 55px turn "Settlements" into "Settle…", and a label you cannot
+ * read is not navigation. The desktop sidebar still shows all of them.
+ */
+const PRIMARY = NAV.slice(0, 4);
+export const SECONDARY = NAV.slice(4);
 
 /**
  * Responsive shell: a left sidebar on desktop (lg+) and a fixed bottom tab bar
@@ -102,26 +131,26 @@ export function AppShell() {
         </main>
       </div>
 
-      {/* Mobile bottom tab bar. Six entries at 390px leave ~65px each, so the
-          labels are a size down and centred in their own cell — at the shell's
-          original five they ran into one another. */}
-      <nav className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-border bg-card lg:hidden">
-        {NAV.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            className={({ isActive }) =>
-              cn(
-                'flex min-w-0 flex-col items-center gap-1 px-0.5 py-2 text-[10px] font-medium leading-tight transition-colors',
-                isActive ? 'text-primary' : 'text-muted-foreground',
-              )
-            }
-          >
-            <Icon className="size-5 shrink-0" />
-            <span className="w-full truncate text-center">{label}</span>
-          </NavLink>
-        ))}
+      {/* Mobile bottom tab bar: four destinations plus More. */}
+      <nav className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-5 border-t border-border bg-card lg:hidden">
+        {[...PRIMARY, { to: '/more', label: 'More', icon: MoreHorizontal }].map(
+          ({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/'}
+              className={({ isActive }) =>
+                cn(
+                  'flex min-w-0 flex-col items-center gap-1 px-0.5 py-2 text-[11px] font-medium leading-tight transition-colors',
+                  isActive ? 'text-primary' : 'text-muted-foreground',
+                )
+              }
+            >
+              <Icon className="size-5 shrink-0" />
+              <span className="w-full truncate text-center">{label}</span>
+            </NavLink>
+          ),
+        )}
       </nav>
     </div>
   );

@@ -115,6 +115,41 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     ],
   } as SchemaObject;
 
+  // The merchant catalogue's own read models. They differ from the admin ones
+  // by exactly one thing: keys are resolved to URLs server-side, so the portal
+  // never rebuilds a bucket path and never has to change when storage does.
+  models.MerchantProductImage = {
+    allOf: [
+      { $ref: '#/components/schemas/ProductImage' },
+      {
+        type: 'object',
+        properties: { url: { type: 'string', nullable: true } },
+      },
+    ],
+  } as SchemaObject;
+
+  models.MerchantProductRow = {
+    allOf: [
+      { $ref: '#/components/schemas/Product' },
+      {
+        type: 'object',
+        properties: { primary_image_url: { type: 'string', nullable: true } },
+      },
+    ],
+  } as SchemaObject;
+
+  models.MerchantProductDetails = {
+    allOf: [
+      { $ref: '#/components/schemas/ProductDetails' },
+      {
+        type: 'object',
+        properties: {
+          images: { type: 'array', items: { $ref: '#/components/schemas/MerchantProductImage' } },
+        },
+      },
+    ],
+  } as SchemaObject;
+
   // Composed view returned by CartService.getCart.
   models.CartWithItems = {
     allOf: [

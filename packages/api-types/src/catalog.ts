@@ -93,6 +93,44 @@ export const setPlanOffersSchema = z.object({
 });
 export type SetPlanOffersInput = z.infer<typeof setPlanOffersSchema>;
 
+// --- Uploads ----------------------------------------------------------------
+//
+// Mirrors apps/api/src/media/upload-policy.ts. The key is never in this shape:
+// clients say what they are uploading, the server says where it goes.
+
+export const UPLOAD_PURPOSES = [
+  'product_image',
+  'store_logo',
+  'store_banner',
+  'category_image',
+  'kyc_document',
+] as const;
+export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
+
+export const requestUploadSchema = z.object({
+  purpose: z.enum(UPLOAD_PURPOSES),
+  content_type: z.string().trim().min(1),
+  /** Advisory — checked against the deployment ceiling before a URL is minted. */
+  content_length: z.number().int().min(0).optional(),
+});
+export type RequestUploadInput = z.infer<typeof requestUploadSchema>;
+
+/**
+ * Everything a client needs to upload the file itself.
+ *
+ * `headers` must be sent verbatim: the content type is part of what was signed,
+ * so changing it invalidates the signature rather than merely mislabelling the
+ * object. The bytes go straight to storage — never through the API.
+ */
+export interface PresignedUpload {
+  key: string;
+  url: string;
+  method: 'PUT';
+  headers: Record<string, string>;
+  /** ISO-8601. After this the URL is refused by the storage backend. */
+  expires_at: string;
+}
+
 export interface ListProductsParams {
   store_id?: string;
   merchant_id?: string;
