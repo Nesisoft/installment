@@ -12,33 +12,89 @@ with the contract.
 ## Running it
 
 ```bash
-# 1. Bring up Postgres + Redis and migrate (no Docker needed)
-./scripts/local-stack.sh up
+# 1. Install, and BUILD the workspace packages.
+#    The API imports @installment/core and @installment/commerce from their
+#    built dist/, not from source — apps/api/tsconfig.json has no paths
+#    redirect. Skip this and `nest start` opens with ~50 "has no exported
+#    member" errors that look like missing code and are only a missing build.
+pnpm install
+pnpm build
 
-# 2. Seed a shoppable catalogue, pickup hubs and a Pay-in-4 plan
+# 2. Bring up Postgres + Redis, and migrate
+pnpm db:up                  # Docker; or ./scripts/local-stack.sh up in a container
+pnpm migrate
+
+# 3. Seed a shoppable catalogue, pickup hubs and a Pay-in-4 plan
 pnpm db:seed:dev
 
-# 3. Run the API on 0.0.0.0:3000 — a handset cannot reach 127.0.0.1
-DATABASE_URL=postgresql://installment:installment@localhost:5432/installment \
-REDIS_URL=redis://localhost:6379 \
+# 4. Run the API. It already binds 0.0.0.0 — there is no flag to pass.
 pnpm --filter @installment/api dev
 
-# 4. Point the app at it and start Metro
+# 5. Point the app at it and start Metro
 cd apps/customer-mobile
-cp .env.example .env      # then edit EXPO_PUBLIC_API_URL — see below
-pnpm dev
+printf 'EXPO_PUBLIC_API_URL=http://<LAN-IP>:3000\n' > .env   # see below
+npx expo start -c
 ```
+
+> **When `pnpm build` fails in an app you are not working on.** One broken web app
+> aborts the whole run before `core` and `commerce` are built, which leaves the API
+> exactly as broken as if you had not built at all. Build only what the API needs:
+>
+> ```bash
+> pnpm build --filter=@installment/api...
+> ```
 
 ### Which API URL
 
-`localhost` means the handset, not your machine. Set `EXPO_PUBLIC_API_URL` to match how you run it:
+**Two** variables carry it, in two different files, read by two different tools. Expo reads
+`apps/customer-mobile/.env`; Nest reads the repo-root `.env`. Neither walks into the other.
 
-| Target                    | Value                                                               |
-| ------------------------- | ------------------------------------------------------------------- |
-| Android emulator          | `http://10.0.2.2:3000` (the host loopback as the emulator sees it)  |
-| iOS simulator             | `http://localhost:3000`                                             |
-| Physical device (Expo Go) | `http://<your-LAN-ip>:3000`, and bind the API to `0.0.0.0`          |
-| `expo start --web`        | `http://localhost:3000`, and add the Metro origin to `CORS_ORIGINS` |
+| Variable              | File                        | What it does                         | If left at `localhost` on a device            |
+| --------------------- | --------------------------- | ------------------------------------ | --------------------------------------------- |
+| `EXPO_PUBLIC_API_URL` | `apps/customer-mobile/.env` | Every API call the app makes         | Nothing loads                                 |
+| `PUBLIC_API_URL`      | repo-root `.env`            | The origin baked into **image URLs** | **Silent:** app works, every picture is blank |
+
+`localhost` on a handset means the handset. Set `EXPO_PUBLIC_API_URL` to match how you run it:
+
+| Target                    | Value                                                                      |
+| ------------------------- | -------------------------------------------------------------------------- |
+| Android emulator          | `http://10.0.2.2:3000` (the host loopback as the emulator sees it)         |
+| iOS simulator             | `http://localhost:3000`                                                    |
+| Physical device (Expo Go) | `http://<your-LAN-ip>:3000`                                                |
+| `expo start --web`        | `http://localhost:3000`, and add `http://localhost:8081` to `CORS_ORIGINS` |
+
+Four things that cost real time here:
+
+- **Do not `cp .env.example .env` for a handset.** The example ships `10.0.2.2`, which exists only
+  inside the Android emulator's NAT. On a real phone those packets are dropped rather than refused,
+  so you get a 20-second hang and then "We couldn't reach Ejua" on every screen — which reads as a
+  flaky network, not a wrong address. Write the file with your LAN IP directly.
+- **`PUBLIC_API_URL` is the silent one.** It feeds the storage driver's public prefix, which becomes
+  `MEDIA_BASE_URL`, which is what every `primary_image_url`, store logo and cart thumbnail is built
+  from. Leave it at `localhost` and the app works perfectly except that every image is a flat
+  coloured tile — byte-identical to the legitimate "no image" placeholder, with nothing in either
+  log. It is read once at boot, so restart the API after changing it. Do **not** "fix" images by
+  setting `MEDIA_BASE_URL` instead: the driver appends `/media` itself but `MEDIA_BASE_URL` is used
+  verbatim, so you would trade a connection refusal for a 404.
+- **Restart Metro with `-c` after editing `.env`.** `EXPO_PUBLIC_*` is inlined into the bundle at
+  transform time, not read at runtime, so a running dev server keeps serving the old value.
+- **Open TCP 3000 and 8081** on the host firewall, and check the app's fallback if nothing seems to
+  apply: with no `.env`, `config.ts` falls through to `app.json`'s `extra.apiBaseUrl`, which is
+  `http://localhost:3000` — the `10.0.2.2` default further down that expression is unreachable.
+
+Verify both hops before touching the phone. Every URL printed must contain your LAN IP:
+
+```bash
+curl -s http://<LAN-IP>:3000/health
+curl -s http://<LAN-IP>:3000/storefront/home | grep -o 'http://[^"]*jpg'
+```
+
+### Expo Go
+
+Expo Go supports only the current SDK, so it must be an SDK 57 build (57.x). Phone and laptop on the
+same subnet, with AP/client isolation off. `--tunnel` gets Metro through a hostile network but does
+nothing for the API, which the phone still reaches directly — so the app will load and then fail
+every request.
 
 ### Signing in locally
 
