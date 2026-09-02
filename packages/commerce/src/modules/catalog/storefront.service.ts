@@ -21,11 +21,36 @@ const pi = schema.product_images;
 const inv = schema.inventory;
 const ppo = schema.product_plan_offers;
 const st = schema.stores;
+const merch = schema.merchants;
 const cat = schema.categories;
 const rev = schema.product_reviews;
 const sq = schema.search_queries;
 
 /** Order statuses that mean the customer actually took delivery of the goods. */
+/**
+ * What makes a product publicly visible: the product, its store AND its seller
+ * all live.
+ *
+ * The seller half was missing. `merchants.status` was checked nowhere on the
+ * public surface, so suspending a merchant left their shopfront listed and
+ * their goods on sale — verified by suspending one and watching the storefront
+ * keep serving them, then checking out a GHS 1,200 order against them.
+ *
+ * It is one exported expression rather than a predicate repeated at each call
+ * site, because that is how the seller check went missing from four places at
+ * once: whoever adds the fifth read gets it for free.
+ */
+function liveListingWhere(): SQL {
+  return and(
+    isNull(p.deleted_at),
+    eq(p.status, 'active'),
+    eq(st.status, 'active'),
+    isNull(st.deleted_at),
+    eq(merch.status, 'active'),
+    isNull(merch.deleted_at),
+  )!;
+}
+
 const SOLD_STATUSES = [
   'paid',
   'financing_active',
@@ -243,7 +268,7 @@ export class StorefrontService {
 
   async product(id: string): Promise<StorefrontProductDetails> {
     const cards = await this.selectCards(
-      and(eq(p.id, id), isNull(p.deleted_at), eq(p.status, 'active'), eq(st.status, 'active')),
+      and(eq(p.id, id), liveListingWhere()),
       [desc(p.created_at)],
       1,
       0,
@@ -357,7 +382,16 @@ export class StorefrontService {
     const rows = await this.db
       .select({ id: st.id })
       .from(st)
-      .where(and(eq(st.slug, slug), eq(st.status, 'active'), isNull(st.deleted_at)))
+      .innerJoin(merch, eq(merch.id, st.merchant_id))
+      .where(
+        and(
+          eq(st.slug, slug),
+          eq(st.status, 'active'),
+          isNull(st.deleted_at),
+          eq(merch.status, 'active'),
+          isNull(merch.deleted_at),
+        ),
+      )
       .limit(1);
     const row = rows[0];
     if (!row) throw new StoreNotFoundError(slug);
@@ -413,12 +447,7 @@ export class StorefrontService {
     const input: HomeFeedInput = homeFeedSchema.parse(rawInput);
     void input.city; // reserved: city-scoped merchandising is a later slice
 
-    const live = and(
-      isNull(p.deleted_at),
-      eq(p.status, 'active'),
-      eq(st.status, 'active'),
-      isNull(st.deleted_at),
-    );
+    const live = liveListingWhere();
 
     const [categories, deals, installmentPicks, newest] = await Promise.all([
       this.categories(),
@@ -446,14 +475,10 @@ export class StorefrontService {
   // ---------------------------------------------------------------- internal
 
   private async browseWhere(input: BrowseProductsInput): Promise<SQL | undefined> {
-    const where: (SQL | undefined)[] = [
-      isNull(p.deleted_at),
-      eq(p.status, 'active'),
-      // The join to stores is always present, so an inactive or soft-deleted
-      // store's products drop out of every public read here.
-      eq(st.status, 'active'),
-      isNull(st.deleted_at),
-    ];
+    // The joins to stores and merchants are always present, so an inactive or
+    // soft-deleted store — or a merchant who is suspended, offboarded or still
+    // pending KYC — drops out of every public read here.
+    const where: (SQL | undefined)[] = [liveListingWhere()];
 
     if (input.category_id) where.push(eq(p.category_id, input.category_id));
     if (input.category_slug) {
@@ -546,6 +571,7 @@ export class StorefrontService {
       .select({ total: sql<number>`COUNT(*)::int` })
       .from(p)
       .innerJoin(st, eq(st.id, p.store_id))
+      .innerJoin(merch, eq(merch.id, p.merchant_id))
       .where(where);
     return rows[0]?.total ?? 0;
   }
@@ -585,6 +611,7 @@ export class StorefrontService {
       })
       .from(p)
       .innerJoin(st, eq(st.id, p.store_id))
+      .innerJoin(merch, eq(merch.id, p.merchant_id))
       .where(where)
       .orderBy(...orderBy)
       .limit(limit)

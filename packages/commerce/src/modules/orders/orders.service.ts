@@ -42,6 +42,8 @@ const cp = schema.customer_plans;
 const ap = schema.applications;
 const oe = schema.order_events;
 const hubs = schema.pickup_hubs;
+const merch = schema.merchants;
+const st = schema.stores;
 
 export type Order = typeof schema.orders.$inferSelect;
 export type OrderItem = typeof schema.order_items.$inferSelect;
@@ -176,19 +178,40 @@ export class OrdersService {
           merchant_id: p.merchant_id,
           product_status: p.status,
           product_deleted: p.deleted_at,
+          store_status: st.status,
+          store_deleted: st.deleted_at,
+          merchant_status: merch.status,
+          merchant_deleted: merch.deleted_at,
         })
         .from(ci)
         .innerJoin(pv, eq(pv.id, ci.variant_id))
         .innerJoin(p, eq(p.id, pv.product_id))
+        .innerJoin(st, eq(st.id, p.store_id))
+        .innerJoin(merch, eq(merch.id, p.merchant_id))
         .where(eq(ci.cart_id, cart.id))
         .orderBy(ci.created_at);
       if (lines.length === 0) throw new EmptyCartError();
 
-      // Re-check purchasability at checkout time — the catalog may have changed
-      // since the items were added. Prices honour the cart-line snapshot.
+      /**
+       * Re-check purchasability at checkout time — the catalog may have changed
+       * since the items were added. Prices honour the cart-line snapshot.
+       *
+       * The seller is checked as well as the goods, and that is the point of
+       * this block. Suspending a merchant wrote `merchants.status` and nothing
+       * else: their store stayed `active`, the storefront kept listing them,
+       * and this loop asked only about the variant and the product — so a
+       * merchant suspended for fraud went on taking orders. Verified before the
+       * fix by suspending one and checking out a GHS 1,200 order against them.
+       */
       for (const l of lines) {
         if (!l.variant_active || l.product_status !== 'active' || l.product_deleted) {
           throw new NotPurchasableError(`Variant "${l.variant_id}" is no longer purchasable`);
+        }
+        if (l.store_status !== 'active' || l.store_deleted) {
+          throw new NotPurchasableError(`Store "${l.store_id}" is not open for orders`);
+        }
+        if (l.merchant_status !== 'active' || l.merchant_deleted) {
+          throw new NotPurchasableError(`Seller of "${l.title}" is not currently trading`);
         }
       }
 

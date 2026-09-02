@@ -67,6 +67,13 @@ describe.skipIf(!RUN_DB)('FulfilmentService (integration)', () => {
       { merchant_id: merchant.id, slug: `s-${randomUUID().slice(0, 8)}`, display_name: 'Shop' },
       ACTOR,
     );
+    // Activated, both of them. A merchant is created `pending_kyc` and a store
+    // `draft`, and neither may trade until somebody opens it — checkout now
+    // enforces that, where before it asked only about the variant and the
+    // product. This fixture never activated anything and so was quietly
+    // selling from an unopened shop.
+    await merchants.transition(merchant.id, { event: 'activate' }, ACTOR);
+    await stores.transition(store.id, { event: 'activate' }, ACTOR);
     const product = await products.create(
       {
         store_id: store.id,
