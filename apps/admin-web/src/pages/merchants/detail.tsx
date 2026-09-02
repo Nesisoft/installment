@@ -23,6 +23,8 @@ import {
   formatGhs,
   type MerchantStatus,
   type MerchantTransitionEvent,
+  type Store,
+  type StoreTransitionEvent,
 } from '@installment/api-types';
 import { apiErrorMessage, useApi } from '@installment/web-kit';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
@@ -32,7 +34,9 @@ import {
   useMerchantBalances,
   useMerchantPayouts,
   useMerchantReserves,
+  useMerchantStore,
   useTransitionMerchant,
+  useTransitionStore,
 } from '../../lib/merchants-api';
 import { formatDate, formatDateTime } from '../../lib/format';
 import { PageHeader } from '../../components/page-header';
@@ -202,6 +206,8 @@ export function MerchantDetailPage() {
         </CardContent>
       </Card>
 
+      <ShopfrontCard merchantId={id} merchantStatus={m.status as MerchantStatus} />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Settlement balances</CardTitle>
@@ -366,5 +372,143 @@ export function MerchantDetailPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+const STORE_EVENTS: Record<string, StoreTransitionEvent[]> = {
+  draft: ['activate'],
+  active: ['suspend'],
+  suspended: ['unsuspend'],
+};
+const STORE_EVENT_LABEL: Record<StoreTransitionEvent, string> = {
+  activate: 'Open the shop',
+  suspend: 'Close the shop',
+  unsuspend: 'Re-open the shop',
+};
+
+/**
+ * The merchant's shopfront, and the button that opens it.
+ *
+ * A merchant and their store are separate rows with separate lifecycles, and
+ * since the seller-liveness fix BOTH must be `active` before anything sells —
+ * the storefront and checkout each check both. Self-signup creates the store as
+ * `draft`, so activating the business alone leaves a shop nobody can buy from,
+ * and there was no way to open one from any admin screen at all.
+ *
+ * It lives on the merchant page rather than a stores section because that is
+ * where the review happens: one screen, one decision, both transitions.
+ */
+function ShopfrontCard({
+  merchantId,
+  merchantStatus,
+}: {
+  merchantId: string;
+  merchantStatus: MerchantStatus;
+}) {
+  const store = useMerchantStore(merchantId);
+  const [reason, setReason] = useState('');
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Shopfront</CardTitle>
+        <CardDescription>
+          Both the merchant and the shop must be active before anything can be sold.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {store.isPending ? (
+          <LoadingState label="Loading the shop…" />
+        ) : store.isError ? (
+          <ErrorState error={store.error} onRetry={() => void store.refetch()} />
+        ) : !store.data ? (
+          <EmptyState message="This merchant has no shopfront. Create one before activating them." />
+        ) : (
+          <StoreActions
+            store={store.data}
+            merchantId={merchantId}
+            merchantStatus={merchantStatus}
+            reason={reason}
+            onReason={setReason}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function StoreActions({
+  store,
+  merchantId,
+  merchantStatus,
+  reason,
+  onReason,
+}: {
+  store: Store;
+  merchantId: string;
+  merchantStatus: MerchantStatus;
+  reason: string;
+  onReason: (value: string) => void;
+}) {
+  const transition = useTransitionStore(store.id, merchantId);
+  const events = STORE_EVENTS[store.status] ?? [];
+
+  return (
+    <>
+      <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Field label="Shop name" value={store.display_name} />
+        <Field label="Address" value={`/${store.slug}`} />
+        <Field label="Shop status" value={store.status} />
+        <Field label="Created" value={formatDate(store.created_at)} />
+      </dl>
+
+      {/* Said plainly, because activating one and not the other is the mistake
+          this card exists to prevent. */}
+      {store.status === 'active' && merchantStatus !== 'active' ? (
+        <p className="text-sm text-warning-foreground">
+          The shop is open but the merchant is {merchantStatus} — nothing will sell until the
+          merchant is active too.
+        </p>
+      ) : null}
+      {store.status !== 'active' && merchantStatus === 'active' ? (
+        <p className="text-sm text-warning-foreground">
+          The merchant is active but the shop is {store.status} — nothing will sell until the shop
+          is open.
+        </p>
+      ) : null}
+
+      {events.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No further shop transitions available.</p>
+      ) : (
+        <>
+          <Input
+            placeholder="Reason (optional)"
+            value={reason}
+            onChange={(e) => onReason(e.target.value)}
+          />
+          <div className="flex flex-wrap gap-2">
+            {events.map((ev) => (
+              <Button
+                key={ev}
+                variant={ev === 'suspend' ? 'destructive' : 'default'}
+                size="sm"
+                disabled={transition.isPending}
+                onClick={() =>
+                  transition.mutate(
+                    { event: ev, ...(reason ? { reason } : {}) },
+                    { onSuccess: () => onReason('') },
+                  )
+                }
+              >
+                {STORE_EVENT_LABEL[ev]}
+              </Button>
+            ))}
+          </div>
+        </>
+      )}
+      {transition.isError ? (
+        <p className="text-sm text-destructive">{apiErrorMessage(transition.error)}</p>
+      ) : null}
+    </>
   );
 }

@@ -5,6 +5,7 @@ import type {
   LoginInput,
   OtpStartResult,
   Permission,
+  MerchantSignupCompleteInput,
   SignupCompleteInput,
   UserType,
 } from '@installment/api-types';
@@ -32,6 +33,14 @@ export interface AuthContextValue {
   verifySignupCode: (phone: string, code: string) => Promise<{ signupToken: string }>;
   /** Self-signup step 3: ticket + profile creates the account and signs in. */
   completeSignup: (input: SignupCompleteInput) => Promise<AuthResult>;
+  // Merchant self-signup: the same three steps against the merchant routes.
+  // Separate methods rather than a parameter, because the two flows have
+  // separate OTP keyspaces and separately scoped tickets on the server — a
+  // shared method taking a "which kind" flag would invite crossing them.
+  startMerchantSignup: (phone: string) => Promise<OtpStartResult>;
+  verifyMerchantSignupCode: (phone: string, code: string) => Promise<{ signupToken: string }>;
+  /** Creates the merchant, its login and its shopfront, and signs them in. */
+  completeMerchantSignup: (input: MerchantSignupCompleteInput) => Promise<AuthResult>;
   logout: () => void;
 }
 
@@ -99,6 +108,22 @@ export function AuthProvider({ baseURL, storageKey, children }: AuthProviderProp
       },
       async completeSignup(input) {
         const { data } = await api.post<AuthResult>('/auth/customer/signup/complete', input);
+        store.set(toSession(data));
+        return data;
+      },
+      async startMerchantSignup(phone) {
+        const { data } = await api.post<OtpStartResult>('/auth/merchant/signup/start', { phone });
+        return data;
+      },
+      async verifyMerchantSignupCode(phone, code) {
+        const { data } = await api.post<{ signupToken: string }>(
+          '/auth/merchant/signup/verify-code',
+          { phone, code },
+        );
+        return data;
+      },
+      async completeMerchantSignup(input) {
+        const { data } = await api.post<AuthResult>('/auth/merchant/signup/complete', input);
         store.set(toSession(data));
         return data;
       },

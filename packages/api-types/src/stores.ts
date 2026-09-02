@@ -48,6 +48,8 @@ export type TransitionStoreInput = z.infer<typeof transitionStoreSchema>;
 
 export interface ListStoresParams {
   status?: string;
+  /** Narrow to one merchant's shopfront — what the admin review screen asks for. */
+  merchant_id?: string;
   limit?: number;
   offset?: number;
 }

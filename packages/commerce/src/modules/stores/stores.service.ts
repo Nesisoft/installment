@@ -108,6 +108,7 @@ export class StoresService {
     const input: ListStoresInput = listStoresSchema.parse(rawInput);
     const where = [isNull(s.deleted_at)];
     if (input.status) where.push(eq(s.status, input.status));
+    if (input.merchant_id) where.push(eq(s.merchant_id, input.merchant_id));
     return this.db
       .select()
       .from(s)

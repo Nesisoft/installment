@@ -3,6 +3,7 @@ import { useAuth } from '@installment/web-kit';
 import { ProtectedRoute } from './components/protected-route';
 import { AppShell } from './components/app-shell';
 import { LoginPage } from './pages/login';
+import { SignupPage } from './pages/signup';
 import { DashboardPage } from './pages/dashboard';
 import { OrdersListPage } from './pages/orders/list';
 import { OrderDetailPage } from './pages/orders/detail';
@@ -25,6 +26,10 @@ export function App() {
       <Route
         path="/login"
         element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />}
+      />
+      <Route
+        path="/signup"
+        element={isAuthenticated ? <Navigate to="/" replace /> : <SignupPage />}
       />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>

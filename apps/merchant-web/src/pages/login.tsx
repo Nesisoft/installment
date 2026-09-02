@@ -11,6 +11,7 @@ import {
   Input,
   Label,
 } from '@installment/ui';
+import { Link } from 'react-router-dom';
 import { Store } from 'lucide-react';
 
 export function LoginPage() {
@@ -86,6 +87,13 @@ export function LoginPage() {
             </form>
           </CardContent>
         </Card>
+
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          New here?{' '}
+          <Link to="/signup" className="text-primary underline-offset-4 hover:underline">
+            Open a shop
+          </Link>
+        </p>
       </div>
     </div>
   );

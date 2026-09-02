@@ -88,6 +88,42 @@ describe.skipIf(!RUN_DB)('StoresService (integration)', () => {
     ).rejects.toBeInstanceOf(StoreTransitionError);
   });
 
+  /**
+   * The filter the admin review screen needs. `getByMerchant` could already
+   * answer it and the HTTP surface could not, so the only way to open a
+   * signed-up merchant's shop was a hand-rolled request.
+   */
+  it('lists only the named merchant’s shopfront', async () => {
+    const mine = await freshMerchant();
+    const theirs = await freshMerchant();
+    const created = await stores.create(
+      { merchant_id: mine, slug: slug(), display_name: 'Mine' },
+      SYSTEM_ACTOR,
+    );
+    await stores.create(
+      { merchant_id: theirs, slug: slug(), display_name: 'Theirs' },
+      SYSTEM_ACTOR,
+    );
+
+    const rows = await stores.list({ merchant_id: mine });
+
+    expect(rows.map((r) => r.id)).toEqual([created.id]);
+  });
+
+  it('combines the merchant filter with the status filter', async () => {
+    const merchantId = await freshMerchant();
+    const store = await stores.create(
+      { merchant_id: merchantId, slug: slug(), display_name: 'Draft shop' },
+      SYSTEM_ACTOR,
+    );
+
+    expect(await stores.list({ merchant_id: merchantId, status: 'draft' })).toHaveLength(1);
+    expect(await stores.list({ merchant_id: merchantId, status: 'active' })).toHaveLength(0);
+
+    await stores.transition(store.id, { event: 'activate' }, SYSTEM_ACTOR);
+    expect(await stores.list({ merchant_id: merchantId, status: 'active' })).toHaveLength(1);
+  });
+
   it('updates a store and throws for an unknown id', async () => {
     const store = await stores.create(
       { merchant_id: await freshMerchant(), slug: slug(), display_name: 'Old' },
