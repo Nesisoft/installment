@@ -128,6 +128,19 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     ],
   } as SchemaObject;
 
+  models.MerchantStore = {
+    allOf: [
+      { $ref: '#/components/schemas/Store' },
+      {
+        type: 'object',
+        properties: {
+          logo_url: { type: 'string', nullable: true },
+          banner_url: { type: 'string', nullable: true },
+        },
+      },
+    ],
+  } as SchemaObject;
+
   models.MerchantProductRow = {
     allOf: [
       { $ref: '#/components/schemas/Product' },

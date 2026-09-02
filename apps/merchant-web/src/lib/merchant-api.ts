@@ -17,6 +17,7 @@ import type {
   MerchantProductDetails,
   MerchantProductImage,
   MerchantProductRow,
+  MerchantStore,
   MerchantStatement,
   Order,
   OrderWithItems,
@@ -27,7 +28,7 @@ import type {
   ProductDetails,
   ProductVariant,
   SetPlanOffersInput,
-  Store,
+  UpdateMyStoreInput,
   UpdateProductInput,
 } from '@installment/api-types';
 
@@ -205,9 +206,58 @@ export function useMerchantStore() {
   const api = useApi();
   return useQuery({
     queryKey: ['merchant', 'store'],
-    queryFn: async () => (await api.get<Store>('/merchant/store')).data,
+    queryFn: async () => (await api.get<MerchantStore>('/merchant/store')).data,
     staleTime: 5 * 60_000,
     retry: false,
+  });
+}
+
+export function useUpdateMerchantStore() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: UpdateMyStoreInput) =>
+      (await api.patch<MerchantStore>('/merchant/store', patch)).data,
+    onSuccess: (store) => {
+      // Seeded rather than invalidated: the app shell reads the display name
+      // from this query, so a refetch round trip would flash the old name back
+      // into the header for as long as it took to answer.
+      qc.setQueryData(['merchant', 'store'], store);
+    },
+  });
+}
+
+/**
+ * Uploads store artwork and returns the key to save on the store.
+ *
+ * Same two-step flow as a product photo: signed URL, bytes straight to
+ * storage, only the key comes back through our API.
+ */
+export function useUploadStoreArtwork() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async ({
+      file,
+      purpose,
+    }: {
+      file: File;
+      purpose: 'store_logo' | 'store_banner';
+    }): Promise<string> => {
+      const { data: presigned } = await api.post<PresignedUpload>('/merchant/uploads', {
+        purpose,
+        content_type: file.type,
+        content_length: file.size,
+      });
+      const response = await fetch(presigned.url, {
+        method: presigned.method,
+        headers: presigned.headers,
+        body: file,
+      });
+      if (!response.ok) {
+        throw new Error(`The image could not be uploaded (${response.status}).`);
+      }
+      return presigned.key;
+    },
   });
 }
 

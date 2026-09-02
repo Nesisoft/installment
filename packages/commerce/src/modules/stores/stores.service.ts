@@ -40,6 +40,18 @@ const STORE_TRANSITIONS: Record<TransitionStoreInput['event'], { from: string[];
  * stores.merchant_id UNIQUE constraint enforces it). KYC / banking / payout
  * stay on `merchants`; a store is the merchant's public face.
  */
+/**
+ * Narrows a store operation to one merchant's own store.
+ *
+ * Optional because the admin surface is deliberately unscoped. When set, the
+ * merchant id goes into the WHERE clause rather than a check afterwards, so
+ * another merchant's store reads as one that does not exist — a 404, never a
+ * 403, for the same reason as everywhere else on the scoped surface.
+ */
+export interface StoreScope {
+  merchantId?: string;
+}
+
 export class StoresService {
   constructor(
     private readonly db: Database,
@@ -137,7 +149,20 @@ export class StoresService {
     return row;
   }
 
-  async update(id: string, rawPatch: unknown, actor: StoreActor): Promise<Store> {
+  /**
+   * Patches a store.
+   *
+   * `scope.merchantId` narrows it to the caller's own store by putting the
+   * merchant id in the WHERE clause, so a merchant editing somebody else's
+   * store gets the same not-found as for a store that does not exist. The admin
+   * surface passes no scope and reaches every store, as it must.
+   */
+  async update(
+    id: string,
+    rawPatch: unknown,
+    actor: StoreActor,
+    scope: StoreScope = {},
+  ): Promise<Store> {
     const patch: UpdateStoreInput = updateStoreSchema.parse(rawPatch);
 
     return runInTransaction(this.db, async (tx) => {
@@ -146,7 +171,13 @@ export class StoresService {
         const rows = await tx
           .update(s)
           .set({ ...patch })
-          .where(and(eq(s.id, id), isNull(s.deleted_at)))
+          .where(
+            and(
+              eq(s.id, id),
+              isNull(s.deleted_at),
+              ...(scope.merchantId ? [eq(s.merchant_id, scope.merchantId)] : []),
+            ),
+          )
           .returning();
         row = rows[0];
       } catch (err) {
