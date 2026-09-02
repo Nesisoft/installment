@@ -43,6 +43,7 @@ import {
   RulesetLoader,
   ScheduleStateService,
   DEFAULT_RULESET,
+  SYSTEM_ACTORS,
   ScoringEngine,
   ScoringService,
   CustomerCreditService,
@@ -71,6 +72,7 @@ import {
   OrdersService,
   ProductsService,
   StoresService,
+  provisionStore,
   OrderPaymentService,
 } from '@installment/commerce';
 import { PaystackClient } from '@installment/paystack-client';
@@ -667,6 +669,8 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
         sms: SmsSender,
         config: ConfigService<Env, true>,
         customers: CustomersService,
+        merchants: MerchantsService,
+        stores: StoresService,
       ) =>
         new AuthService({
           users,
@@ -677,6 +681,20 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
           smsSenderId: config.get('SMS_SENDER_ID', { infer: true }),
           // Customer self-signup creates the domain record alongside the login.
           customers,
+          // And merchant self-signup creates the business alongside it.
+          merchants,
+          // Composed here rather than injected into core: stores live in
+          // @installment/commerce, which depends on core, so core takes a
+          // callback and never learns what a store is.
+          provisionStore: ({ merchantId, shopName }) =>
+            provisionStore(
+              stores,
+              { merchantId, shopName },
+              {
+                actorId: SYSTEM_ACTORS.SYSTEM,
+                actorType: 'system',
+              },
+            ),
         }),
       inject: [
         UsersService,
@@ -686,6 +704,8 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
         SMS_SENDER,
         ConfigService,
         CustomersService,
+        MerchantsService,
+        StoresService,
       ],
     },
   ],

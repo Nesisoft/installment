@@ -66,6 +66,51 @@ export const signupCompleteSchema = z.object({
 });
 export type SignupCompleteInput = z.infer<typeof signupCompleteSchema>;
 
+// --- Merchant self-signup ---------------------------------------------------
+//
+// Same three steps as the customer flow and the same OTP machinery, because a
+// Ghanaian trader has a phone and email delivery does not exist in this system
+// yet. Merchants log in with email and password afterwards; the phone is what
+// proves the account is a person before any row is written.
+
+export const merchantSignupStartSchema = z.object({
+  phone: ghPhoneNumber,
+});
+export type MerchantSignupStartInput = z.infer<typeof merchantSignupStartSchema>;
+
+export const merchantSignupVerifyCodeSchema = z.object({
+  phone: ghPhoneNumber,
+  code: z.string().regex(/^\d{4,8}$/, 'OTP must be 4–8 digits'),
+});
+export type MerchantSignupVerifyCodeInput = z.infer<typeof merchantSignupVerifyCodeSchema>;
+
+/**
+ * Step 3: the ticket from step 2, plus the business. This is what creates the
+ * merchant, its login and its shopfront.
+ *
+ * Note what is NOT here, and cannot be: `default_mdr_bps`, `default_reserve_bps`
+ * and `default_business_model`. Those are the commercial terms the marketplace
+ * charges — a merchant setting their own take-rate at signup is the whole
+ * business model handed over in a request body. They come from the platform
+ * defaults, and only an admin can change them afterwards.
+ *
+ * `slug` is absent too. It is the shopfront's public URL, derived server-side
+ * from the shop name: letting a stranger claim one at signup is how "melcom"
+ * and "mtn" get squatted before anyone notices.
+ */
+export const merchantSignupCompleteSchema = z.object({
+  signupToken: z.string().min(1),
+  /** What the shop is called. Becomes the store's display name too.  */
+  business_name: z.string().trim().min(1).max(200),
+  /** The registered entity, which is often "… Ltd" and not the shop name. */
+  legal_name: z.string().trim().min(1).max(200),
+  email: z.string().email(),
+  password: z.string().min(8).max(200),
+  tin: z.string().trim().min(1).max(60).optional(),
+  registration_number: z.string().trim().min(1).max(60).optional(),
+});
+export type MerchantSignupCompleteInput = z.infer<typeof merchantSignupCompleteSchema>;
+
 export const signupVerifySchema = z.object({
   phone: ghPhoneNumber,
   code: z.string().regex(/^\d{4,8}$/, 'OTP must be 4–8 digits'),

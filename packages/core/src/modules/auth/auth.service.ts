@@ -4,6 +4,7 @@ import { OtpService } from '../../shared/auth/otp.service';
 import { UsersService, type User } from '../users/users.service';
 import { UserNotFoundError } from '../users/errors';
 import { CustomersService } from '../customers/customers.service';
+import { MerchantsService } from '../merchants/merchants.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 import {
   loginSchema,
@@ -14,6 +15,9 @@ import {
   signupVerifySchema,
   signupVerifyCodeSchema,
   signupCompleteSchema,
+  merchantSignupStartSchema,
+  merchantSignupVerifyCodeSchema,
+  merchantSignupCompleteSchema,
 } from './dto';
 import {
   AccountInactiveError,
@@ -21,6 +25,7 @@ import {
   InvalidOtpError,
   InvalidTokenError,
   PhoneAlreadyRegisteredError,
+  EmailAlreadyRegisteredError,
 } from './errors';
 
 /** Minimal SMS port — @installment/sms-client's clients satisfy it structurally. */
@@ -53,10 +58,33 @@ export interface AuthServiceDeps {
   otpMessage?: (code: string) => string;
   /** Required for customer self-signup; without it the signup methods refuse. */
   customers?: CustomersService;
+  /** Required for merchant self-signup; without it the merchant methods refuse. */
+  merchants?: MerchantsService;
+  /**
+   * Gives a newly signed-up merchant their shopfront.
+   *
+   * A callback rather than a StoresService, because stores live in
+   * `@installment/commerce`, which depends on core — taking the service
+   * directly would invert that. The API wires it; core never learns what a
+   * store is beyond "somebody else provisions one".
+   *
+   * Called after the merchant and its login exist, in its own transaction, so a
+   * failure here leaves a merchant with no shopfront rather than no account.
+   * That state is recoverable and visible: the portal answers "no store has
+   * been created for this merchant yet", and an admin reviews every signup
+   * before it can trade anyway.
+   */
+  provisionStore?: (input: { merchantId: string; shopName: string }) => Promise<void>;
 }
 
 /** Signup codes live in their own keyspace so a login code cannot create an account. */
 const signupTarget = (phone: string): string => `signup:${phone}`;
+
+/**
+ * And merchant signup codes in their own again, so a code sent to open a
+ * shopper account cannot be burned to register a business on the same number.
+ */
+const merchantSignupTarget = (phone: string): string => `merchant-signup:${phone}`;
 
 const defaultOtpMessage = (code: string): string =>
   `Your Installment verification code is ${code}. It expires in 5 minutes.`;
@@ -199,6 +227,127 @@ export class AuthService {
     if (!ok) throw new InvalidOtpError();
 
     return this.createVerifiedCustomer(input);
+  }
+
+  // --- Merchant self-signup -------------------------------------------------
+  //
+  // The same three steps as the customer flow, on the same OTP machinery: a
+  // Ghanaian trader has a phone, and this system has no email delivery. The
+  // phone proves a person is behind the account before any row is written;
+  // email and password are what they log in with afterwards.
+  //
+  // Everything created here is inert. The merchant lands `pending_kyc` and the
+  // shopfront `draft`, so a merchant can do all their own setup — branding,
+  // products, photos, stock — and none of it is visible or purchasable until an
+  // admin activates them. Since #61 that is enforced on both the storefront and
+  // checkout, which is what makes self-signup safe to open at all.
+
+  /**
+   * Step 1: send a code. Refuses a phone that already backs a merchant.
+   *
+   * `merchants.findByPhone`, not `users.findByPhone`: a merchant's phone lives
+   * on the merchant row and never on their `users` row, because merchants log
+   * in with email and password and `createMerchantUser` takes no phone. The
+   * users lookup looked right, sent the SMS, let the applicant fill in the
+   * whole form, and only failed at the last step on `merchants_phone_key`.
+   *
+   * Scoped to merchants on purpose: a shopper who decides to open a shop should
+   * not be turned away for already buying here on that number.
+   */
+  async merchantSignupStart(rawInput: unknown): Promise<{ expiresAt: Date }> {
+    const { phone } = merchantSignupStartSchema.parse(rawInput);
+    const merchants = this.deps.merchants;
+    if (!merchants) {
+      throw new Error('AuthService: merchants dependency is required for merchant signup');
+    }
+    if (await merchants.findByPhone(phone)) throw new PhoneAlreadyRegisteredError();
+
+    const { code, expiresAt } = await this.deps.otp.start(merchantSignupTarget(phone));
+    if (this.deps.sms) {
+      await this.deps.sms.send({
+        to: phone,
+        sender: this.deps.smsSenderId ?? 'Installmt',
+        message: (this.deps.otpMessage ?? defaultOtpMessage)(code),
+      });
+    }
+    return { expiresAt };
+  }
+
+  /** Step 2: prove the code, before the business form is shown. */
+  async merchantSignupVerifyCode(rawInput: unknown): Promise<{ signupToken: string }> {
+    const input = merchantSignupVerifyCodeSchema.parse(rawInput);
+    if (await this.deps.merchants?.findByPhone(input.phone)) {
+      throw new PhoneAlreadyRegisteredError();
+    }
+
+    const ok = await this.deps.otp.verify(merchantSignupTarget(input.phone), input.code);
+    if (!ok) throw new InvalidOtpError();
+
+    return { signupToken: this.deps.jwt.signSignup(input.phone, 'merchant') };
+  }
+
+  /**
+   * Step 3: the ticket plus the business — the call that creates the merchant,
+   * its login and its shopfront.
+   *
+   * The phone comes from the ticket, never from the body, so a caller cannot
+   * verify one number and register another. The ticket is scoped, so one minted
+   * by the customer flow is refused here.
+   */
+  async merchantSignupComplete(rawInput: unknown): Promise<AuthResult> {
+    const input = merchantSignupCompleteSchema.parse(rawInput);
+    const merchants = this.deps.merchants;
+    if (!merchants) {
+      throw new Error('AuthService: merchants dependency is required for merchant signup');
+    }
+
+    let phone: string;
+    try {
+      phone = this.deps.jwt.verifySignup(input.signupToken, 'merchant');
+    } catch {
+      throw new InvalidTokenError();
+    }
+
+    // Re-check under the proven phone and the claimed email: another signup may
+    // have won the race between step 2 and step 3. The email is checked against
+    // logins, because that is what a merchant signs in with and `users.email`
+    // is unique across every actor class.
+    if (await merchants.findByPhone(phone)) throw new PhoneAlreadyRegisteredError();
+    if (await this.deps.users.findByEmail(input.email)) throw new EmailAlreadyRegisteredError();
+
+    const systemActor = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
+
+    // No commercial terms in the input, so the platform's defaults apply. A
+    // merchant naming their own take-rate at signup would be the business model
+    // handed over in a request body.
+    const merchant = await merchants.create(
+      {
+        business_name: input.business_name,
+        legal_name: input.legal_name,
+        email: input.email,
+        phone,
+        ...(input.tin ? { tin: input.tin } : {}),
+        ...(input.registration_number ? { registration_number: input.registration_number } : {}),
+      },
+      systemActor,
+    );
+
+    const user = await this.deps.users.createMerchantUser(
+      {
+        email: input.email,
+        name: input.business_name,
+        password: input.password,
+        merchant_id: merchant.id,
+      },
+      systemActor,
+    );
+
+    if (this.deps.provisionStore) {
+      await this.deps.provisionStore({ merchantId: merchant.id, shopName: input.business_name });
+    }
+
+    await this.deps.users.recordLogin(user.id);
+    return this.result(user);
   }
 
   /**
