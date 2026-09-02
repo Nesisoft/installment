@@ -28,6 +28,18 @@ export type CreateStoreInput = z.infer<typeof createStoreSchema>;
 export const updateStoreSchema = createStoreSchema.omit({ merchant_id: true }).partial();
 export type UpdateStoreInput = z.infer<typeof updateStoreSchema>;
 
+/**
+ * What a merchant may change about their own shopfront.
+ *
+ * Not `slug`: it is the storefront's public URL, so a merchant renaming it
+ * silently breaks every link anyone has shared, every QR code on a flyer and
+ * every search result — a platform decision with an admin behind it, not a
+ * settings field. Not `status` either; going live is a transition with its own
+ * route and its own audit trail.
+ */
+export const updateMyStoreSchema = updateStoreSchema.omit({ slug: true });
+export type UpdateMyStoreInput = z.infer<typeof updateMyStoreSchema>;
+
 export const transitionStoreSchema = z.object({
   event: z.enum(['activate', 'suspend', 'unsuspend']),
   reason: z.string().trim().min(1).max(500).optional(),

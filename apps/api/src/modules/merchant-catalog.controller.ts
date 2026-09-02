@@ -18,6 +18,7 @@ import {
   MediaService,
   ProductsService,
   StoresService,
+  updateMyStoreSchema,
   addImageSchema,
   addVariantSchema,
   adjustStockSchema,
@@ -74,11 +75,61 @@ export class MerchantCatalogController {
    */
   @Get('store')
   @ApiOperation({ summary: 'My store' })
-  @ApiModel('Store')
+  @ApiModel('MerchantStore')
   async store(@CurrentMerchantId() merchantId: string) {
+    return this.withArtwork(await this.myStore(merchantId));
+  }
+
+  /**
+   * Edit my own shopfront: name, blurb, support contacts, logo and banner.
+   *
+   * Not the slug, and not the status. The slug is the storefront's public URL,
+   * so renaming it silently breaks every link anyone has shared and every QR
+   * code already printed on a flyer; going live is a transition with its own
+   * route and audit trail. Both are platform decisions with an admin behind
+   * them rather than settings fields — `updateMyStoreSchema` omits them, so a
+   * body carrying either is refused rather than quietly ignored.
+   *
+   * Artwork keys come back from the client, so each is checked against the
+   * prefix this merchant's uploads are issued under — the same guard the
+   * product images use, for the same reason: a key is derived server-side and
+   * this is the door that takes one back.
+   */
+  @Patch('store')
+  @ApiOperation({ summary: 'Edit my store' })
+  @ApiZodBody(updateMyStoreSchema)
+  @ApiModel('MerchantStore')
+  async updateStore(@Body() body: unknown, @CurrentMerchantId() merchantId: string) {
+    const store = await this.myStore(merchantId);
+    const patch = (body ?? {}) as Record<string, unknown>;
+    for (const [field, purpose] of [
+      ['logo_key', 'store_logo'],
+      ['banner_key', 'store_banner'],
+    ] as const) {
+      const key = patch[field];
+      if (typeof key === 'string' && !keyBelongsTo(purpose, key, merchantId)) {
+        throw new BadRequestException(`${field} was not issued to this merchant`);
+      }
+    }
+    return this.withArtwork(
+      await this.stores.update(store.id, body, this.actor(merchantId), { merchantId }),
+    );
+  }
+
+  /** The caller's own store, or a 404 explaining that they have none yet. */
+  private async myStore(merchantId: string) {
     const store = await this.stores.getByMerchant(merchantId);
     if (!store) throw new NotFoundException('No store has been created for this merchant yet');
     return store;
+  }
+
+  /** Keys resolved to URLs, so the portal never rebuilds a bucket path. */
+  private withArtwork<T extends { logo_key: string | null; banner_key: string | null }>(store: T) {
+    return {
+      ...store,
+      logo_url: this.media.url(store.logo_key),
+      banner_url: this.media.url(store.banner_key),
+    };
   }
 
   @Get('products')
@@ -120,8 +171,7 @@ export class MerchantCatalogController {
   @ApiModel('ProductDetails', { created: true })
   @HttpCode(201)
   async createProduct(@Body() body: unknown, @CurrentMerchantId() merchantId: string) {
-    const store = await this.stores.getByMerchant(merchantId);
-    if (!store) throw new NotFoundException('No store has been created for this merchant yet');
+    const store = await this.myStore(merchantId);
     const input = { ...(body as Record<string, unknown>), store_id: store.id };
     return this.products.create(input, this.actor(merchantId), { merchantId });
   }

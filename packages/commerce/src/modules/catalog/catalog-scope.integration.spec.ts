@@ -6,6 +6,7 @@ import { StoresService } from '../stores/stores.service';
 import { InventoryService } from './inventory.service';
 import { ProductsService } from './products.service';
 import { ProductNotFoundError, ProductValidationError, VariantNotFoundError } from './errors';
+import { StoreNotFoundError } from '../stores/errors';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
@@ -219,6 +220,30 @@ describe.skipIf(!RUN_DB)('Merchant catalogue scoping (integration)', () => {
     ).rejects.toThrow(VariantNotFoundError);
   });
 
+  // --- the shopfront --------------------------------------------------------
+
+  it('edits my own store when scoped to me', async () => {
+    const updated = await stores.update(mine.storeId, { display_name: 'Mine, renamed' }, ACTOR, {
+      merchantId: mine.merchantId,
+    });
+
+    expect(updated.display_name).toBe('Mine, renamed');
+  });
+
+  it('refuses another merchant’s store as not found, and leaves it untouched', async () => {
+    const before = await stores.get(theirs.storeId);
+
+    await expect(
+      stores.update(theirs.storeId, { display_name: 'hijacked' }, ACTOR, {
+        merchantId: mine.merchantId,
+      }),
+    ).rejects.toThrow(StoreNotFoundError);
+
+    // An UPDATE that filtered correctly wrote nothing, rather than writing and
+    // then complaining about it.
+    expect((await stores.get(theirs.storeId)).display_name).toBe(before.display_name);
+  });
+
   // --- the admin surface is deliberately unscoped ----------------------------
 
   it('still lets an unscoped caller reach every merchant’s catalogue', async () => {
@@ -227,5 +252,8 @@ describe.skipIf(!RUN_DB)('Merchant catalogue scoping (integration)', () => {
     // /admin/products for everyone.
     expect((await products.getWithDetails(theirs.productId)).id).toBe(theirs.productId);
     expect((await inventory.getByVariant(theirs.variantId)).variant_id).toBe(theirs.variantId);
+    expect((await stores.update(theirs.storeId, { about: 'set by staff' }, ACTOR)).about).toBe(
+      'set by staff',
+    );
   });
 });

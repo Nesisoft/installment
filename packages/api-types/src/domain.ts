@@ -613,6 +613,12 @@ export interface MerchantProductImage extends ProductImage {
   url: string | null;
 }
 
+/** GET/PATCH /merchant/store — the store with its artwork keys resolved. */
+export interface MerchantStore extends Store {
+  logo_url: string | null;
+  banner_url: string | null;
+}
+
 export interface MerchantProductRow extends Product {
   primary_image_url: string | null;
 }

@@ -12,6 +12,7 @@ import { ProductsListPage } from './pages/products/list';
 import { NewProductPage } from './pages/products/new';
 import { ProductDetailPage } from './pages/products/detail';
 import { MorePage } from './pages/more';
+import { StorePage } from './pages/store';
 import { SettlementsPage } from './pages/settlements';
 import { StatementsPage } from './pages/statements';
 import { PlanTemplatesPage } from './pages/plan-templates';
@@ -36,6 +37,7 @@ export function App() {
           {/* Before /products/:id, or "new" is read as a product id. */}
           <Route path="/products/new" element={<NewProductPage />} />
           <Route path="/products/:id" element={<ProductDetailPage />} />
+          <Route path="/store" element={<StorePage />} />
           <Route path="/more" element={<MorePage />} />
           <Route path="/settlements" element={<SettlementsPage />} />
           <Route path="/statements" element={<StatementsPage />} />

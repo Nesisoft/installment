@@ -14,7 +14,7 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
-import { useMerchantProfile } from '../lib/merchant-api';
+import { useMerchantProfile, useMerchantStore } from '../lib/merchant-api';
 
 export interface NavItem {
   to: string;
@@ -51,6 +51,12 @@ export const NAV: NavItem[] = [
     icon: Receipt,
     hint: 'The instalment plans you may offer',
   },
+  {
+    to: '/store',
+    label: 'Store',
+    icon: Store,
+    hint: 'Your shopfront: name, logo, banner, contacts',
+  },
 ];
 
 /**
@@ -70,7 +76,12 @@ export const SECONDARY = NAV.slice(4);
 export function AppShell() {
   const { logout } = useAuth();
   const profile = useMerchantProfile();
-  const name = profile.data?.business_name ?? 'Merchant';
+  const store = useMerchantStore();
+  // The shopfront name, because that is what the shop icon beside it means and
+  // what a seller renaming their store expects to see change. The merchant's
+  // registered business name is the fallback: it is a legal identity, often
+  // "… Ltd", and not what they call the shop.
+  const name = store.data?.display_name ?? profile.data?.business_name ?? 'Merchant';
 
   return (
     <div className="flex min-h-screen bg-background">
