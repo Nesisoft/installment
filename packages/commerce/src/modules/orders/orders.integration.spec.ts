@@ -78,6 +78,13 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
       { merchant_id: merchant.id, slug: `shop-${id.slice(0, 8)}`, display_name: 'Shop' },
       ACTOR,
     );
+    // Activated, both of them. A merchant is created `pending_kyc` and a store
+    // `draft`, and neither may trade until somebody opens it — checkout now
+    // enforces that, where before it asked only about the variant and the
+    // product. These fixtures never activated anything and so were quietly
+    // selling from an unopened shop.
+    await merchants.transition(merchant.id, { event: 'activate' }, ACTOR);
+    await stores.transition(store.id, { event: 'activate' }, ACTOR);
     return { merchantId: merchant.id, storeId: store.id };
   }
 
