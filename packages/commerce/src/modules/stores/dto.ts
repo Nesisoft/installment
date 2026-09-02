@@ -42,6 +42,16 @@ export type TransitionStoreInput = z.infer<typeof transitionStoreSchema>;
 
 export const listStoresSchema = z.object({
   status: z.enum(STORE_STATUSES).optional(),
+  /**
+   * Narrow to one merchant's shopfront.
+   *
+   * Added for the admin review screen: self-signup creates a `draft` store, and
+   * an admin reviewing the merchant needs to see and open that exact shop. The
+   * service could already answer it (`getByMerchant`) and the HTTP surface
+   * could not, so the only way to activate a signed-up merchant's shop was a
+   * hand-rolled request.
+   */
+  merchant_id: z.string().uuid().optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });

@@ -54,6 +54,7 @@ export class StoresController {
   list(@Query() query: Record<string, string>) {
     return this.stores.list({
       status: query.status,
+      merchant_id: query.merchant_id,
       limit: numOrUndefined(query.limit),
       offset: numOrUndefined(query.offset),
     });

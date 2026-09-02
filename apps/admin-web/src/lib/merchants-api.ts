@@ -8,7 +8,9 @@ import type {
   MerchantBalances,
   MerchantHeldReserveRow,
   MerchantPayoutsPage,
+  Store,
   TransitionMerchantInput,
+  TransitionStoreInput,
 } from '@installment/api-types';
 
 export function useMerchants(params: ListMerchantsParams) {
@@ -111,5 +113,44 @@ export function useAttachPaystackRecipient(id: string) {
       return data;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['merchant', id] }),
+  });
+}
+
+// --- The merchant's shopfront ----------------------------------------------
+//
+// A merchant and their store are separate rows with separate lifecycles, and
+// both must be `active` before anything can be sold — since the seller-liveness
+// fix, the storefront and checkout each check both. Self-signup creates the
+// store as `draft`, so an admin reviewing a new merchant has to open the shop
+// as well as activate the business. There was no way to do either from here.
+
+export function useMerchantStore(merchantId: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant-store', merchantId],
+    queryFn: async () => {
+      const { data } = await api.get<Store[]>('/admin/stores', {
+        params: { merchant_id: merchantId, limit: 1 },
+      });
+      // One store per merchant — `stores_merchant_id_key` says so — but a
+      // merchant whose signup half-failed has none, and that is a real state
+      // this screen should show rather than crash on.
+      return data[0] ?? null;
+    },
+    enabled: Boolean(merchantId),
+  });
+}
+
+export function useTransitionStore(storeId: string, merchantId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: TransitionStoreInput) => {
+      const { data } = await api.post<Store>(`/admin/stores/${storeId}/transition`, input);
+      return data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['merchant-store', merchantId] });
+    },
   });
 }
