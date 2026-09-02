@@ -41,3 +41,18 @@ export class PhoneAlreadyRegisteredError extends Error {
     this.name = 'PhoneAlreadyRegisteredError';
   }
 }
+
+/**
+ * Merchant signup was attempted with an email that already has a login.
+ *
+ * Same trade-off as the phone above: it confirms the address is registered, and
+ * the alternative — accepting the signup and failing on a unique violation
+ * after the merchant row is written — leaves an orphaned business behind. Rate
+ * limiting is what makes enumeration expensive.
+ */
+export class EmailAlreadyRegisteredError extends Error {
+  constructor() {
+    super('That email already has an account. Sign in instead.');
+    this.name = 'EmailAlreadyRegisteredError';
+  }
+}

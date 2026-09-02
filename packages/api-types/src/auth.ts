@@ -88,6 +88,40 @@ export const signupCompleteSchema = z.object({
 });
 export type SignupCompleteInput = z.infer<typeof signupCompleteSchema>;
 
+// --- Merchant self-signup ---------------------------------------------------
+//
+// Mirrors packages/core/src/modules/auth/dto.ts. Same three steps as the
+// customer flow and the same OTP machinery: a Ghanaian trader has a phone, and
+// this system has no email delivery. Merchants log in with email and password
+// afterwards; the phone proves a person is behind the account first.
+
+export const merchantSignupStartSchema = z.object({ phone: phoneSchema });
+export type MerchantSignupStartInput = z.infer<typeof merchantSignupStartSchema>;
+
+export const merchantSignupVerifyCodeSchema = z.object({
+  phone: phoneSchema,
+  code: z.string().regex(/^\d{4,8}$/, 'OTP must be 4–8 digits'),
+});
+export type MerchantSignupVerifyCodeInput = z.infer<typeof merchantSignupVerifyCodeSchema>;
+
+/**
+ * Note what a merchant cannot send: `default_mdr_bps`, `default_reserve_bps`
+ * and `default_business_model` are the marketplace's commercial terms and come
+ * from the platform defaults, and `slug` is derived server-side from the shop
+ * name — letting a stranger claim one at signup is how well-known names get
+ * squatted.
+ */
+export const merchantSignupCompleteSchema = z.object({
+  signupToken: z.string().min(1),
+  business_name: z.string().trim().min(1).max(200),
+  legal_name: z.string().trim().min(1).max(200),
+  email: z.string().email(),
+  password: z.string().min(8).max(200),
+  tin: z.string().trim().min(1).max(60).optional(),
+  registration_number: z.string().trim().min(1).max(60).optional(),
+});
+export type MerchantSignupCompleteInput = z.infer<typeof merchantSignupCompleteSchema>;
+
 export const refreshSchema = z.object({ refreshToken: z.string().min(1) });
 export type RefreshInput = z.infer<typeof refreshSchema>;
 

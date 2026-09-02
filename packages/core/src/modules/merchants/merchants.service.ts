@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction } from '../../shared/event-bus/transaction';
+import { isUniqueViolation } from '../../shared/db/pg-errors';
 import {
   attachPaystackRecipientSchema,
   createMerchantSchema,
@@ -35,25 +36,79 @@ export class MerchantsService {
 
   // --------------------------------------------------------------------- create
 
+  /**
+   * Which field a caller collided on, by constraint name.
+   *
+   * Every one of these is something a person types into a form, and until
+   * merchant self-signup they were only ever typed by staff who could read a
+   * stack trace. Unmapped, a duplicate TIN came back as a raw Postgres error
+   * and a 500 — so a real trader retrying their registration, or one whose
+   * accountant already signed them up, got "something went wrong" instead of
+   * "that TIN is already registered".
+   */
+  private static readonly CONFLICTS: ReadonlyArray<readonly [string, string]> = [
+    ['merchants_email_key', 'A merchant with that email already exists'],
+    ['merchants_phone_key', 'A merchant with that phone number already exists'],
+    ['merchants_tin_key', 'A merchant with that TIN is already registered'],
+    [
+      'merchants_registration_number_key',
+      'A merchant with that registration number is already registered',
+    ],
+  ];
+
+  private async insertOrConflict(
+    tx: Pick<Database, 'insert'>,
+    values: typeof m.$inferInsert,
+  ): Promise<Merchant[]> {
+    try {
+      return await tx.insert(m).values(values).returning();
+    } catch (err) {
+      for (const [constraint, message] of MerchantsService.CONFLICTS) {
+        if (isUniqueViolation(err, constraint)) throw new MerchantConflictError(message);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * A merchant by the phone number the business answers on.
+   *
+   * Self-signup needs this because a merchant's phone lives here and NOT on
+   * their `users` row — merchants log in with email and password, so
+   * `createMerchantUser` never takes one. Guarding signup with
+   * `users.findByPhone` therefore looked right, sent an SMS, let the applicant
+   * fill in the whole form, and only failed on `merchants_phone_key` at the
+   * last step.
+   *
+   * Deliberately scoped to merchants rather than all logins: a shopper who
+   * decides to open a shop should not be turned away because they already buy
+   * here on that number.
+   */
+  async findByPhone(phone: string): Promise<Merchant | undefined> {
+    const rows = await this.db
+      .select()
+      .from(m)
+      .where(and(eq(m.phone, phone), isNull(m.deleted_at)))
+      .limit(1);
+    return rows[0];
+  }
+
   async create(rawInput: unknown, actor: MerchantActor): Promise<Merchant> {
     const input: CreateMerchantInput = createMerchantSchema.parse(rawInput);
 
     return runInTransaction(this.db, async (tx) => {
-      const [row] = await tx
-        .insert(m)
-        .values({
-          business_name: input.business_name,
-          legal_name: input.legal_name,
-          email: input.email,
-          phone: input.phone,
-          tin: input.tin,
-          registration_number: input.registration_number,
-          default_business_model: input.default_business_model,
-          default_mdr_bps: input.default_mdr_bps,
-          default_reserve_bps: input.default_reserve_bps,
-          metadata: input.metadata ?? {},
-        })
-        .returning();
+      const [row] = await this.insertOrConflict(tx, {
+        business_name: input.business_name,
+        legal_name: input.legal_name,
+        email: input.email,
+        phone: input.phone,
+        tin: input.tin,
+        registration_number: input.registration_number,
+        default_business_model: input.default_business_model,
+        default_mdr_bps: input.default_mdr_bps,
+        default_reserve_bps: input.default_reserve_bps,
+        metadata: input.metadata ?? {},
+      });
       if (!row) throw new Error('merchant insert returned no row');
 
       await this.audit.append(tx, {

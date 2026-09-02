@@ -74,6 +74,7 @@ export const NAME_STATUS: Record<string, number> = {
   LockAcquisitionError: HttpStatus.CONFLICT,
   CaseAlreadyClosedError: HttpStatus.CONFLICT,
   PhoneAlreadyRegisteredError: HttpStatus.CONFLICT,
+  EmailAlreadyRegisteredError: HttpStatus.CONFLICT,
   IllegalScheduleTransitionError: HttpStatus.CONFLICT,
   ScheduleTerminalStateError: HttpStatus.CONFLICT,
   // Optimistic-lock miss: someone else moved the row. Retryable, like

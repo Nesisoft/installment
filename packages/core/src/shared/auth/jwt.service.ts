@@ -59,6 +59,9 @@ const DEFAULT_REFRESH_TTL = 30 * 24 * 60 * 60;
 const DEFAULT_SIGNUP_TTL = 15 * 60;
 
 /** HS256 access/refresh token signer & verifier. */
+/** Which signup a ticket belongs to. */
+export type SignupScope = 'customer' | 'merchant';
+
 export class JwtService {
   private readonly accessTtl: number;
   private readonly refreshTtl: number;
@@ -86,13 +89,34 @@ export class JwtService {
    * user id. Signed with the ACCESS secret but stamped `type: 'signup'`, so
    * verifyAccess rejects it — it can never be presented as a session.
    */
-  signSignup(phone: string): string {
-    return this.sign({ sub: phone, type: 'signup' }, this.opts.accessSecret, this.signupTtl);
+  /**
+   * A ticket saying "this phone has been proven", for the last step of signup.
+   *
+   * Scoped, because there is more than one kind of signup now. Without it a
+   * ticket minted by the customer flow would be accepted by the merchant flow
+   * and the other way round: same `type: 'signup'`, same secret, same subject.
+   * The holder owns that phone either way, so it is confusion rather than
+   * escalation — but "the two flows cannot be crossed" is worth being true
+   * rather than worth arguing about.
+   *
+   * Defaults to `customer` on both sides so tickets already in flight, and
+   * callers that never knew about scopes, keep working.
+   */
+  signSignup(phone: string, scope: SignupScope = 'customer'): string {
+    return this.sign({ sub: phone, type: 'signup', scope }, this.opts.accessSecret, this.signupTtl);
   }
 
-  /** Returns the verified phone, or throws. */
-  verifySignup(token: string): string {
-    return this.verify(token, this.opts.accessSecret, 'signup').sub;
+  /** Returns the verified phone, or throws — including on the wrong scope. */
+  verifySignup(token: string, scope: SignupScope = 'customer'): string {
+    const claims = this.verify<JwtClaims & { scope?: SignupScope }>(
+      token,
+      this.opts.accessSecret,
+      'signup',
+    );
+    if ((claims.scope ?? 'customer') !== scope) {
+      throw new Error(`signup token is for ${claims.scope ?? 'customer'}, not ${scope}`);
+    }
+    return claims.sub;
   }
 
   verifyAccess<T extends JwtClaims = JwtClaims>(token: string): T {

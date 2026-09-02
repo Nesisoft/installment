@@ -6,6 +6,7 @@ export * from './permissions';
 
 // Stores
 export * from './modules/stores/dto';
+export * from './modules/stores/provision-store';
 export * from './modules/stores/errors';
 export * from './modules/stores/stores.service';
 
