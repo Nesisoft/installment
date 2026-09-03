@@ -6,6 +6,7 @@ import type { MediaService } from './media';
 import {
   browseProductsSchema,
   homeFeedSchema,
+  storefrontCategoriesSchema,
   listReviewsSchema,
   trendingSchema,
   type BrowseProductsInput,
@@ -402,7 +403,8 @@ export class StorefrontService {
 
   // -------------------------------------------------------------- categories
 
-  async categories(): Promise<StorefrontCategory[]> {
+  async categories(rawInput: unknown = {}): Promise<StorefrontCategory[]> {
+    const { top_level } = storefrontCategoriesSchema.parse(rawInput);
     const rows = await this.db
       .select({
         id: cat.id,
@@ -421,7 +423,9 @@ export class StorefrontService {
         )`,
       })
       .from(cat)
-      .where(eq(cat.is_active, true))
+      .where(
+        top_level ? and(eq(cat.is_active, true), isNull(cat.parent_id)) : eq(cat.is_active, true),
+      )
       .orderBy(asc(cat.position), asc(cat.name));
 
     return rows.map((r) => ({
@@ -452,7 +456,9 @@ export class StorefrontService {
     const live = liveListingWhere();
 
     const [categories, deals, installmentPicks, newest] = await Promise.all([
-      this.categories(),
+      // Top level only: the home rail is the six things a shop can be, not
+      // every node in the tree.
+      this.categories({ top_level: true }),
       this.selectCards(and(live, this.liveDealExpr()), [asc(p.deal_ends_at)], 8, 0),
       this.selectCards(and(live, this.installmentEligibleExpr()), this.orderFor('popular'), 8, 0),
       this.selectCards(live, [desc(p.created_at)], 8, 0),

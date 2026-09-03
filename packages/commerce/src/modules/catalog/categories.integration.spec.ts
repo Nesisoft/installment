@@ -3,6 +3,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { createTestDb } from '@installment/db';
 import { AuditLogger, SYSTEM_ACTORS } from '@installment/core';
 import { CategoriesService } from './categories.service';
+import { MediaService } from './media';
+import { StorefrontService } from './storefront.service';
 import { CategoryConflictError, CategoryNotFoundError, CategoryValidationError } from './errors';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
@@ -10,6 +12,7 @@ const RUN_DB = Boolean(process.env.DATABASE_URL);
 describe.skipIf(!RUN_DB)('CategoriesService (integration)', () => {
   const { db, pool } = createTestDb();
   const categories = new CategoriesService(db, new AuditLogger());
+  const storefront = new StorefrontService(db, new MediaService('https://cdn.test'));
   const SYSTEM_ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 
   afterAll(async () => {
@@ -30,6 +33,34 @@ describe.skipIf(!RUN_DB)('CategoriesService (integration)', () => {
 
     const children = await categories.list({ parent_id: parent.id });
     expect(children.map((c) => c.id)).toContain(child.id);
+  });
+
+  it('offers only top-level categories when the caller asks for them', async () => {
+    // What the customer app's category rail and merchant signup's "what do you
+    // sell?" both need. The rail has sent `top_level=true` since it was built
+    // and nothing read it — harmless while the taxonomy was flat, and wrong the
+    // moment it was not: Electronics listed beside Phones and Laptops presents
+    // a category and two of its children as peers, and a merchant could file
+    // their whole shop under "Laptops".
+    const parent = await categories.create({ name: 'Appliances', slug: slug() }, SYSTEM_ACTOR);
+    const child = await categories.create(
+      { name: 'Kettles', slug: slug(), parent_id: parent.id },
+      SYSTEM_ACTOR,
+    );
+
+    const top = await storefront.categories({ top_level: true });
+    expect(top.map((c) => c.id)).toContain(parent.id);
+    expect(top.map((c) => c.id)).not.toContain(child.id);
+    expect(top.every((c) => c.parent_id === null)).toBe(true);
+
+    // Unasked, the whole tree still comes back — the admin surface reads it.
+    const all = await storefront.categories();
+    expect(all.map((c) => c.id)).toContain(child.id);
+
+    // Query strings arrive as strings.
+    expect((await storefront.categories({ top_level: 'true' })).map((c) => c.id)).not.toContain(
+      child.id,
+    );
   });
 
   it('rejects a duplicate slug', async () => {

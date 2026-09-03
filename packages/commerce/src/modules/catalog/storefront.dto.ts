@@ -61,6 +61,22 @@ export const homeFeedSchema = z.object({
 });
 export type HomeFeedInput = z.infer<typeof homeFeedSchema>;
 
+/**
+ * `top_level=true` returns only the categories with no parent.
+ *
+ * The customer app has sent this since the category rail was built and nothing
+ * read it — harmless while the taxonomy was flat, and wrong the moment it was
+ * not: a rail that lists Electronics beside Phones and Laptops presents a
+ * category and two of its children as peers.
+ */
+export const storefrontCategoriesSchema = z.object({
+  top_level: z
+    .union([z.boolean(), z.enum(['true', 'false'])])
+    .transform((v) => v === true || v === 'true')
+    .optional(),
+});
+export type StorefrontCategoriesInput = z.infer<typeof storefrontCategoriesSchema>;
+
 export const trendingSchema = z.object({
   city: z.string().trim().max(120).optional(),
   /** Rolling window the counts are taken over. */
