@@ -110,6 +110,18 @@ A migration that has been applied is never edited — add `000N_*.sql` instead. 
 [`docs/adr/0001-sql-first-migrations.md`](docs/adr/0001-sql-first-migrations.md). After adding one,
 run `pnpm migrate && pnpm db:introspect` so the typed Drizzle schema keeps up.
 
+## Clearing test rows out of your dev database
+
+Manual API testing accumulates. `pnpm db:clean:fixtures` reports what it would remove and changes
+nothing; `pnpm db:clean:fixtures --yes` applies it. It keeps the seeded demo — the shops, their
+products, `ama.shopper@demo.local` with her orders and credit profiles, the three real plan
+templates — and drops the `M <uuid>` merchants, `*@x.gh` logins and `BNPL-scope %` templates around
+them. `pnpm db:reset && pnpm db:seed:dev` is the blunt alternative, and it also throws away whatever
+you have built by hand.
+
+It refuses to run anywhere it cannot find the dev seed, and it leaves `audit_events` alone — that
+table has an immutability trigger, so expect audit rows whose `entity_id` no longer resolves.
+
 ## Money and time
 
 Money is **always integer pesewas** (GHS × 100) in a `*_pesewas` field, and formatting happens once

@@ -24,6 +24,7 @@
     "migrate": "pnpm --filter @installment/db migrate",
     "db:reset": "pnpm --filter @installment/db reset",
     "db:seed:dev": "pnpm --filter @installment/db seed:dev",
+    "db:clean:fixtures": "./scripts/clean-dev-fixtures.sh",
     "create-admin": "pnpm --filter @installment/api build && pnpm --filter @installment/api create:admin",
     "db:introspect": "pnpm --filter @installment/db introspect",
     "db:up": "docker compose --env-file .env -f infra/docker/docker-compose.yml up -d",
