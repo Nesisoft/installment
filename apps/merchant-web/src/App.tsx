@@ -15,6 +15,7 @@ import { ProductDetailPage } from './pages/products/detail';
 import { MorePage } from './pages/more';
 import { StorePage } from './pages/store';
 import { SettlementsPage } from './pages/settlements';
+import { PayoutAccountPage } from './pages/payout-account';
 import { StatementsPage } from './pages/statements';
 import { PlanTemplatesPage } from './pages/plan-templates';
 
@@ -45,6 +46,7 @@ export function App() {
           <Route path="/store" element={<StorePage />} />
           <Route path="/more" element={<MorePage />} />
           <Route path="/settlements" element={<SettlementsPage />} />
+          <Route path="/payout-account" element={<PayoutAccountPage />} />
           <Route path="/statements" element={<StatementsPage />} />
           <Route path="/templates" element={<PlanTemplatesPage />} />
         </Route>

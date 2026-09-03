@@ -127,6 +127,51 @@ export interface TransferData {
   amount?: number;
 }
 
+/**
+ * A destination Paystack can send money to. In Ghana the list mixes bank
+ * accounts (`type: "ghipss"`, settled over the GhIPSS rails) with mobile-money
+ * wallets (`type: "mobile_money"`) — the same picker covers both, and the type
+ * is what a transfer recipient has to be created as.
+ */
+export interface BankData {
+  name: string;
+  slug: string;
+  code: string;
+  currency: string;
+  type: string;
+  active?: boolean;
+}
+
+export interface ResolvedAccountData {
+  account_number: string;
+  /** The name the bank holds for the account — not what the applicant typed. */
+  account_name: string;
+  bank_id?: number;
+}
+
+export type TransferRecipientType = 'ghipss' | 'mobile_money' | 'nuban';
+
+export interface CreateTransferRecipientRequest {
+  type: TransferRecipientType;
+  /** Shown on the transfer; use the name the bank resolved, not user input. */
+  name: string;
+  account_number: string;
+  bank_code: string;
+  currency: Currency;
+}
+
+export interface TransferRecipientData {
+  recipient_code: string;
+  type: string;
+  active?: boolean;
+  details?: {
+    account_number?: string;
+    account_name?: string | null;
+    bank_code?: string;
+    bank_name?: string;
+  };
+}
+
 export interface RefundRequest {
   /**
    * The transaction being refunded — Paystack accepts its reference or its
@@ -302,6 +347,57 @@ export class PaystackClient {
       currency: req.currency,
       customer_note: req.customer_note,
       merchant_note: req.merchant_note,
+    });
+  }
+
+  /**
+   * Every destination the account may pay out to, for the picker a merchant
+   * chooses from. Ghana's list is long but static enough that callers should
+   * cache it rather than fetch it per page view.
+   */
+  listBanks(currency: Currency = 'GHS'): Promise<PaystackResponse<BankData[]>> {
+    return this.request<BankData[]>(
+      'GET',
+      `/bank?currency=${encodeURIComponent(currency)}&perPage=100`,
+    );
+  }
+
+  /**
+   * Asks the bank who owns an account number.
+   *
+   * This is what makes a self-served payout account safe to accept: the name
+   * comes back from the bank, so a typo lands on a stranger's name the payee
+   * can see and reject, rather than on a successful transfer to the wrong
+   * person.
+   */
+  resolveAccount(
+    accountNumber: string,
+    bankCode: string,
+  ): Promise<PaystackResponse<ResolvedAccountData>> {
+    if (!accountNumber) throw new PaystackError('resolveAccount: accountNumber is required');
+    if (!bankCode) throw new PaystackError('resolveAccount: bankCode is required');
+    return this.request<ResolvedAccountData>(
+      'GET',
+      `/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
+    );
+  }
+
+  /**
+   * Registers a destination and returns the `recipient_code` a transfer needs.
+   *
+   * Paystack deduplicates on (type, account_number, bank_code), so calling this
+   * again for an account already registered returns the existing recipient
+   * rather than a second one.
+   */
+  createTransferRecipient(
+    req: CreateTransferRecipientRequest,
+  ): Promise<PaystackResponse<TransferRecipientData>> {
+    return this.request<TransferRecipientData>('POST', '/transferrecipient', {
+      type: req.type,
+      name: req.name,
+      account_number: req.account_number,
+      bank_code: req.bank_code,
+      currency: req.currency,
     });
   }
 

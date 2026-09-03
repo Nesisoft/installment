@@ -30,6 +30,42 @@ export const attachPaystackRecipientSchema = z.object({
 });
 export type AttachPaystackRecipientInput = z.infer<typeof attachPaystackRecipientSchema>;
 
+/**
+ * A merchant setting their own payout destination. Mirrors
+ * `setPayoutAccountSchema` in core — note the absent `account_name`: the name
+ * is read back from the bank on every write, never sent by the client.
+ */
+export const setPayoutAccountSchema = z.object({
+  bank_code: z.string().trim().min(1).max(20),
+  account_number: z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/[\s-]/g, ''))
+    .pipe(z.string().regex(/^\d{5,20}$/, 'Expected an account number of 5-20 digits')),
+});
+export type SetPayoutAccountInput = z.infer<typeof setPayoutAccountSchema>;
+export const resolvePayoutAccountSchema = setPayoutAccountSchema;
+export type ResolvePayoutAccountInput = SetPayoutAccountInput;
+
+export interface PayoutDestination {
+  code: string;
+  name: string;
+  kind: 'bank' | 'mobile_money';
+}
+
+export interface PayoutAccountView {
+  connected: boolean;
+  bank_code: string | null;
+  account_number_masked: string | null;
+  account_name: string | null;
+}
+
+export interface ResolvedPayoutAccount {
+  account_name: string;
+  account_number: string;
+  bank_code: string;
+}
+
 export interface ListMerchantsParams {
   status?: string;
   limit?: number;

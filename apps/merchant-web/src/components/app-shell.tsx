@@ -4,6 +4,7 @@ import { Button, cn } from '@installment/ui';
 import {
   CalendarClock,
   FileText,
+  Landmark,
   LayoutDashboard,
   LogOut,
   MoreHorizontal,
@@ -56,6 +57,12 @@ export const NAV: NavItem[] = [
     label: 'Store',
     icon: Store,
     hint: 'Your shopfront: name, logo, banner, contacts',
+  },
+  {
+    to: '/payout-account',
+    label: 'Payout account',
+    icon: Landmark,
+    hint: 'The bank account settlements are paid into',
   },
 ];
 

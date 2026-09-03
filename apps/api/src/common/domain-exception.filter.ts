@@ -55,6 +55,10 @@ export const NAME_STATUS: Record<string, number> = {
   // 409
   UserConflictError: HttpStatus.CONFLICT,
   MerchantConflictError: HttpStatus.CONFLICT,
+  // A payout account nobody could confirm is a bad request, not a server
+  // fault: the merchant can fix it by correcting the number or the bank.
+  PayoutAccountUnresolvedError: HttpStatus.UNPROCESSABLE_ENTITY,
+  UnknownBankError: HttpStatus.UNPROCESSABLE_ENTITY,
   DuplicateEmploymentError: HttpStatus.CONFLICT,
   DuplicateApplicationError: HttpStatus.CONFLICT,
   IllegalMerchantTransitionError: HttpStatus.CONFLICT,

@@ -347,6 +347,7 @@ export * from './modules/merchants/state-machine';
 export * from './modules/merchants/dto';
 export * from './modules/merchants/errors';
 export * from './modules/merchants/merchants.service';
+export * from './modules/merchants/payout-account.service';
 export {
   registerCustomerSchema,
   updateCustomerSchema,

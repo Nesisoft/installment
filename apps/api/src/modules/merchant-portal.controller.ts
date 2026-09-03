@@ -22,7 +22,10 @@ import {
   CustomerPlansService,
   MerchantDashboardService,
   MerchantsService,
+  PayoutAccountService,
   PlanTemplatesService,
+  resolvePayoutAccountSchema,
+  setPayoutAccountSchema,
   renderMerchantStatementCsv,
   renderMerchantStatementHtml,
   renderStatementCsv,
@@ -70,6 +73,7 @@ export class MerchantPortalController {
     private readonly planTemplates: PlanTemplatesService,
     private readonly fulfilment: FulfilmentService,
     private readonly orders: OrdersService,
+    private readonly payoutAccount: PayoutAccountService,
   ) {}
 
   // --- Fulfilment -----------------------------------------------------------
@@ -175,6 +179,46 @@ export class MerchantPortalController {
   @ApiOperation({ summary: 'The authenticated merchant profile' })
   me(@CurrentMerchantId() merchantId: string) {
     return this.merchants.get(merchantId);
+  }
+
+  // --- Payout account -------------------------------------------------------
+  //
+  // Until these routes, `merchants.paystack_recipient_code` could only be set
+  // by an admin pasting a code out of the Paystack dashboard, so a merchant who
+  // signed themselves up accrued a payable balance the daily settlement run
+  // skipped every day with "no Paystack recipient code".
+
+  @Get('payout-account/destinations')
+  @ApiOperation({ summary: 'Banks and mobile-money wallets I can be paid into' })
+  destinations() {
+    return this.payoutAccount.listDestinations();
+  }
+
+  @Get('payout-account')
+  @ApiOperation({ summary: 'Where my settlements are sent' })
+  payoutAccountGet(@CurrentMerchantId() merchantId: string) {
+    return this.payoutAccount.get(merchantId);
+  }
+
+  /**
+   * Who the bank says owns an account, without saving anything — so the console
+   * can show the name back before the merchant commits.
+   */
+  @Post('payout-account/resolve')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Check an account number with the bank' })
+  @ApiZodBody(resolvePayoutAccountSchema)
+  resolvePayoutAccount(@Body() body: unknown, @CurrentMerchantId() merchantId: string) {
+    return this.payoutAccount.resolve(merchantId, body);
+  }
+
+  @Post('payout-account')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Set where my settlements are sent' })
+  @ApiZodBody(setPayoutAccountSchema)
+  @ApiModel('Merchant')
+  setPayoutAccount(@Body() body: unknown, @CurrentMerchantId() merchantId: string) {
+    return this.payoutAccount.set(merchantId, body, this.actor(merchantId));
   }
 
   @Get('balances')

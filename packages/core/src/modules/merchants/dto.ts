@@ -33,6 +33,34 @@ export const attachPaystackRecipientSchema = z.object({
 });
 export type AttachPaystackRecipientInput = z.infer<typeof attachPaystackRecipientSchema>;
 
+/**
+ * Ghanaian account numbers are not one shape: a GhIPSS bank account runs to
+ * about sixteen digits and a mobile-money wallet is a ten-digit phone number.
+ * Spaces and dashes are how people write both, so strip them rather than
+ * bounce the entry.
+ */
+const payoutAccountNumber = z
+  .string()
+  .trim()
+  .transform((v) => v.replace(/[\s-]/g, ''))
+  .pipe(z.string().regex(/^\d{5,20}$/, 'expected an account number of 5-20 digits'));
+
+const bankCode = z.string().trim().min(1).max(20);
+
+export const resolvePayoutAccountSchema = z.object({
+  bank_code: bankCode,
+  account_number: payoutAccountNumber,
+});
+export type ResolvePayoutAccountInput = z.infer<typeof resolvePayoutAccountSchema>;
+
+/**
+ * No `account_name`: it is read back from the bank on every write, never taken
+ * from the caller. Accepting a name would let one be typed over an account
+ * belonging to somebody else.
+ */
+export const setPayoutAccountSchema = resolvePayoutAccountSchema;
+export type SetPayoutAccountInput = z.infer<typeof setPayoutAccountSchema>;
+
 export const listMerchantsSchema = z.object({
   status: z.enum(['pending_kyc', 'active', 'suspended', 'offboarded']).optional(),
   limit: z.number().int().min(1).max(200).default(50),
