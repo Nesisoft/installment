@@ -3,6 +3,7 @@ import { useApi } from '@installment/web-kit';
 import type {
   AttachPaystackRecipientInput,
   CreateMerchantInput,
+  MerchantKycStatus,
   ListMerchantsParams,
   Merchant,
   MerchantBalances,
@@ -12,6 +13,9 @@ import type {
   TransitionMerchantInput,
   TransitionStoreInput,
 } from '@installment/api-types';
+
+// Re-exported so the pages import their view models from one place.
+export type { MerchantKycDocument, MerchantKycStatus } from '@installment/api-types';
 
 export function useMerchants(params: ListMerchantsParams) {
   const api = useApi();
@@ -114,6 +118,72 @@ export function useAttachPaystackRecipient(id: string) {
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['merchant', id] }),
   });
+}
+
+// --- KYC review ------------------------------------------------------------
+//
+// A merchant leaving `pending_kyc` used to be a button with nothing behind it:
+// the Ghana Card columns are on `customers`, and the `kyc_document` upload
+// purpose belongs to a customer, so there was no document for a reviewer to
+// look at. `POST :id/transition {activate}` now refuses until the required
+// types are approved, which makes this card the thing that unblocks a merchant.
+
+export function useMerchantKyc(merchantId: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', merchantId, 'kyc'],
+    queryFn: async () =>
+      (await api.get<MerchantKycStatus>(`/admin/merchants/${merchantId}/kyc`)).data,
+    enabled: Boolean(merchantId),
+  });
+}
+
+/**
+ * The document itself, behind a signed URL the API mints on request.
+ *
+ * Asked for rather than cached: the link lives about two minutes, and a Ghana
+ * Card is personal data under Act 843 — every viewing should be a request the
+ * console made on purpose.
+ */
+export function useMerchantKycScan(merchantId: string, documentId: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', merchantId, 'kyc', documentId, 'scan'],
+    queryFn: async () =>
+      (
+        await api.get<{ url: string; expires_at: string }>(
+          `/admin/uploads/merchants/${merchantId}/kyc/${documentId}`,
+        )
+      ).data,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+function useKycDecision(merchantId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { documentId: string; reason?: string }) => {
+      const path = input.reason === undefined ? 'approve' : 'reject';
+      const { data } = await api.post<{ status: MerchantKycStatus }>(
+        `/admin/merchants/${merchantId}/kyc/${input.documentId}/${path}`,
+        input.reason === undefined ? undefined : { reason: input.reason },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['merchant', merchantId, 'kyc'] });
+      // The activation gate reads the same rows, so the merchant card above
+      // has to re-render too.
+      void qc.invalidateQueries({ queryKey: ['merchant', merchantId] });
+    },
+  });
+}
+
+export function useReviewMerchantKyc(merchantId: string) {
+  return useKycDecision(merchantId);
 }
 
 // --- The merchant's shopfront ----------------------------------------------

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -27,16 +28,20 @@ import {
   type StoreTransitionEvent,
 } from '@installment/api-types';
 import { apiErrorMessage, useApi } from '@installment/web-kit';
-import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, ExternalLink } from 'lucide-react';
 import {
   useAttachPaystackRecipient,
   useMerchant,
   useMerchantBalances,
+  useMerchantKyc,
+  useMerchantKycScan,
   useMerchantPayouts,
   useMerchantReserves,
   useMerchantStore,
+  useReviewMerchantKyc,
   useTransitionMerchant,
   useTransitionStore,
+  type MerchantKycDocument,
 } from '../../lib/merchants-api';
 import { formatDate, formatDateTime } from '../../lib/format';
 import { PageHeader } from '../../components/page-header';
@@ -205,6 +210,8 @@ export function MerchantDetailPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      <KycCard merchantId={id} />
 
       <ShopfrontCard merchantId={id} merchantStatus={m.status as MerchantStatus} />
 
@@ -398,6 +405,156 @@ const STORE_EVENT_LABEL: Record<StoreTransitionEvent, string> = {
  * It lives on the merchant page rather than a stores section because that is
  * where the review happens: one screen, one decision, both transitions.
  */
+const DOC_LABELS: Record<string, string> = {
+  ghana_card_front: 'Ghana Card · front',
+  ghana_card_back: 'Ghana Card · back',
+  shop_photo: 'Shop or stall photo',
+  business_registration: 'Business registration',
+};
+
+/**
+ * The document a reviewer is being asked to judge.
+ *
+ * Shown before the decision, for the same reason the customer Ghana Card is
+ * (#64): a Verify button beside a filename records that somebody pressed a
+ * button, not that anybody looked. A signed link is minted for any key on the
+ * row whether or not bytes were ever written there, so a dead key fails at the
+ * <img> and has to degrade to something a reviewer can read.
+ */
+function KycScan({ merchantId, documentId }: { merchantId: string; documentId: string }) {
+  const scan = useMerchantKycScan(merchantId, documentId);
+  const [unloadable, setUnloadable] = useState(false);
+
+  if (scan.isPending) return <div className="h-32 animate-pulse rounded-md bg-muted" />;
+  if (scan.isError || unloadable) {
+    return (
+      <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+        The document could not be loaded, so there is nothing here to check against.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <img
+        src={scan.data.url}
+        alt="KYC document"
+        onError={() => setUnloadable(true)}
+        className="max-h-56 w-full rounded-md border object-contain"
+      />
+      {/* noreferrer, so the signed URL does not travel in a Referer header. */}
+      <a className="text-xs underline" href={scan.data.url} target="_blank" rel="noreferrer">
+        Open the full document
+      </a>
+    </div>
+  );
+}
+
+function KycDocumentRow({ merchantId, doc }: { merchantId: string; doc: MerchantKycDocument }) {
+  const review = useReviewMerchantKyc(merchantId);
+  const [reason, setReason] = useState('');
+  const decided = doc.status !== 'submitted';
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">{DOC_LABELS[doc.doc_type] ?? doc.doc_type}</p>
+          <p className="text-xs text-muted-foreground">
+            Sent {formatDateTime(doc.created_at)}
+            {doc.rejection_reason ? ` · rejected: ${doc.rejection_reason}` : ''}
+          </p>
+        </div>
+        <Badge
+          variant={
+            doc.status === 'approved' ? 'success' : doc.status === 'rejected' ? 'danger' : 'warning'
+          }
+        >
+          {doc.status}
+        </Badge>
+      </div>
+
+      <KycScan merchantId={merchantId} documentId={doc.id} />
+
+      {decided ? null : (
+        <div className="space-y-2">
+          <Button
+            size="sm"
+            onClick={() => review.mutate({ documentId: doc.id })}
+            disabled={review.isPending}
+          >
+            <BadgeCheck />
+            {review.isPending ? 'Saving…' : 'Matches — approve'}
+          </Button>
+          <Input
+            placeholder="Or say what is wrong with it…"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={review.isPending || reason.trim().length === 0}
+            onClick={() => review.mutate({ documentId: doc.id, reason: reason.trim() })}
+          >
+            Reject
+          </Button>
+        </div>
+      )}
+      {review.isError ? (
+        <p className="text-xs text-destructive">{apiErrorMessage(review.error)}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Merchant KYC, and the reason Activate may be refused.
+ *
+ * Placed above the shopfront card because it comes first in the real sequence:
+ * a merchant cannot be activated until the required documents are approved, and
+ * their store cannot open until the merchant is active.
+ */
+function KycCard({ merchantId }: { merchantId: string }) {
+  const kyc = useMerchantKyc(merchantId);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">KYC documents</CardTitle>
+        <CardDescription>
+          {kyc.data?.complete
+            ? 'Everything required has been approved.'
+            : kyc.data
+              ? `Outstanding: ${kyc.data.outstanding.map((t) => DOC_LABELS[t] ?? t).join(', ')}`
+              : 'Loading…'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {kyc.isPending ? <LoadingState /> : null}
+        {kyc.isError ? <ErrorState error={kyc.error} onRetry={() => void kyc.refetch()} /> : null}
+
+        {kyc.data?.exempt ? (
+          <p className="rounded-md border border-warning/40 bg-warning/5 p-3 text-sm text-muted-foreground">
+            This merchant was already trading before document review existed, so activation does not
+            require these. Their original activation was not evidenced.
+          </p>
+        ) : null}
+
+        {kyc.data && kyc.data.documents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nothing submitted yet. The merchant sends these from their own app; activation is
+            refused until the required ones are approved.
+          </p>
+        ) : null}
+
+        {kyc.data?.documents.map((doc) => (
+          <KycDocumentRow key={doc.id} merchantId={merchantId} doc={doc} />
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ShopfrontCard({
   merchantId,
   merchantStatus,

@@ -35,3 +35,33 @@ export class UnknownBankError extends Error {
     this.name = 'UnknownBankError';
   }
 }
+
+/** A KYC document id that is not this merchant's, or not there at all. */
+export class MerchantKycDocumentNotFoundError extends Error {
+  constructor(id: string) {
+    super(`KYC document "${id}" not found`);
+    this.name = 'MerchantKycDocumentNotFoundError';
+  }
+}
+
+/**
+ * A merchant tried to replace a document a reviewer has already approved.
+ *
+ * Refused rather than allowed: a merchant who could swap an approved card for
+ * something else would keep the activation the real card earned. Replacing one
+ * takes a reviewer rejecting it first, which is a decision with a name on it.
+ */
+export class MerchantKycAlreadyApprovedError extends Error {
+  constructor(docType: string) {
+    super(`The ${docType} on file is already approved; ask support to reopen it before replacing`);
+    this.name = 'MerchantKycAlreadyApprovedError';
+  }
+}
+
+/** Activation attempted while required KYC documents are still outstanding. */
+export class MerchantKycIncompleteError extends Error {
+  constructor(outstanding: readonly string[]) {
+    super(`Cannot activate: KYC is not complete (${outstanding.join(', ')})`);
+    this.name = 'MerchantKycIncompleteError';
+  }
+}

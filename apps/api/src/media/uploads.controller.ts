@@ -10,7 +10,12 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CATALOG_PERMISSIONS } from '@installment/commerce';
-import { CustomerNotFoundError, CustomersService, PERMISSIONS } from '@installment/core';
+import {
+  CustomerNotFoundError,
+  CustomersService,
+  MerchantKycService,
+  PERMISSIONS,
+} from '@installment/core';
 import {
   CurrentMerchantId,
   CurrentUser,
@@ -31,7 +36,12 @@ import { UploadNotAllowedError, requestUploadSchema, type UploadPurpose } from '
  * router, not by a branch someone has to remember to write.
  */
 
-const MERCHANT_PURPOSES: UploadPurpose[] = ['product_image', 'store_logo', 'store_banner'];
+const MERCHANT_PURPOSES: UploadPurpose[] = [
+  'product_image',
+  'store_logo',
+  'store_banner',
+  'merchant_kyc_document',
+];
 const ADMIN_PURPOSES: UploadPurpose[] = ['category_image'];
 const CUSTOMER_PURPOSES: UploadPurpose[] = ['kyc_document'];
 
@@ -70,6 +80,7 @@ export class AdminUploadsController {
   constructor(
     private readonly uploads: UploadsService,
     private readonly customers: CustomersService,
+    private readonly merchantKyc: MerchantKycService,
   ) {}
 
   @Post()
@@ -98,6 +109,27 @@ export class AdminUploadsController {
       throw new NotFoundException('No Ghana Card has been attached to this customer');
     }
     return this.uploads.readPrivate(customer.ghana_card_image_key);
+  }
+
+  /**
+   * The same read side for a merchant's KYC evidence.
+   *
+   * Looked up through the service rather than by key, so the document has to
+   * belong to the merchant in the path — a reviewer following a link from one
+   * merchant's page cannot be handed another merchant's card by swapping a
+   * uuid.
+   */
+  @Get('merchants/:merchantId/kyc/:documentId')
+  @ApiOperation({ summary: 'A short-lived link to a merchant KYC document' })
+  @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
+  async merchantKycDocument(
+    @Param('merchantId') merchantId: string,
+    @Param('documentId') documentId: string,
+  ) {
+    const { documents } = await this.merchantKyc.statusFor(merchantId);
+    const document = documents.find((d) => d.id === documentId);
+    if (!document) throw new NotFoundException('No such document for this merchant');
+    return this.uploads.readPrivate(document.storage_key);
   }
 }
 

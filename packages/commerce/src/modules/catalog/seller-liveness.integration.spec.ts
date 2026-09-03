@@ -9,6 +9,7 @@ import {
   LedgerService,
   MerchantsService,
   SYSTEM_ACTORS,
+  approveRequiredMerchantKyc,
 } from '@installment/core';
 import { StoresService } from '../stores/stores.service';
 import { StoreNotFoundError } from '../stores/errors';
@@ -74,6 +75,9 @@ describe.skipIf(!RUN_DB)('a seller who is not trading cannot sell (integration)'
       ACTOR,
     );
     // Created merchants land in pending_kyc; trading requires activation.
+    // A merchant's first activation needs approved KYC documents behind it;
+    // this fixture's subject is not KYC, so it satisfies the requirement.
+    await approveRequiredMerchantKyc(db, merchant.id, ACTOR);
     await merchants.transition(merchant.id, { event: 'activate' }, ACTOR);
     const slug = `live-${id.slice(0, 8)}`;
     const store = await stores.create(

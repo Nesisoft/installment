@@ -15,7 +15,8 @@ import {
   type TransitionMerchantInput,
   type UpdateMerchantInput,
 } from './dto';
-import { MerchantConflictError, MerchantNotFoundError } from './errors';
+import { MerchantConflictError, MerchantKycIncompleteError, MerchantNotFoundError } from './errors';
+import { outstandingKycDocs } from './merchant-kyc.service';
 import { nextMerchantStatus, type MerchantEvent, type MerchantStatus } from './state-machine';
 
 const m = schema.merchants;
@@ -197,6 +198,21 @@ export class MerchantsService {
       const patch: Partial<typeof m.$inferInsert> = { status: to };
 
       if (to === 'active') {
+        // The first activation is the one that has to be earned. Before this a
+        // merchant left `pending_kyc` because somebody pressed a button, with
+        // no document anywhere in the system to have looked at — and since
+        // merchants could sign themselves up (#62), that was the whole of
+        // onboarding.
+        //
+        // Only the first: a reactivation after a suspension is a different
+        // decision about a merchant who has already been verified, and making
+        // it re-submit a Ghana Card would strand anyone suspended for an
+        // unrelated reason. `kyc_exempt_before` covers the merchants who were
+        // already trading when review did not exist yet.
+        if (from === 'pending_kyc' && !current.kyc_exempt_before) {
+          const outstanding = await outstandingKycDocs(tx, id);
+          if (outstanding.length > 0) throw new MerchantKycIncompleteError(outstanding);
+        }
         // First activation sets onboarded_at; reactivation clears suspension fields.
         if (!current.onboarded_at) patch.onboarded_at = nowIso;
         patch.suspended_at = null;

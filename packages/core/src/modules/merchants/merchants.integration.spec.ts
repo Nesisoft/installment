@@ -4,6 +4,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { createTestDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
+import { approveRequiredMerchantKyc } from '../../shared/test-fixtures/merchant-kyc';
 import { IllegalMerchantTransitionError, type MerchantEvent } from './state-machine';
 import { MerchantsService } from './merchants.service';
 import { MerchantNotFoundError } from './errors';
@@ -85,6 +86,11 @@ describe.skipIf(!RUN_DB)('MerchantsService (integration)', () => {
 
   it('walks the lifecycle: pending_kyc → active → suspended → active → offboarded', async () => {
     const created = await merchants.create(input(), SYSTEM_ACTOR);
+    // The first activation now needs approved KYC documents behind it — see
+    // merchant-kyc.integration.spec.ts for the gate itself. This test is about
+    // the state machine, so it satisfies the requirement rather than working
+    // around it.
+    await approveRequiredMerchantKyc(db, created.id, SYSTEM_ACTOR, audit);
 
     const activated = await merchants.transition(
       created.id,

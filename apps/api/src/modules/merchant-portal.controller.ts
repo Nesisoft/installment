@@ -21,11 +21,13 @@ import {
 import {
   CustomerPlansService,
   MerchantDashboardService,
+  MerchantKycService,
   MerchantsService,
   PayoutAccountService,
   PlanTemplatesService,
   resolvePayoutAccountSchema,
   setPayoutAccountSchema,
+  submitKycDocumentSchema,
   renderMerchantStatementCsv,
   renderMerchantStatementHtml,
   renderStatementCsv,
@@ -38,6 +40,7 @@ import { ApiModel } from '../common/api-model';
 import { ApiZodBody } from '../common/api-zod';
 import { MerchantScopeGuard } from '../auth/merchant-scope.guard';
 import { numOrUndefined } from '../auth/current-actor';
+import { keyBelongsTo } from '../media/upload-policy';
 
 function parsePeriod(q: Record<string, string>): { year: number; month: number } {
   const now = new Date();
@@ -74,6 +77,7 @@ export class MerchantPortalController {
     private readonly fulfilment: FulfilmentService,
     private readonly orders: OrdersService,
     private readonly payoutAccount: PayoutAccountService,
+    private readonly kyc: MerchantKycService,
   ) {}
 
   // --- Fulfilment -----------------------------------------------------------
@@ -179,6 +183,38 @@ export class MerchantPortalController {
   @ApiOperation({ summary: 'The authenticated merchant profile' })
   me(@CurrentMerchantId() merchantId: string) {
     return this.merchants.get(merchantId);
+  }
+
+  // --- KYC ------------------------------------------------------------------
+  //
+  // A merchant could sign themselves up (#62) and then had no way to send any
+  // evidence at all: the Ghana Card columns are on `customers` and the
+  // `kyc_document` upload purpose belongs to a customer. Leaving `pending_kyc`
+  // meant an admin pressing Activate against nothing.
+
+  @Get('kyc')
+  @ApiOperation({ summary: 'My KYC documents and what is still outstanding' })
+  kycStatus(@CurrentMerchantId() merchantId: string) {
+    return this.kyc.statusFor(merchantId);
+  }
+
+  /**
+   * Attach a document already uploaded through `POST /merchant/uploads`.
+   *
+   * The key comes back from the client, which is the same door the product-image
+   * route has to guard: without `keyBelongsTo` a merchant could submit the
+   * object at another merchant's key as their own evidence.
+   */
+  @Post('kyc/documents')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Submit a KYC document for review' })
+  @ApiZodBody(submitKycDocumentSchema)
+  submitKyc(@Body() body: unknown, @CurrentMerchantId() merchantId: string) {
+    const key = (body as { storage_key?: unknown } | null)?.storage_key;
+    if (typeof key === 'string' && !keyBelongsTo('merchant_kyc_document', key, merchantId)) {
+      throw new BadRequestException('storage_key was not issued to this merchant');
+    }
+    return this.kyc.submit(merchantId, body, this.actor(merchantId));
   }
 
   // --- Payout account -------------------------------------------------------

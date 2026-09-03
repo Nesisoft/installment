@@ -348,6 +348,7 @@ export * from './modules/merchants/dto';
 export * from './modules/merchants/errors';
 export * from './modules/merchants/merchants.service';
 export * from './modules/merchants/payout-account.service';
+export * from './modules/merchants/merchant-kyc.service';
 export {
   registerCustomerSchema,
   updateCustomerSchema,
@@ -468,6 +469,7 @@ export {
 } from './modules/auth/auth.service';
 export * from './shared/constants/system-actors';
 export * from './shared/test-fixtures/users';
+export * from './shared/test-fixtures/merchant-kyc';
 
 // Generic shared helpers used by @installment/commerce (which owns the domain).
 export * from './shared/validators/slug';

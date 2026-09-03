@@ -12,6 +12,9 @@ import type {
   MarkShippedInput,
   Merchant,
   MerchantBalances,
+  MerchantKycDocType,
+  MerchantKycDocument,
+  MerchantKycStatus,
   MerchantHeldReserveRow,
   MerchantPayoutsPage,
   MerchantProductDetails,
@@ -306,6 +309,69 @@ export function useUploadStoreArtwork() {
         throw new Error(`The image could not be uploaded (${response.status}).`);
       }
       return presigned.key;
+    },
+  });
+}
+
+// --- KYC -------------------------------------------------------------------
+//
+// Until this a merchant could sign themselves up and then had nowhere to send
+// any evidence: the Ghana Card columns are on `customers`, and the
+// `kyc_document` upload purpose belongs to a customer. Leaving `pending_kyc`
+// meant waiting for an admin to press Activate against nothing at all — and
+// that activation is now refused until these are approved.
+
+// Shapes live in @installment/api-types, re-exported here so pages import
+// their view models from one place — two hand-written copies of the same
+// interface is exactly the drift the api-types mirror spec exists to stop.
+export type {
+  MerchantKycDocType,
+  MerchantKycDocument,
+  MerchantKycStatus,
+} from '@installment/api-types';
+
+export function useMerchantKyc() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'kyc'],
+    queryFn: async () => (await api.get<MerchantKycStatus>('/merchant/kyc')).data,
+  });
+}
+
+/**
+ * Upload the file, then hand the server back the key it minted.
+ *
+ * Two steps rather than a multipart POST, the same shape store artwork uses:
+ * the bytes go straight to storage and the API only ever sees a key it derived
+ * itself, which is what stops one merchant submitting another's document.
+ */
+export function useSubmitKycDocument() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ file, docType }: { file: File; docType: MerchantKycDocType }) => {
+      const { data: presigned } = await api.post<PresignedUpload>('/merchant/uploads', {
+        purpose: 'merchant_kyc_document',
+        content_type: file.type,
+        content_length: file.size,
+      });
+      const response = await fetch(presigned.url, {
+        method: presigned.method,
+        headers: presigned.headers,
+        body: file,
+      });
+      if (!response.ok) {
+        throw new Error(`The document could not be uploaded (${response.status}).`);
+      }
+      const { data } = await api.post<MerchantKycDocument>('/merchant/kyc/documents', {
+        doc_type: docType,
+        storage_key: presigned.key,
+      });
+      return data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['merchant', 'kyc'] });
+      void qc.invalidateQueries({ queryKey: ['merchant', 'me'] });
     },
   });
 }

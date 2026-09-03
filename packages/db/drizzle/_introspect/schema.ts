@@ -859,6 +859,49 @@ export const cart_items = pgTable("cart_items", {
 	check("cart_items_unit_price_pesewas_check", sql`unit_price_pesewas >= 0`),
 ]);
 
+export const merchants = pgTable("merchants", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	business_name: text().notNull(),
+	legal_name: text().notNull(),
+	tin: text(),
+	registration_number: text(),
+	email: citext("email").notNull(),
+	phone: text().notNull(),
+	paystack_recipient_code: text(),
+	bank_account_number: text(),
+	bank_code: text(),
+	bank_account_name: text(),
+	default_business_model: text().default('bnpl').notNull(),
+	default_mdr_bps: integer().default(400).notNull(),
+	default_reserve_bps: integer().default(500).notNull(),
+	status: text().default('pending_kyc').notNull(),
+	onboarded_at: timestamp({ withTimezone: true, mode: 'string' }),
+	suspended_at: timestamp({ withTimezone: true, mode: 'string' }),
+	suspension_reason: text(),
+	metadata: jsonb().default({}).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	min_payout_pesewas: bigint({ mode: "number" }).default(10000).notNull(),
+	mdr_bps_override: integer(),
+	reserve_bps_override: integer(),
+	kyc_exempt_before: timestamp({ withTimezone: true, mode: 'string' }),
+}, (table) => [
+	index("merchants_email_idx").using("btree", table.email.asc().nullsLast().op("citext_ops")).where(sql`(deleted_at IS NULL)`),
+	index("merchants_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
+	unique("merchants_tin_key").on(table.tin),
+	unique("merchants_registration_number_key").on(table.registration_number),
+	unique("merchants_email_key").on(table.email),
+	check("merchants_default_business_model_check", sql`default_business_model = ANY (ARRAY['bnpl'::text, 'layaway'::text, 'hybrid'::text, 'rent_to_own'::text])`),
+	check("merchants_default_mdr_bps_check", sql`(default_mdr_bps >= 0) AND (default_mdr_bps <= 2000)`),
+	check("merchants_default_reserve_bps_check", sql`(default_reserve_bps >= 0) AND (default_reserve_bps <= 5000)`),
+	check("merchants_mdr_bps_override_check", sql`(mdr_bps_override IS NULL) OR ((mdr_bps_override >= 0) AND (mdr_bps_override <= 2000))`),
+	check("merchants_min_payout_pesewas_check", sql`min_payout_pesewas >= 0`),
+	check("merchants_reserve_bps_override_check", sql`(reserve_bps_override IS NULL) OR ((reserve_bps_override >= 0) AND (reserve_bps_override <= 5000))`),
+	check("merchants_status_check", sql`status = ANY (ARRAY['pending_kyc'::text, 'active'::text, 'suspended'::text, 'offboarded'::text])`),
+]);
+
 export const order_items = pgTable("order_items", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	order_id: uuid().notNull(),
@@ -892,48 +935,6 @@ export const order_items = pgTable("order_items", {
 	check("order_items_line_total_pesewas_check", sql`line_total_pesewas >= 0`),
 	check("order_items_quantity_check", sql`quantity > 0`),
 	check("order_items_unit_price_pesewas_check", sql`unit_price_pesewas >= 0`),
-]);
-
-export const merchants = pgTable("merchants", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	business_name: text().notNull(),
-	legal_name: text().notNull(),
-	tin: text(),
-	registration_number: text(),
-	email: citext("email").notNull(),
-	phone: text().notNull(),
-	paystack_recipient_code: text(),
-	bank_account_number: text(),
-	bank_code: text(),
-	bank_account_name: text(),
-	default_business_model: text().default('bnpl').notNull(),
-	default_mdr_bps: integer().default(400).notNull(),
-	default_reserve_bps: integer().default(500).notNull(),
-	status: text().default('pending_kyc').notNull(),
-	onboarded_at: timestamp({ withTimezone: true, mode: 'string' }),
-	suspended_at: timestamp({ withTimezone: true, mode: 'string' }),
-	suspension_reason: text(),
-	metadata: jsonb().default({}).notNull(),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	min_payout_pesewas: bigint({ mode: "number" }).default(10000).notNull(),
-	mdr_bps_override: integer(),
-	reserve_bps_override: integer(),
-}, (table) => [
-	index("merchants_email_idx").using("btree", table.email.asc().nullsLast().op("citext_ops")).where(sql`(deleted_at IS NULL)`),
-	index("merchants_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
-	unique("merchants_tin_key").on(table.tin),
-	unique("merchants_registration_number_key").on(table.registration_number),
-	unique("merchants_email_key").on(table.email),
-	check("merchants_default_business_model_check", sql`default_business_model = ANY (ARRAY['bnpl'::text, 'layaway'::text, 'hybrid'::text, 'rent_to_own'::text])`),
-	check("merchants_default_mdr_bps_check", sql`(default_mdr_bps >= 0) AND (default_mdr_bps <= 2000)`),
-	check("merchants_default_reserve_bps_check", sql`(default_reserve_bps >= 0) AND (default_reserve_bps <= 5000)`),
-	check("merchants_mdr_bps_override_check", sql`(mdr_bps_override IS NULL) OR ((mdr_bps_override >= 0) AND (mdr_bps_override <= 2000))`),
-	check("merchants_min_payout_pesewas_check", sql`min_payout_pesewas >= 0`),
-	check("merchants_reserve_bps_override_check", sql`(reserve_bps_override IS NULL) OR ((reserve_bps_override >= 0) AND (reserve_bps_override <= 5000))`),
-	check("merchants_status_check", sql`status = ANY (ARRAY['pending_kyc'::text, 'active'::text, 'suspended'::text, 'offboarded'::text])`),
 ]);
 
 export const customer_card_authorizations = pgTable("customer_card_authorizations", {
@@ -1371,6 +1372,36 @@ export const delivery_zones = pgTable("delivery_zones", {
 	check("delivery_zones_city_needs_region", sql`(city IS NULL) OR (region IS NOT NULL)`),
 	check("delivery_zones_eta_min_days_check", sql`eta_min_days >= 0`),
 	check("delivery_zones_fee_pesewas_check", sql`fee_pesewas >= 0`),
+]);
+
+export const merchant_kyc_documents = pgTable("merchant_kyc_documents", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	merchant_id: uuid().notNull(),
+	doc_type: text().notNull(),
+	storage_key: text().notNull(),
+	status: text().default('submitted').notNull(),
+	reviewed_by: uuid(),
+	reviewed_at: timestamp({ withTimezone: true, mode: 'string' }),
+	rejection_reason: text(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("merchant_kyc_current_idx").using("btree", table.merchant_id.asc().nullsLast().op("text_ops"), table.doc_type.asc().nullsLast().op("text_ops")).where(sql`(status <> 'rejected'::text)`),
+	index("merchant_kyc_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("timestamptz_ops"), table.created_at.desc().nullsFirst().op("uuid_ops")),
+	index("merchant_kyc_pending_idx").using("btree", table.created_at.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'submitted'::text)`),
+	foreignKey({
+			columns: [table.merchant_id],
+			foreignColumns: [merchants.id],
+			name: "merchant_kyc_documents_merchant_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.reviewed_by],
+			foreignColumns: [users.id],
+			name: "merchant_kyc_documents_reviewed_by_fkey"
+		}).onDelete("set null"),
+	check("merchant_kyc_documents_doc_type_check", sql`doc_type = ANY (ARRAY['ghana_card_front'::text, 'ghana_card_back'::text, 'shop_photo'::text, 'business_registration'::text])`),
+	check("merchant_kyc_documents_status_check", sql`status = ANY (ARRAY['submitted'::text, 'approved'::text, 'rejected'::text])`),
+	check("merchant_kyc_reviewed_together", sql`((status = 'submitted'::text) AND (reviewed_at IS NULL) AND (rejection_reason IS NULL)) OR ((status = 'approved'::text) AND (reviewed_at IS NOT NULL) AND (rejection_reason IS NULL)) OR ((status = 'rejected'::text) AND (reviewed_at IS NOT NULL) AND (rejection_reason IS NOT NULL))`),
 ]);
 
 export const role_permissions = pgTable("role_permissions", {

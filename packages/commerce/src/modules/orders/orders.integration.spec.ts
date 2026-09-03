@@ -11,6 +11,7 @@ import {
   PLATFORM_ACCOUNT_REF,
   PlanTemplatesService,
   SYSTEM_ACTORS,
+  approveRequiredMerchantKyc,
 } from '@installment/core';
 import { StoresService } from '../stores/stores.service';
 import { ProductsService } from '../catalog/products.service';
@@ -83,6 +84,9 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
     // enforces that, where before it asked only about the variant and the
     // product. These fixtures never activated anything and so were quietly
     // selling from an unopened shop.
+    // A merchant's first activation needs approved KYC documents behind it;
+    // this fixture's subject is not KYC, so it satisfies the requirement.
+    await approveRequiredMerchantKyc(db, merchant.id, ACTOR);
     await merchants.transition(merchant.id, { event: 'activate' }, ACTOR);
     await stores.transition(store.id, { event: 'activate' }, ACTOR);
     return { merchantId: merchant.id, storeId: store.id };
