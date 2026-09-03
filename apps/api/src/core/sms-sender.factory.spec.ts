@@ -97,6 +97,10 @@ describe('SMS environment validation', () => {
       SMS_PROVIDER: 'hubtel',
       HUBTEL_CLIENT_ID: 'cid',
       HUBTEL_CLIENT_SECRET: 'secret',
+      // "Fully configured" grew a member: a production boot also refuses
+      // PUSH_PROVIDER=console, because a merchant who is never told an order
+      // arrived does not confirm it.
+      PUSH_PROVIDER: 'expo',
     });
     expect(env.SMS_PROVIDER).toBe('hubtel');
     expect(env.SMS_LOG_BODY).toBe(false);

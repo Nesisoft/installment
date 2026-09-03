@@ -26,7 +26,17 @@ export * from './modules/orders/checkout-decision.service';
 export * from './modules/shopper/errors';
 export * from './modules/shopper/wishlist.service';
 export * from './modules/shopper/reviews.service';
-export * from './modules/shopper/devices.service';
+// Push devices moved to @installment/core: they are a notifications concern and
+// the push sender lives there, and a merchant handset has nothing to do with
+// the shopper module it used to sit in. Re-exported so importers that only
+// wanted the shopper surface keep compiling.
+export {
+  DevicesService,
+  registerDeviceSchema,
+  type PushDevice,
+  type RegisterDeviceInput,
+  type DeviceOwner,
+} from '@installment/core';
 
 // Orders: cart + addresses + checkout/orders (with the engine hand-off)
 export * from './modules/orders/dto';

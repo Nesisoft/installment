@@ -9,7 +9,16 @@ const BASE = {
   REDIS_URL: 'redis://localhost:6379',
 };
 
-const PROD = { ...BASE, NODE_ENV: 'production', SMS_PROVIDER: 'arkesel', ARKESEL_API_KEY: 'k' };
+// Everything a production boot now insists on, so a storage assertion here
+// fails for a storage reason. PUSH_PROVIDER joined the list with the push
+// transport: `console` is refused in production the same way SMS `console` is.
+const PROD = {
+  ...BASE,
+  NODE_ENV: 'production',
+  SMS_PROVIDER: 'arkesel',
+  ARKESEL_API_KEY: 'k',
+  PUSH_PROVIDER: 'expo',
+};
 
 /** ConfigService's shape, narrowed to what the factory actually calls. */
 function configOf(env: Env) {

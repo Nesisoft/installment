@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, products, stores, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, customer_card_authorizations, refunds, product_reviews, wishlist_items, search_queries, pickup_hubs, order_events, shipments, customer_credit_standing, push_devices, merchant_kyc_documents, permissions, role_permissions, roles, user_roles } from "./schema";
+import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, products, stores, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, customer_card_authorizations, refunds, product_reviews, wishlist_items, search_queries, pickup_hubs, order_events, shipments, customer_credit_standing, merchant_kyc_documents, push_devices, permissions, role_permissions, roles, user_roles } from "./schema";
 
 export const customersRelations = relations(customers, ({one, many}) => ({
 	user: one(users, {
@@ -78,6 +78,7 @@ export const merchantsRelations = relations(merchants, ({many}) => ({
 	stores: many(stores),
 	orders: many(orders),
 	merchant_kyc_documents: many(merchant_kyc_documents),
+	push_devices: many(push_devices),
 }));
 
 export const plan_templatesRelations = relations(plan_templates, ({many}) => ({
@@ -447,13 +448,6 @@ export const customer_credit_standingRelations = relations(customer_credit_stand
 	}),
 }));
 
-export const push_devicesRelations = relations(push_devices, ({one}) => ({
-	customer: one(customers, {
-		fields: [push_devices.customer_id],
-		references: [customers.id]
-	}),
-}));
-
 export const merchant_kyc_documentsRelations = relations(merchant_kyc_documents, ({one}) => ({
 	merchant: one(merchants, {
 		fields: [merchant_kyc_documents.merchant_id],
@@ -462,6 +456,17 @@ export const merchant_kyc_documentsRelations = relations(merchant_kyc_documents,
 	user: one(users, {
 		fields: [merchant_kyc_documents.reviewed_by],
 		references: [users.id]
+	}),
+}));
+
+export const push_devicesRelations = relations(push_devices, ({one}) => ({
+	customer: one(customers, {
+		fields: [push_devices.customer_id],
+		references: [customers.id]
+	}),
+	merchant: one(merchants, {
+		fields: [push_devices.merchant_id],
+		references: [merchants.id]
 	}),
 }));
 

@@ -96,6 +96,24 @@ const CANCELLABLE_STATUSES: readonly OrderStatus[] = [
   'payment_failed',
 ];
 
+/**
+ * The slice of the push notifier this service needs.
+ *
+ * A narrow port rather than importing `PushNotifier`, for the same reason
+ * `PayoutTransferClient` is one in core: commerce says what it requires and the
+ * real notifier satisfies it structurally, so the fixtures hand over a plain
+ * object and nothing here depends on a transport.
+ */
+export interface MerchantOrderNotifier {
+  notifyMerchantOfOrder(args: {
+    merchantId: string;
+    orderId: string;
+    orderNumber: string;
+    itemSummary: string;
+    totalGhs: string;
+  }): Promise<unknown>;
+}
+
 export class OrdersService {
   constructor(
     private readonly db: Database,
@@ -110,7 +128,45 @@ export class OrdersService {
      * without fulfilment plumbing; without it every order ships free.
      */
     private readonly fulfilment: FulfilmentService = new FulfilmentService(db),
+    /**
+     * Tells the seller an order is waiting on them. Optional for the same
+     * reason `fulfilment` is — framework-free callers and the fixtures that
+     * predate it construct the service without one — and when it is absent
+     * nothing is announced, exactly as before.
+     */
+    private readonly merchantNotifier?: MerchantOrderNotifier,
   ) {}
+
+  /**
+   * Announce a placed order to its seller, after the transaction that placed it.
+   *
+   * After, not inside: a push about an order that then rolls back is a
+   * notification about something that never happened, and holding a database
+   * connection open across a call to Expo is how a slow provider becomes a
+   * connection-pool outage. Swallows everything for the same reason the SMS
+   * notifier does — the order is already placed and paid for, and a provider
+   * being down must not turn that into an error the customer sees.
+   */
+  private async announceToMerchant(order: OrderWithItems): Promise<void> {
+    if (!this.merchantNotifier) return;
+    try {
+      const first = order.items[0];
+      const extra = order.items.length - 1;
+      await this.merchantNotifier.notifyMerchantOfOrder({
+        merchantId: order.merchant_id,
+        orderId: order.id,
+        orderNumber: order.order_number,
+        itemSummary: first
+          ? `${first.title}${extra > 0 ? ` and ${extra} more item${extra > 1 ? 's' : ''}` : ''}`
+          : order.order_number,
+        totalGhs: Money.fromPesewas(order.total_pesewas).format(),
+      });
+    } catch {
+      // Nothing to do and nowhere useful to say it: the notifier already
+      // records every attempt on `notifications`, which is the audit trail for
+      // a message that did not arrive.
+    }
+  }
 
   /**
    * Appends to the order's customer-facing history.
@@ -392,7 +448,7 @@ export class OrdersService {
   ): Promise<OrderWithItems> {
     const { provider_reference } = confirmOrderPaymentSchema.parse(rawInput);
 
-    return runInTransaction(this.db, async (tx) => {
+    const paid = await runInTransaction(this.db, async (tx) => {
       const order = await this.lockOrder(tx, orderId);
       if (order.payment_type !== 'full' || order.status !== 'pending_payment') {
         throw new OrderNotPayableError(orderId, order.status);
@@ -474,6 +530,9 @@ export class OrdersService {
 
       return { ...updated, items };
     });
+
+    await this.announceToMerchant(paid);
+    return paid;
   }
 
   /**
@@ -754,7 +813,7 @@ export class OrdersService {
       planId = existing.id;
     }
 
-    return runInTransaction(this.db, async (tx) => {
+    const financed = await runInTransaction(this.db, async (tx) => {
       const locked = await this.lockOrder(tx, orderId);
       if (locked.status === 'financing_active') {
         return { ...locked, items: await this.loadItems(tx, orderId) };
@@ -793,6 +852,11 @@ export class OrdersService {
 
       return { ...updated, items };
     });
+
+    // The BNPL half of the same moment: the plan is live, so the order is the
+    // seller's to pack even though the customer has only paid a deposit.
+    await this.announceToMerchant(financed);
+    return financed;
   }
 
   async get(customerId: string, orderId: string): Promise<OrderWithItems> {

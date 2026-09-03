@@ -29,6 +29,7 @@ import {
   PasswordService,
   MerchantKycService,
   PayoutAccountService,
+  PushNotifier,
   MerchantDashboardService,
   NotificationService,
   PaymentService,
@@ -56,6 +57,7 @@ import {
   TelcoHealthMonitor,
   UsersService,
   WebhookService,
+  type PushSender,
   type SmsSender,
   CardAuthorizationService,
 } from '@installment/core';
@@ -87,12 +89,14 @@ import { RedisTelcoHealthStore } from './redis-telco-store';
 import type { Env } from '../config/env.validation';
 import { RedisOtpStore } from './redis-otp-store';
 import { createSmsSender } from './sms-sender.factory';
+import { createPushSender } from './push-sender.factory';
 import { BullMqRetryScheduler } from '../workers/bullmq-retry-scheduler';
 import { createDriverFromEnv, resolveMediaBaseUrl } from './storage.factory';
 import { LocalMediaConfig } from '../media/local-media.config';
 import { UploadsService } from '../media/uploads.service';
 
 export const SMS_SENDER = Symbol('SMS_SENDER');
+export const PUSH_SENDER = Symbol('PUSH_SENDER');
 export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
 
 /**
@@ -125,6 +129,17 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
       provide: SMS_SENDER,
       useFactory: (config: ConfigService<Env, true>) => createSmsSender(config),
       inject: [ConfigService],
+    },
+    {
+      provide: PUSH_SENDER,
+      useFactory: (config: ConfigService<Env, true>) => createPushSender(config),
+      inject: [ConfigService],
+    },
+    {
+      provide: PushNotifier,
+      useFactory: (db: Database, devices: DevicesService, push: PushSender) =>
+        new PushNotifier(db, devices, push),
+      inject: [DRIZZLE, DevicesService, PUSH_SENDER],
     },
     {
       provide: UsersService,
@@ -275,7 +290,21 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
         ledger: LedgerService,
         audit: AuditLogger,
         fulfilment: FulfilmentService,
-      ) => new OrdersService(db, inventory, applications, plans, ledger, audit, fulfilment),
+        pushNotifier: PushNotifier,
+      ) =>
+        new OrdersService(
+          db,
+          inventory,
+          applications,
+          plans,
+          ledger,
+          audit,
+          fulfilment,
+          // Tells the seller an order is waiting. Optional on the service, so
+          // the fixtures that predate it stay as they are; wired here because
+          // in a running deployment somebody has to be told.
+          pushNotifier,
+        ),
       inject: [
         DRIZZLE,
         InventoryService,
@@ -284,6 +313,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
         LedgerService,
         AuditLogger,
         FulfilmentService,
+        PushNotifier,
       ],
     },
     {
@@ -741,6 +771,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
     AuthService,
     MerchantsService,
     MerchantKycService,
+    PushNotifier,
     PayoutAccountService,
     StoresService,
     CategoriesService,
