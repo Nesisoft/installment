@@ -14,6 +14,7 @@ import {
 } from '@installment/ui';
 import {
   attachGhanaCardSchema,
+  rejectGhanaCardSchema,
   setBlocklistSchema,
   setMomoSchema,
   type ConsentType,
@@ -26,6 +27,8 @@ import {
   useRecordConsent,
   useRemoveBlocklist,
   useSetBlocklist,
+  useGhanaCardScan,
+  useRejectGhanaCard,
   useSetMomo,
   useVerifyGhanaCard,
 } from '../../lib/customers-api';
@@ -42,6 +45,50 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * The scan the reviewer is being asked to judge.
+ *
+ * Its absence was the whole problem: the console offered a Verify button beside
+ * a card number and no way to see the card, so "verified" meant a reviewer had
+ * pressed a button, not that anyone had looked. The API has served this signed
+ * link since the private prefix existed — nothing called it.
+ */
+function GhanaCardScan({ customerId, imageKey }: { customerId: string; imageKey: string }) {
+  const scan = useGhanaCardScan(customerId, true);
+  // A signed link is minted for any key on the row, whether or not an object
+  // was ever written there — so a dead key fails at the <img>, not at the
+  // request, and a broken-image glyph beside a Verify button is the same
+  // nothing-to-look-at this card exists to stop.
+  const [unloadable, setUnloadable] = useState(false);
+  const isPdf = imageKey.toLowerCase().endsWith('.pdf');
+
+  if (scan.isPending) return <div className="h-40 animate-pulse rounded-md bg-muted" />;
+  if (scan.isError || unloadable) {
+    return (
+      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+        The scan could not be loaded, so there is nothing here to check the details against.
+        <span className="mt-1 block break-all font-mono text-xs">{imageKey}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {isPdf ? null : (
+        <img
+          src={scan.data.url}
+          alt="Ghana Card scan"
+          onError={() => setUnloadable(true)}
+          className="max-h-64 w-full rounded-md border object-contain"
+        />
+      )}
+      {/* noreferrer, so the signed URL does not travel in a Referer header. */}
+      <a className="text-sm underline" href={scan.data.url} target="_blank" rel="noreferrer">
+        Open the full scan
+      </a>
+    </div>
+  );
+}
+
 const CONSENTS: { type: ConsentType; label: string }[] = [
   { type: 'data_processing', label: 'Data processing' },
   { type: 'credit_scoring', label: 'Credit scoring' },
@@ -53,6 +100,7 @@ export function CustomerDetailPage() {
   const customer = useCustomer(id);
   const verifyCard = useVerifyGhanaCard(id);
   const attachCard = useAttachGhanaCard(id);
+  const rejectCard = useRejectGhanaCard(id);
   const setMomo = useSetMomo(id);
   const recordConsent = useRecordConsent(id);
   const setBlocklist = useSetBlocklist(id);
@@ -60,6 +108,7 @@ export function CustomerDetailPage() {
 
   const [card, setCard] = useState({ ghana_card_number: '', ghana_card_image_key: '' });
   const [momo, setMomoForm] = useState({ momo_phone: '', momo_provider: 'mtn' as MomoProvider });
+  const [rejectReason, setRejectReason] = useState('');
   const [blockReason, setBlockReason] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -78,6 +127,17 @@ export function CustomerDetailPage() {
       return;
     }
     attachCard.mutate(parsed.data);
+  }
+
+  function onRejectCard(e: FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    const parsed = rejectGhanaCardSchema.safeParse({ reason: rejectReason });
+    if (!parsed.success) {
+      setFormError(parsed.error.issues[0]?.message ?? 'Say what is wrong with the card');
+      return;
+    }
+    rejectCard.mutate(parsed.data, { onSuccess: () => setRejectReason('') });
   }
 
   function onSetMomo(e: FormEvent) {
@@ -170,21 +230,65 @@ export function CustomerDetailPage() {
             <CardTitle className="text-base">Ghana Card</CardTitle>
             <CardDescription>
               {c.ghana_card_number
-                ? `${c.ghana_card_number} · ${c.ghana_card_verified ? 'verified' : 'unverified'}`
+                ? `${c.ghana_card_number} · ${c.ghana_card_verified ? 'verified' : 'awaiting review'}`
                 : 'No Ghana Card on file.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {c.ghana_card_number && !c.ghana_card_verified ? (
-              <Button onClick={() => verifyCard.mutate()} disabled={verifyCard.isPending}>
-                <BadgeCheck />
-                {verifyCard.isPending ? 'Verifying…' : 'Mark verified'}
-              </Button>
+            {c.ghana_card_image_key ? (
+              // Remount on a re-attach, so a previous key's load failure does not
+              // stick to the new scan.
+              <GhanaCardScan
+                key={c.ghana_card_image_key}
+                customerId={id}
+                imageKey={c.ghana_card_image_key}
+              />
             ) : null}
+
             {c.ghana_card_verified ? (
               <Badge variant="success">Verified {formatDate(c.ghana_card_verified_at)}</Badge>
-            ) : (
-              <form onSubmit={onAttachCard} className="space-y-3">
+            ) : null}
+
+            {c.ghana_card_number ? (
+              <form onSubmit={onRejectCard} className="space-y-3">
+                {c.ghana_card_verified ? null : (
+                  <Button
+                    type="button"
+                    onClick={() => verifyCard.mutate()}
+                    disabled={verifyCard.isPending}
+                  >
+                    <BadgeCheck />
+                    {verifyCard.isPending ? 'Verifying…' : 'Details match the scan — verify'}
+                  </Button>
+                )}
+                <div className="space-y-2">
+                  <Label>
+                    {c.ghana_card_verified ? 'Withdraw this verification' : 'Reject this card'}
+                  </Label>
+                  <Input
+                    placeholder="Why — unreadable, expired, name does not match…"
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                  />
+                </div>
+                <Button type="submit" variant="outline" disabled={rejectCard.isPending}>
+                  <ShieldX />
+                  {rejectCard.isPending
+                    ? 'Recording…'
+                    : c.ghana_card_verified
+                      ? 'Withdraw verification'
+                      : 'Reject card'}
+                </Button>
+              </form>
+            ) : null}
+
+            {c.ghana_card_verified ? null : (
+              <form onSubmit={onAttachCard} className="space-y-3 border-t pt-4">
+                <p className="text-sm text-muted-foreground">
+                  {c.ghana_card_number
+                    ? 'Replace the card on file — attaching a new scan clears any verification.'
+                    : 'Attach the card before it can be reviewed.'}
+                </p>
                 <div className="space-y-2">
                   <Label>Card number</Label>
                   <Input
@@ -196,7 +300,7 @@ export function CustomerDetailPage() {
                 <div className="space-y-2">
                   <Label>Image key (object-storage key)</Label>
                   <Input
-                    placeholder="kyc/ghana-card/..."
+                    placeholder="private/kyc/<customer-id>/<uuid>.jpg"
                     value={card.ghana_card_image_key}
                     onChange={(e) =>
                       setCard((s) => ({ ...s, ghana_card_image_key: e.target.value }))

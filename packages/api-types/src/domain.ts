@@ -70,6 +70,8 @@ export interface Customer {
   phone: string;
   date_of_birth: string | null;
   ghana_card_number: string | null;
+  /** Object-storage key of the scan; the console reads it behind a signed URL. */
+  ghana_card_image_key: string | null;
   ghana_card_verified: boolean;
   ghana_card_verified_at: string | null;
   momo_phone: string | null;

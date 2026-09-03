@@ -43,6 +43,11 @@ export const attachGhanaCardSchema = z.object({
 });
 export type AttachGhanaCardInput = z.infer<typeof attachGhanaCardSchema>;
 
+export const rejectGhanaCardSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+});
+export type RejectGhanaCardInput = z.infer<typeof rejectGhanaCardSchema>;
+
 export const setMomoSchema = z.object({
   momo_phone: phoneSchema,
   momo_provider: z.enum(['mtn', 'tgo', 'vod']),

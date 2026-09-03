@@ -7,6 +7,7 @@ import {
   listCustomersSchema,
   recordConsentSchema,
   registerCustomerSchema,
+  rejectGhanaCardSchema,
   setBlocklistSchema,
   setMomoSchema,
   updateCustomerSchema,
@@ -14,6 +15,7 @@ import {
   type ConsentType,
   type ListCustomersInput,
   type RegisterCustomerInput,
+  type RejectGhanaCardInput,
   type SetBlocklistInput,
   type SetMomoInput,
   type UpdateCustomerInput,
@@ -245,6 +247,56 @@ export class CustomersService {
         actorId: actor.actorId,
         actorType: actor.actorType,
         metadata: { raw: result.raw },
+      });
+      return row;
+    });
+  }
+
+  // ---------------------------------------------------------- rejectGhanaCard
+
+  /**
+   * The other half of a review. Before this, a reviewer who opened a scan and
+   * found it unreadable, expired or someone else's had nowhere to say so — they
+   * closed the tab, and the next reviewer started from the same blank slate.
+   *
+   * Rejecting withdraws any verification the card had won and takes the KYC tier
+   * back down with it, because that tier was raised by this card and nothing
+   * else raises it. The number and image key stay on the row: they are what was
+   * rejected, and re-attaching is what replaces them.
+   */
+  async rejectGhanaCard(id: string, rawInput: unknown, actor: CustomerActor): Promise<Customer> {
+    const input: RejectGhanaCardInput = rejectGhanaCardSchema.parse(rawInput);
+    const current = await this.get(id);
+    if (!current.ghana_card_number || !current.ghana_card_image_key) {
+      throw new GhanaCardNotAttachedError(id);
+    }
+
+    return runInTransaction(this.db, async (tx) => {
+      const previousTier = current.kyc_tier;
+      const newTier = previousTier === 1 ? 0 : previousTier;
+
+      const rows = await tx
+        .update(c)
+        .set({
+          ghana_card_verified: false,
+          ghana_card_verified_at: null,
+          kyc_tier: newTier,
+        })
+        .where(and(eq(c.id, id), isNull(c.deleted_at)))
+        .returning();
+      const row = rows[0];
+      if (!row) throw new CustomerNotFoundError(id);
+
+      await this.audit.append(tx, {
+        entityType: 'customer',
+        entityId: id,
+        eventType: 'customer.ghana_card_rejected',
+        fromState: `kyc_tier=${previousTier}`,
+        toState: `kyc_tier=${newTier}`,
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reason: input.reason,
+        metadata: { ghana_card_number: current.ghana_card_number },
       });
       return row;
     });
