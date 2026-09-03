@@ -40,6 +40,16 @@ export const attachGhanaCardSchema = z.object({
 });
 export type AttachGhanaCardInput = z.infer<typeof attachGhanaCardSchema>;
 
+export const rejectGhanaCardSchema = z.object({
+  /**
+   * Free text, because a rejection is only useful to the next reviewer — and to
+   * the customer, who has to be told what to send instead — if it says what was
+   * wrong with the scan.
+   */
+  reason: z.string().trim().min(1).max(500),
+});
+export type RejectGhanaCardInput = z.infer<typeof rejectGhanaCardSchema>;
+
 export const setMomoSchema = z.object({
   momo_phone: ghPhoneNumber,
   momo_provider: momoProviderCode,

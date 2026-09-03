@@ -51,6 +51,30 @@ describe.skipIf(!RUN_DB)('CustomersService (integration)', () => {
     return rows[0]?.event_type;
   }
 
+  function cardInput() {
+    return {
+      ghana_card_number: `GHA-${Math.floor(100_000_000 + Math.random() * 899_999_999)}-0`,
+      ghana_card_image_key: 'private/kyc/c/k.jpg',
+    };
+  }
+
+  async function lastAuditRow(customerId: string) {
+    return db
+      .select({
+        event_type: schema.audit_events.event_type,
+        reason: schema.audit_events.reason,
+      })
+      .from(schema.audit_events)
+      .where(
+        and(
+          eq(schema.audit_events.entity_id, customerId),
+          eq(schema.audit_events.entity_type, 'customer'),
+        ),
+      )
+      .orderBy(desc(schema.audit_events.occurred_at))
+      .limit(1);
+  }
+
   function makeSvc(verifierOpts?: ConstructorParameters<typeof MockGhanaCardVerifier>[0]) {
     return new CustomersService(db, audit, new MockGhanaCardVerifier(verifierOpts));
   }
@@ -117,6 +141,60 @@ describe.skipIf(!RUN_DB)('CustomersService (integration)', () => {
     const reread = await svc.get(created.id);
     expect(reread.ghana_card_verified).toBe(false);
     expect(reread.kyc_tier).toBe(0);
+  });
+
+  it('rejects a card with a reason, and the reason survives on the audit row', async () => {
+    const svc = makeSvc();
+    const created = await svc.register(input(), SYSTEM_ACTOR);
+    await svc.attachGhanaCard(created.id, cardInput(), SYSTEM_ACTOR);
+
+    const rejected = await svc.rejectGhanaCard(
+      created.id,
+      { reason: 'Scan is cropped — the card number is cut off' },
+      SYSTEM_ACTOR,
+    );
+
+    expect(rejected.ghana_card_verified).toBe(false);
+    // The card itself stays: it is what was rejected, and re-attaching replaces it.
+    expect(rejected.ghana_card_number).not.toBeNull();
+    const [row] = await lastAuditRow(created.id);
+    expect(row?.event_type).toBe('customer.ghana_card_rejected');
+    expect(row?.reason).toBe('Scan is cropped — the card number is cut off');
+  });
+
+  it('withdraws an existing verification and takes the KYC tier back down with it', async () => {
+    const svc = makeSvc();
+    const created = await svc.register(input(), SYSTEM_ACTOR);
+    await svc.attachGhanaCard(created.id, cardInput(), SYSTEM_ACTOR);
+
+    const verified = await svc.verifyGhanaCard(created.id, SYSTEM_ACTOR);
+    expect(verified.kyc_tier).toBe(1);
+
+    // Nothing but the card raises the tier to 1, so nothing but the card should
+    // hold it there once the card is withdrawn.
+    const rejected = await svc.rejectGhanaCard(
+      created.id,
+      { reason: 'Reported stolen after verification' },
+      SYSTEM_ACTOR,
+    );
+    expect(rejected.ghana_card_verified).toBe(false);
+    expect(rejected.ghana_card_verified_at).toBeNull();
+    expect(rejected.kyc_tier).toBe(0);
+  });
+
+  it('refuses to reject a customer who has no card attached', async () => {
+    const svc = makeSvc();
+    const created = await svc.register(input(), SYSTEM_ACTOR);
+    await expect(
+      svc.rejectGhanaCard(created.id, { reason: 'nothing to reject' }, SYSTEM_ACTOR),
+    ).rejects.toBeInstanceOf(GhanaCardNotAttachedError);
+  });
+
+  it('requires a reason — a rejection nobody can read is not a review', async () => {
+    const svc = makeSvc();
+    const created = await svc.register(input(), SYSTEM_ACTOR);
+    await svc.attachGhanaCard(created.id, cardInput(), SYSTEM_ACTOR);
+    await expect(svc.rejectGhanaCard(created.id, { reason: '  ' }, SYSTEM_ACTOR)).rejects.toThrow();
   });
 
   it('stores momo details and records consent timestamps idempotently', async () => {

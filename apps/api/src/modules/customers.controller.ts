@@ -7,6 +7,7 @@ import {
   registerCustomerSchema,
   updateCustomerSchema,
   attachGhanaCardSchema,
+  rejectGhanaCardSchema,
   setMomoSchema,
   recordConsentSchema,
   setBlocklistSchema,
@@ -76,6 +77,19 @@ export class CustomersController {
   @HttpCode(200)
   verifyGhanaCard(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.customers.verifyGhanaCard(id, actorOf(user));
+  }
+
+  @Post(':id/ghana-card/reject')
+  @ApiModel('Customer')
+  @ApiZodBody(rejectGhanaCardSchema)
+  @RequirePermissions(PERMISSIONS.CUSTOMERS_WRITE)
+  @HttpCode(200)
+  rejectGhanaCard(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.customers.rejectGhanaCard(id, body, actorOf(user));
   }
 
   @Post(':id/momo')

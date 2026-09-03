@@ -49,3 +49,22 @@ export class MockGhanaCardVerifier implements GhanaCardVerifier {
     );
   }
 }
+
+/**
+ * What production runs until the NIA integration exists.
+ *
+ * It checks nothing, and that is the honest description of it: the check is a
+ * compliance officer opening the scan in the console and comparing it with the
+ * details on file before they press Verify. Their identity is already on the
+ * audit row; what this class fixes is the payload beside it, which used to read
+ * `{ mock: true }` — indistinguishable, a year later, from a provider having
+ * actually looked.
+ *
+ * When the NIA client lands it replaces this binding, and the reviewer's press
+ * becomes a second opinion rather than the only one.
+ */
+export class ManualReviewGhanaCardVerifier implements GhanaCardVerifier {
+  verify(_input: GhanaCardVerificationInput): Promise<GhanaCardVerificationResult> {
+    return Promise.resolve({ verified: true, raw: { manual_review: true } });
+  }
+}

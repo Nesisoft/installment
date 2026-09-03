@@ -23,8 +23,8 @@ import {
   JwtService,
   LedgerService,
   LedgerIntegrityService,
+  ManualReviewGhanaCardVerifier,
   MerchantsService,
-  MockGhanaCardVerifier,
   OtpService,
   PasswordService,
   MerchantDashboardService,
@@ -294,9 +294,13 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
     },
     {
       provide: CustomersService,
-      // Real NIA Ghana Card verification arrives in a later phase; mock for now.
+      // Real NIA verification arrives in a later phase. Until it does, the
+      // decision is a compliance officer's, made against the scan the console
+      // now shows them — so bind the verifier that says so in the audit trail
+      // rather than the test mock, whose `{ mock: true }` payload claimed a
+      // check that never happened.
       useFactory: (db: Database, audit: AuditLogger) =>
-        new CustomersService(db, audit, new MockGhanaCardVerifier()),
+        new CustomersService(db, audit, new ManualReviewGhanaCardVerifier()),
       inject: [DRIZZLE, AuditLogger],
     },
     {

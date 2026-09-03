@@ -6,6 +6,7 @@ import type {
   ListCustomersParams,
   RecordConsentInput,
   RegisterCustomerInput,
+  RejectGhanaCardInput,
   SetBlocklistInput,
   SetMomoInput,
   UpdateCustomerInput,
@@ -81,6 +82,40 @@ export function useVerifyGhanaCard(id: string) {
   return useCustomerMutation<void>(id, async (api) => {
     const { data } = await api.post<Customer>(`/admin/customers/${id}/ghana-card/verify`);
     return data;
+  });
+}
+
+export function useRejectGhanaCard(id: string) {
+  return useCustomerMutation<RejectGhanaCardInput>(id, async (api, input) => {
+    const { data } = await api.post<Customer>(`/admin/customers/${id}/ghana-card/reject`, input);
+    return data;
+  });
+}
+
+export interface GhanaCardScan {
+  url: string;
+  expires_at: string;
+}
+
+/**
+ * The scan itself, behind a signed URL the API mints on request.
+ *
+ * Asked for rather than cached: the link lives about two minutes, and a Ghana
+ * Card is personal data under Act 843 — every viewing should be a request the
+ * console made on purpose, and a stale link in a query cache is neither.
+ */
+export function useGhanaCardScan(id: string, enabled: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['customer', id, 'ghana-card-scan'],
+    queryFn: async () => {
+      const { data } = await api.get<GhanaCardScan>(`/admin/uploads/customers/${id}/ghana-card`);
+      return data;
+    },
+    enabled: Boolean(id) && enabled,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
   });
 }
 
