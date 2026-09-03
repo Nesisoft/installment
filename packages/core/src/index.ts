@@ -248,6 +248,8 @@ export { PayoutCalculator, type PayoutBreakdown } from './modules/settlements/pa
 export {
   PayoutRecorder,
   PLATFORM_ACCOUNT_REF,
+  accrualTransactionIdPrefix,
+  PLAN_ACCRUAL_TX_PREFIX,
   type RecordPayoutAccrualInput,
   type ReverseAccrualsForRefundInput,
   type RefundReversalSummary,

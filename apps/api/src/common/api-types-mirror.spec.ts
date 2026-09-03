@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { LEDGER_ACCOUNT_TYPES, PERMISSIONS } from '@installment/core';
-import { CATALOG_PERMISSIONS } from '@installment/commerce';
+import { CATALOG_PERMISSIONS, MERCHANT_STATS_WINDOWS } from '@installment/commerce';
 import {
   PERMISSIONS as MIRRORED_PERMISSIONS,
   LEDGER_ACCOUNT_TYPES as MIRRORED_LEDGER_ACCOUNT_TYPES,
+  MERCHANT_STATS_WINDOWS as MIRRORED_MERCHANT_STATS_WINDOWS,
 } from '@installment/api-types';
 
 /**
@@ -39,5 +40,12 @@ describe('api-types mirrors the backend contract', () => {
     // said. `customer_float` went missing for two slices behind exactly that
     // kind of unchecked declaration.
     expect([...MIRRORED_LEDGER_ACCOUNT_TYPES].sort()).toEqual([...LEDGER_ACCOUNT_TYPES].sort());
+  });
+
+  it('lists every analytics window the merchant stats endpoint will serve', () => {
+    // The endpoint refuses a window it does not offer rather than clamping to
+    // the nearest one, so a client built against a drifted mirror does not get
+    // approximate numbers — it gets a 400 nobody expected.
+    expect([...MIRRORED_MERCHANT_STATS_WINDOWS]).toEqual([...MERCHANT_STATS_WINDOWS]);
   });
 });

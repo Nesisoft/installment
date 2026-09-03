@@ -3,6 +3,7 @@ import { useAuth } from '@installment/web-kit';
 import { Button, cn } from '@installment/ui';
 import {
   CalendarClock,
+  ChartColumn,
   FileText,
   Landmark,
   LayoutDashboard,
@@ -41,6 +42,12 @@ export const NAV: NavItem[] = [
   { to: '/products', label: 'Products', icon: Package, hint: 'What you have listed for sale' },
   { to: '/settlements', label: 'Settlements', icon: Wallet, hint: 'What the marketplace owes you' },
   { to: '/plans', label: 'Plans', icon: CalendarClock, hint: 'Instalment agreements in repayment' },
+  {
+    to: '/analytics',
+    label: 'Analytics',
+    icon: ChartColumn,
+    hint: 'What sold, and what of it is yours',
+  },
   {
     to: '/statements',
     label: 'Statements',

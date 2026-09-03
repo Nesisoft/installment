@@ -97,6 +97,20 @@ const CANCELLABLE_STATUSES: readonly OrderStatus[] = [
 ];
 
 /**
+ * The ledger transaction that books an outright payment for one order.
+ *
+ * Exported — prefix and builder both — because the merchant stats read has to
+ * find these rows again from SQL, and a second copy of the string in another
+ * module is a rename waiting to go unnoticed. `confirmPayment` is the only
+ * writer.
+ */
+export const ORDER_PAYMENT_TX_PREFIX = 'order-payment:';
+
+export function orderPaymentTransactionId(orderId: string): string {
+  return `${ORDER_PAYMENT_TX_PREFIX}${orderId}`;
+}
+
+/**
  * The slice of the push notifier this service needs.
  *
  * A narrow port rather than importing `PushNotifier`, for the same reason
@@ -458,7 +472,7 @@ export class OrdersService {
       const total = order.total_pesewas;
       const commission = Money.fromPesewas(total).multiplyBps(order.commission_bps).toNumber();
       const merchantNet = total - commission;
-      const transactionId = `order-payment:${order.id}`;
+      const transactionId = orderPaymentTransactionId(order.id);
       const metadata = {
         order_id: order.id,
         order_number: order.order_number,
