@@ -311,3 +311,69 @@ describe('PaystackClient reference charset', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 });
+
+describe('PaystackClient payout destinations', () => {
+  const client = (fetchImpl: typeof fetch) => new PaystackClient({ secretKey: SECRET, fetchImpl });
+
+  it('asks for the Ghanaian list, a page at a time large enough to hold it', async () => {
+    const { fetchImpl, calls } = makeFetch({ status: true, data: [] });
+    await client(fetchImpl).listBanks();
+
+    expect(calls[0]?.method).toBe('GET');
+    expect(calls[0]?.url).toContain('/bank?currency=GHS');
+    expect(calls[0]?.url).toContain('perPage=100');
+  });
+
+  it('resolves an account number against a bank code', async () => {
+    const { fetchImpl, calls } = makeFetch({
+      status: true,
+      data: { account_number: '0244771122', account_name: 'AKUA BOATENG' },
+    });
+    const res = await client(fetchImpl).resolveAccount('0244771122', 'MTN');
+
+    expect(res.data.account_name).toBe('AKUA BOATENG');
+    expect(calls[0]?.url).toContain('account_number=0244771122');
+    expect(calls[0]?.url).toContain('bank_code=MTN');
+  });
+
+  it('refuses to resolve without both halves — a partial query resolves nothing', () => {
+    const { fetchImpl } = makeFetch({ status: true, data: {} });
+    expect(() => client(fetchImpl).resolveAccount('', 'MTN')).toThrow(PaystackError);
+    expect(() => client(fetchImpl).resolveAccount('0244771122', '')).toThrow(PaystackError);
+  });
+
+  it('creates a transfer recipient with the currency and type Ghana needs', async () => {
+    const { fetchImpl, calls } = makeFetch({
+      status: true,
+      data: { recipient_code: 'RCP_abc123', type: 'ghipss' },
+    });
+    const res = await client(fetchImpl).createTransferRecipient({
+      type: 'ghipss',
+      name: 'AKUA BOATENG',
+      account_number: '1234567890123',
+      bank_code: '030100',
+      currency: 'GHS',
+    });
+
+    expect(res.data.recipient_code).toBe('RCP_abc123');
+    expect(calls[0]?.method).toBe('POST');
+    expect(calls[0]?.url).toContain('/transferrecipient');
+    expect(calls[0]?.body).toEqual({
+      type: 'ghipss',
+      name: 'AKUA BOATENG',
+      account_number: '1234567890123',
+      bank_code: '030100',
+      currency: 'GHS',
+    });
+  });
+
+  it('surfaces a rejected account as a PaystackError, not a silent empty result', async () => {
+    const { fetchImpl } = makeFetch(
+      { status: false, message: 'Could not resolve account name. Check parameters or try again.' },
+      { status: 422 },
+    );
+    await expect(client(fetchImpl).resolveAccount('9999999999', 'MTN')).rejects.toThrow(
+      /Could not resolve account name/,
+    );
+  });
+});

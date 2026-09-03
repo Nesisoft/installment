@@ -27,6 +27,7 @@ import {
   MerchantsService,
   OtpService,
   PasswordService,
+  PayoutAccountService,
   MerchantDashboardService,
   NotificationService,
   PaymentService,
@@ -134,6 +135,12 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
       provide: MerchantsService,
       useFactory: (db: Database, audit: AuditLogger) => new MerchantsService(db, audit),
       inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: PayoutAccountService,
+      useFactory: (db: Database, audit: AuditLogger, paystack: PaystackClient) =>
+        new PayoutAccountService(db, audit, paystack),
+      inject: [DRIZZLE, AuditLogger, PaystackClient],
     },
     {
       provide: StoresService,
@@ -721,6 +728,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
     UsersService,
     AuthService,
     MerchantsService,
+    PayoutAccountService,
     StoresService,
     CategoriesService,
     ProductsService,

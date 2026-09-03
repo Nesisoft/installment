@@ -21,10 +21,14 @@ import type {
   MerchantStatement,
   Order,
   OrderWithItems,
+  PayoutAccountView,
+  PayoutDestination,
   PlanSettlementView,
   PlanTemplate,
   PresignedUpload,
   Product,
+  ResolvedPayoutAccount,
+  SetPayoutAccountInput,
   ProductDetails,
   ProductVariant,
   SetPlanOffersInput,
@@ -46,6 +50,51 @@ export function useMerchantBalances() {
   return useQuery({
     queryKey: ['merchant', 'balances'],
     queryFn: async () => (await api.get<MerchantBalances>('/merchant/balances')).data,
+  });
+}
+
+/**
+ * Where settlements are sent. Until a merchant sets this, the daily run skips
+ * them with "no Paystack recipient code" and the balance simply keeps growing.
+ */
+export function usePayoutAccount() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'payout-account'],
+    queryFn: async () => (await api.get<PayoutAccountView>('/merchant/payout-account')).data,
+  });
+}
+
+/** Paystack's Ghanaian list. It barely changes, and the server caches it too. */
+export function usePayoutDestinations() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'payout-destinations'],
+    queryFn: async () =>
+      (await api.get<PayoutDestination[]>('/merchant/payout-account/destinations')).data,
+    staleTime: 60 * 60_000,
+  });
+}
+
+/** The name check, kept separate from saving so a typo is caught before it counts. */
+export function useResolvePayoutAccount() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (input: SetPayoutAccountInput) =>
+      (await api.post<ResolvedPayoutAccount>('/merchant/payout-account/resolve', input)).data,
+  });
+}
+
+export function useSetPayoutAccount() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: SetPayoutAccountInput) =>
+      (await api.post<Merchant>('/merchant/payout-account', input)).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['merchant', 'payout-account'] });
+      void qc.invalidateQueries({ queryKey: ['merchant', 'me'] });
+    },
   });
 }
 

@@ -1,5 +1,8 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { TriangleAlert } from 'lucide-react';
 import {
+  Button,
   Card,
   CardContent,
   CardHeader,
@@ -13,7 +16,12 @@ import {
   TableRow,
 } from '@installment/ui';
 import { formatGhs } from '@installment/api-types';
-import { useMerchantBalances, useMerchantPayouts, useMerchantReserves } from '../lib/merchant-api';
+import {
+  useMerchantBalances,
+  useMerchantPayouts,
+  useMerchantReserves,
+  usePayoutAccount,
+} from '../lib/merchant-api';
 import { formatDate, formatDateTime } from '../lib/format';
 import { PageHeader } from '../components/page-header';
 import { EmptyState, ErrorState, LoadingState } from '../components/data-states';
@@ -27,6 +35,37 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * The one place a merchant looks when wondering where their money is, so it is
+ * where the answer belongs when the answer is "nowhere to send it". Without
+ * this the daily run skips them silently and the balance above just keeps
+ * climbing, which reads as the marketplace not paying.
+ */
+function NoPayoutAccountNotice() {
+  const account = usePayoutAccount();
+  if (!account.data || account.data.connected) return null;
+
+  return (
+    <Card className="border-warning/40 bg-warning/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <TriangleAlert className="size-4 text-warning" />
+          No payout account yet
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          Settlements cannot be sent until you tell us where to send them. What you have earned is
+          held, not lost.
+        </p>
+        <Button asChild variant="outline">
+          <Link to="/payout-account">Add a payout account</Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SettlementsPage() {
   const [reservesOpen, setReservesOpen] = useState(true);
   const balances = useMerchantBalances();
@@ -36,6 +75,8 @@ export function SettlementsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Settlements" description="Your payouts and held reserves." />
+
+      <NoPayoutAccountNotice />
 
       <Card>
         <CardHeader>
