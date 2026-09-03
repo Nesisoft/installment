@@ -1333,28 +1333,6 @@ export const customer_credit_standing = pgTable("customer_credit_standing", {
 	check("customer_credit_standing_on_time_payments_check", sql`on_time_payments >= 0`),
 ]);
 
-export const push_devices = pgTable("push_devices", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	customer_id: uuid().notNull(),
-	expo_token: text().notNull(),
-	platform: text().notNull(),
-	app_version: text(),
-	device_name: text(),
-	is_active: boolean().default(true).notNull(),
-	last_seen_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("push_devices_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("uuid_ops")).where(sql`is_active`),
-	foreignKey({
-			columns: [table.customer_id],
-			foreignColumns: [customers.id],
-			name: "push_devices_customer_id_fkey"
-		}).onDelete("cascade"),
-	unique("push_devices_expo_token_key").on(table.expo_token),
-	check("push_devices_platform_check", sql`platform = ANY (ARRAY['android'::text, 'ios'::text, 'web'::text])`),
-]);
-
 export const delivery_zones = pgTable("delivery_zones", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	region: text(),
@@ -1402,6 +1380,36 @@ export const merchant_kyc_documents = pgTable("merchant_kyc_documents", {
 	check("merchant_kyc_documents_doc_type_check", sql`doc_type = ANY (ARRAY['ghana_card_front'::text, 'ghana_card_back'::text, 'shop_photo'::text, 'business_registration'::text])`),
 	check("merchant_kyc_documents_status_check", sql`status = ANY (ARRAY['submitted'::text, 'approved'::text, 'rejected'::text])`),
 	check("merchant_kyc_reviewed_together", sql`((status = 'submitted'::text) AND (reviewed_at IS NULL) AND (rejection_reason IS NULL)) OR ((status = 'approved'::text) AND (reviewed_at IS NOT NULL) AND (rejection_reason IS NULL)) OR ((status = 'rejected'::text) AND (reviewed_at IS NOT NULL) AND (rejection_reason IS NOT NULL))`),
+]);
+
+export const push_devices = pgTable("push_devices", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	customer_id: uuid(),
+	expo_token: text().notNull(),
+	platform: text().notNull(),
+	app_version: text(),
+	device_name: text(),
+	is_active: boolean().default(true).notNull(),
+	last_seen_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	merchant_id: uuid(),
+}, (table) => [
+	index("push_devices_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("uuid_ops")).where(sql`is_active`),
+	index("push_devices_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("uuid_ops")).where(sql`is_active`),
+	foreignKey({
+			columns: [table.customer_id],
+			foreignColumns: [customers.id],
+			name: "push_devices_customer_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.merchant_id],
+			foreignColumns: [merchants.id],
+			name: "push_devices_merchant_id_fkey"
+		}).onDelete("cascade"),
+	unique("push_devices_expo_token_key").on(table.expo_token),
+	check("push_devices_one_owner", sql`((customer_id IS NOT NULL) AND (merchant_id IS NULL)) OR ((customer_id IS NULL) AND (merchant_id IS NOT NULL))`),
+	check("push_devices_platform_check", sql`platform = ANY (ARRAY['android'::text, 'ios'::text, 'web'::text])`),
 ]);
 
 export const role_permissions = pgTable("role_permissions", {

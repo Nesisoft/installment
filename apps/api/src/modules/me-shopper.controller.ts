@@ -294,13 +294,13 @@ export class MeShopperController {
   @ApiOperation({ summary: 'Register this handset for push notifications' })
   @ApiZodBody(registerDeviceSchema)
   async registerDevice(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
-    return this.devices.register(await this.customerId(user), body);
+    return this.devices.register({ customerId: await this.customerId(user) }, body);
   }
 
   @Delete('devices/:token')
   @HttpCode(204)
   @ApiOperation({ summary: 'Stop sending push to this handset' })
   async deregisterDevice(@Param('token') token: string, @CurrentUser() user: AuthenticatedUser) {
-    await this.devices.deactivate(await this.customerId(user), token);
+    await this.devices.deactivate({ customerId: await this.customerId(user) }, token);
   }
 }

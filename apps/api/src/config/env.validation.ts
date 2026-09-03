@@ -125,6 +125,19 @@ export const envSchema = z.object({
    * before it reaches them.
    */
   CREDIT_STARTER_MAX_FINANCED_PAYROLL_GHS: z.coerce.number().int().min(0).default(2_000),
+  /**
+   * Which push provider actually delivers. `console` logs and delivers
+   * nothing — fine locally, and the refinement below refuses it in production,
+   * where a merchant who is not told an order arrived does not confirm it.
+   */
+  PUSH_PROVIDER: z.enum(['console', 'expo']).default('console'),
+  /**
+   * Only needed when the Expo project has "Enhanced Security for Push
+   * Notifications" turned on. Unset is the normal case: a push token is itself
+   * the capability, so Expo accepts an unauthenticated send.
+   */
+  EXPO_ACCESS_TOKEN: z.string().default(''),
+  EXPO_PUSH_BASE_URL: z.string().default('https://exp.host'),
   SMS_SENDER_ID: z.string().default('Installmt'),
   // Which SMS provider actually dispatches. `console` logs and delivers
   // nothing — fine locally, catastrophic in production, where customer auth is
@@ -201,6 +214,14 @@ export const envSchemaChecked = envSchema.superRefine((env, ctx) => {
         code: z.ZodIssueCode.custom,
         path: ['SMS_LOG_BODY'],
         message: 'refusing to start: SMS_LOG_BODY writes login OTPs to the log.',
+      });
+    }
+    if (env.PUSH_PROVIDER === 'console') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PUSH_PROVIDER'],
+        message:
+          'refusing to start: PUSH_PROVIDER=console delivers nothing, so a merchant is never told an order arrived. Set expo.',
       });
     }
   }

@@ -215,6 +215,8 @@ export {
   type VerifyOutcome,
   type VerifySweepSummary,
 } from './modules/payments/verify-runner';
+export * from './modules/notifications/devices.service';
+export * from './modules/notifications/push-notifier.service';
 export {
   NotificationService,
   type Notification,

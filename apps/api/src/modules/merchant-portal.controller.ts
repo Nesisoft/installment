@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   HttpCode,
@@ -20,11 +21,13 @@ import {
 } from '@installment/commerce';
 import {
   CustomerPlansService,
+  DevicesService,
   MerchantDashboardService,
   MerchantKycService,
   MerchantsService,
   PayoutAccountService,
   PlanTemplatesService,
+  registerDeviceSchema,
   resolvePayoutAccountSchema,
   setPayoutAccountSchema,
   submitKycDocumentSchema,
@@ -78,6 +81,7 @@ export class MerchantPortalController {
     private readonly orders: OrdersService,
     private readonly payoutAccount: PayoutAccountService,
     private readonly kyc: MerchantKycService,
+    private readonly devices: DevicesService,
   ) {}
 
   // --- Fulfilment -----------------------------------------------------------
@@ -183,6 +187,33 @@ export class MerchantPortalController {
   @ApiOperation({ summary: 'The authenticated merchant profile' })
   me(@CurrentMerchantId() merchantId: string) {
     return this.merchants.get(merchantId);
+  }
+
+  // --- Push devices ---------------------------------------------------------
+  //
+  // `push_devices` shipped in 0015 with customer_id NOT NULL, so a merchant
+  // handset could not be registered at all — and nothing anywhere sent a push,
+  // which is the other half this slice closes. A merchant who is not told an
+  // order arrived does not confirm it, and the dashboard's "confirm within 24h
+  // to keep your rating" is a promise the app could not keep.
+
+  @Post('devices')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Register this handset for order notifications' })
+  @ApiZodBody(registerDeviceSchema)
+  registerDevice(@Body() body: unknown, @CurrentMerchantId() merchantId: string) {
+    return this.devices.register({ merchantId }, body);
+  }
+
+  @Delete('devices/:token')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Stop sending notifications to this handset' })
+  async deactivateDevice(
+    @Param('token') token: string,
+    @CurrentMerchantId() merchantId: string,
+  ): Promise<void> {
+    // Scoped to the caller, so signing out cannot silence somebody else's phone.
+    await this.devices.deactivate({ merchantId }, token);
   }
 
   // --- KYC ------------------------------------------------------------------
