@@ -42,6 +42,8 @@ export function slugifyShopName(name: string): string {
 export interface ProvisionStoreInput {
   merchantId: string;
   shopName: string;
+  /** What the shop mainly sells, if they said. A top-level category slug. */
+  categorySlug?: string;
 }
 
 /**
@@ -65,7 +67,12 @@ export async function provisionStore(
     const slug = attempt === 0 ? base : `${base}-${randomBytes(3).toString('hex')}`;
     try {
       await stores.create(
-        { merchant_id: input.merchantId, slug, display_name: input.shopName },
+        {
+          merchant_id: input.merchantId,
+          slug,
+          display_name: input.shopName,
+          ...(input.categorySlug ? { primary_category_slug: input.categorySlug } : {}),
+        },
         actor,
       );
       return;

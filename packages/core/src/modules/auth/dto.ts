@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ghPhoneNumber } from '../../shared/validators/ghana';
+import { ghPhoneNumber, momoProviderCode } from '../../shared/validators/ghana';
 
 export const loginSchema = z.object({
   email: z.string().email(),
@@ -98,17 +98,40 @@ export type MerchantSignupVerifyCodeInput = z.infer<typeof merchantSignupVerifyC
  * from the shop name: letting a stranger claim one at signup is how "melcom"
  * and "mtn" get squatted before anyone notices.
  */
-export const merchantSignupCompleteSchema = z.object({
-  signupToken: z.string().min(1),
-  /** What the shop is called. Becomes the store's display name too.  */
-  business_name: z.string().trim().min(1).max(200),
-  /** The registered entity, which is often "… Ltd" and not the shop name. */
-  legal_name: z.string().trim().min(1).max(200),
-  email: z.string().email(),
-  password: z.string().min(8).max(200),
-  tin: z.string().trim().min(1).max(60).optional(),
-  registration_number: z.string().trim().min(1).max(60).optional(),
-});
+export const merchantSignupCompleteSchema = z
+  .object({
+    signupToken: z.string().min(1),
+    /** What the shop is called. Becomes the store's display name too.  */
+    business_name: z.string().trim().min(1).max(200),
+    /** The registered entity, which is often "… Ltd" and not the shop name. */
+    legal_name: z.string().trim().min(1).max(200),
+    email: z.string().email(),
+    password: z.string().min(8).max(200),
+    tin: z.string().trim().min(1).max(60).optional(),
+    registration_number: z.string().trim().min(1).max(60).optional(),
+    /**
+     * What the shop mainly sells, as a category slug from
+     * `GET /storefront/categories`. Optional: a seller who is not sure should not
+     * be stopped at the door, and the store page lets them set it later.
+     */
+    primary_category_slug: z.string().trim().min(1).max(120).optional(),
+    /**
+     * Where payouts should go, as a MoMo wallet.
+     *
+     * Both or neither — a number without a network cannot be resolved, and a
+     * network without a number is not a destination. The number is never stored
+     * as given: it goes through the same resolve-then-create-recipient flow as
+     * the payout-account screen, so what lands in the merchant row is an account
+     * the bank has confirmed. If that flow cannot complete, signup still
+     * succeeds and nothing is written.
+     */
+    momo_number: ghPhoneNumber.optional(),
+    momo_provider: momoProviderCode.optional(),
+  })
+  .refine((v) => Boolean(v.momo_number) === Boolean(v.momo_provider), {
+    message: 'A MoMo payout number needs its network, and a network needs a number',
+    path: ['momo_provider'],
+  });
 export type MerchantSignupCompleteInput = z.infer<typeof merchantSignupCompleteSchema>;
 
 export const signupVerifySchema = z.object({

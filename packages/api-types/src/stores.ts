@@ -20,6 +20,8 @@ export const createStoreSchema = z.object({
   banner_key: z.string().trim().min(1).max(500).optional(),
   support_email: z.string().email().optional(),
   support_phone: z.string().trim().min(7).max(20).optional(),
+  /** What the shop mainly sells, as a slug from `GET /storefront/categories`. */
+  primary_category_slug: z.string().trim().min(1).max(120).optional(),
   policies: z.record(z.unknown()).optional(),
   metadata: z.record(z.unknown()).optional(),
 });

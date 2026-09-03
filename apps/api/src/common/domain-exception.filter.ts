@@ -64,6 +64,9 @@ export const NAME_STATUS: Record<string, number> = {
   // fault: the merchant can fix it by correcting the number or the bank.
   PayoutAccountUnresolvedError: HttpStatus.UNPROCESSABLE_ENTITY,
   UnknownBankError: HttpStatus.UNPROCESSABLE_ENTITY,
+  // A category slug that names nothing is the caller's mistake, and the list of
+  // valid ones is a public GET away.
+  UnknownStoreCategoryError: HttpStatus.UNPROCESSABLE_ENTITY,
   DuplicateEmploymentError: HttpStatus.CONFLICT,
   DuplicateApplicationError: HttpStatus.CONFLICT,
   IllegalMerchantTransitionError: HttpStatus.CONFLICT,

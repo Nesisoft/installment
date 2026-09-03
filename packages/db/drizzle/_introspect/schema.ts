@@ -937,6 +937,45 @@ export const order_items = pgTable("order_items", {
 	check("order_items_unit_price_pesewas_check", sql`unit_price_pesewas >= 0`),
 ]);
 
+export const stores = pgTable("stores", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	merchant_id: uuid().notNull(),
+	slug: text().notNull(),
+	display_name: text().notNull(),
+	about: text(),
+	logo_key: text(),
+	banner_key: text(),
+	support_email: citext("support_email"),
+	support_phone: text(),
+	status: text().default('draft').notNull(),
+	policies: jsonb().default({}).notNull(),
+	metadata: jsonb().default({}).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
+	city: text(),
+	region: text(),
+	verified_at: timestamp({ withTimezone: true, mode: 'string' }),
+	primary_category_id: uuid(),
+}, (table) => [
+	index("stores_primary_category_idx").using("btree", table.primary_category_id.asc().nullsLast().op("uuid_ops")).where(sql`(deleted_at IS NULL)`),
+	index("stores_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status = 'active'::text)`),
+	foreignKey({
+			columns: [table.merchant_id],
+			foreignColumns: [merchants.id],
+			name: "stores_merchant_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.primary_category_id],
+			foreignColumns: [categories.id],
+			name: "stores_primary_category_id_fkey"
+		}).onDelete("set null"),
+	unique("stores_merchant_id_key").on(table.merchant_id),
+	unique("stores_slug_key").on(table.slug),
+	check("stores_slug_check", sql`slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'::text`),
+	check("stores_status_check", sql`status = ANY (ARRAY['draft'::text, 'active'::text, 'suspended'::text])`),
+]);
+
 export const customer_card_authorizations = pgTable("customer_card_authorizations", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	customer_id: uuid().notNull(),
@@ -1002,38 +1041,6 @@ export const refunds = pgTable("refunds", {
 	check("refunds_check", sql`((method = 'paystack'::text) AND (provider_transaction_reference IS NOT NULL)) OR ((method = 'manual'::text) AND (provider_transaction_reference IS NULL))`),
 	check("refunds_method_check", sql`method = ANY (ARRAY['paystack'::text, 'manual'::text])`),
 	check("refunds_status_check", sql`status = ANY (ARRAY['initiated'::text, 'pending_confirmation'::text, 'succeeded'::text, 'failed'::text, 'unknown'::text])`),
-]);
-
-export const stores = pgTable("stores", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	merchant_id: uuid().notNull(),
-	slug: text().notNull(),
-	display_name: text().notNull(),
-	about: text(),
-	logo_key: text(),
-	banner_key: text(),
-	support_email: citext("support_email"),
-	support_phone: text(),
-	status: text().default('draft').notNull(),
-	policies: jsonb().default({}).notNull(),
-	metadata: jsonb().default({}).notNull(),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
-	city: text(),
-	region: text(),
-	verified_at: timestamp({ withTimezone: true, mode: 'string' }),
-}, (table) => [
-	index("stores_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status = 'active'::text)`),
-	foreignKey({
-			columns: [table.merchant_id],
-			foreignColumns: [merchants.id],
-			name: "stores_merchant_id_fkey"
-		}).onDelete("cascade"),
-	unique("stores_merchant_id_key").on(table.merchant_id),
-	unique("stores_slug_key").on(table.slug),
-	check("stores_slug_check", sql`slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'::text`),
-	check("stores_status_check", sql`status = ANY (ARRAY['draft'::text, 'active'::text, 'suspended'::text])`),
 ]);
 
 export const product_reviews = pgTable("product_reviews", {

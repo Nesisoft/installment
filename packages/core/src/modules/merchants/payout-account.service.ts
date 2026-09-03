@@ -9,6 +9,7 @@ import {
   type SetPayoutAccountInput,
 } from './dto';
 import { MerchantNotFoundError, PayoutAccountUnresolvedError, UnknownBankError } from './errors';
+import { type MomoProviderCode } from '../../shared/validators/ghana';
 import type { Merchant, MerchantActor } from './merchants.service';
 
 const m = schema.merchants;
@@ -56,6 +57,24 @@ export interface PayoutAccountView {
 
 /** Paystack's Ghana list barely changes; refetching it per page view is waste. */
 const BANK_CACHE_TTL_MS = 60 * 60 * 1_000;
+
+/**
+ * Which Paystack destination each Ghanaian MoMo network corresponds to.
+ *
+ * Signup asks for a network, because that is what a seller thinks in — "MTN",
+ * not "the participant code for MTN Mobile Money". Paystack thinks in bank
+ * codes. This is the join.
+ *
+ * Matched against the live list rather than trusted as a constant, and matched
+ * on code *and* name, because either alone has a failure mode: the codes are
+ * stable but nothing promises they are, and the names move — Vodafone Cash
+ * became Telecel Cash and the same wallet answers to both.
+ */
+const MOMO_DESTINATIONS: Record<MomoProviderCode, { codes: string[]; name: RegExp }> = {
+  mtn: { codes: ['MTN'], name: /\bmtn\b/i },
+  vod: { codes: ['VOD'], name: /\b(vodafone|telecel)\b/i },
+  tgo: { codes: ['ATL'], name: /\b(airteltigo|airtel|tigo)\b/i },
+};
 
 function maskAccountNumber(accountNumber: string | null): string | null {
   if (!accountNumber) return null;
@@ -140,6 +159,49 @@ export class PayoutAccountService {
       account_number: input.account_number,
       bank_code: input.bank_code,
     };
+  }
+
+  // -------------------------------------------------------------------- momo
+
+  /**
+   * Sets the payout account from a MoMo number and its network.
+   *
+   * Signup's entry point, and deliberately the *same* {@link set} underneath:
+   * the number is resolved with the network and a transfer recipient created
+   * before anything is written, so a merchant who typed a digit wrong ends up
+   * with no payout account rather than one that silently fails every night.
+   *
+   * Throws like `set` does. Signup catches — an account is not worth losing
+   * over a payout destination that can be added from the portal in a minute —
+   * but nothing here decides that on the caller's behalf.
+   */
+  async setMobileMoney(
+    merchantId: string,
+    input: { momo_number: string; momo_provider: MomoProviderCode },
+    actor: MerchantActor,
+  ): Promise<Merchant> {
+    const destination = await this.momoDestination(input.momo_provider);
+    if (!destination) {
+      throw new UnknownBankError(`no ${input.momo_provider} wallet in the provider's list`);
+    }
+    // Paystack wants the local 0XXXXXXXXX form for a Ghanaian wallet, and
+    // `ghPhoneNumber` has already canonicalised the input to +233XXXXXXXXX.
+    return this.set(
+      merchantId,
+      { bank_code: destination.code, account_number: localMomoNumber(input.momo_number) },
+      actor,
+    );
+  }
+
+  /** The live destination for a network, or null when the list has none. */
+  async momoDestination(provider: MomoProviderCode): Promise<PayoutDestination | null> {
+    const want = MOMO_DESTINATIONS[provider];
+    const wallets = (await this.listDestinations()).filter((d) => d.kind === 'mobile_money');
+    return (
+      wallets.find((d) => want.codes.includes(d.code)) ??
+      wallets.find((d) => want.name.test(d.name)) ??
+      null
+    );
   }
 
   // --------------------------------------------------------------------- set
@@ -239,4 +301,15 @@ export class PayoutAccountService {
     if (!name) throw new PayoutAccountUnresolvedError('no account holder name was returned');
     return name;
   }
+}
+
+/**
+ * `+233244551338` → `0244551338`.
+ *
+ * Paystack's Ghana account resolution takes the local form. The canonical E.164
+ * that every other part of this system stores would come back "account not
+ * found", which reads as a wrong number rather than a wrong format.
+ */
+function localMomoNumber(e164: string): string {
+  return e164.startsWith('+233') ? `0${e164.slice(4)}` : e164;
 }

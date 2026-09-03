@@ -21,6 +21,7 @@ import type {
   MerchantProductImage,
   MerchantProductRow,
   MerchantStats,
+  StorefrontCategory,
   MerchantStore,
   MerchantStatement,
   Order,
@@ -54,6 +55,26 @@ export function useMerchantBalances() {
   return useQuery({
     queryKey: ['merchant', 'balances'],
     queryFn: async () => (await api.get<MerchantBalances>('/merchant/balances')).data,
+  });
+}
+
+/**
+ * The categories a shop can be listed under.
+ *
+ * Public, and the same list the storefront files products under — signup needs
+ * it before there is an account to authenticate with, and there is no second
+ * vocabulary for shops. Top level only: the taxonomy has one level of shops and
+ * two of products, and the server refuses a child slug.
+ */
+export function useShopCategories() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['storefront', 'categories'],
+    queryFn: async () =>
+      (await api.get<StorefrontCategory[]>('/storefront/categories')).data.filter(
+        (c) => c.parent_id === null,
+      ),
+    staleTime: 60 * 60_000,
   });
 }
 

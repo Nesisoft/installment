@@ -569,6 +569,8 @@ export interface Store {
   banner_key: string | null;
   support_email: string | null;
   support_phone: string | null;
+  /** What the shop mainly sells: a top-level `categories` row, or null. */
+  primary_category_id: string | null;
   status: StoreStatus;
   policies: Record<string, unknown>;
   metadata: Record<string, unknown>;

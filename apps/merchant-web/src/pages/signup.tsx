@@ -13,6 +13,7 @@ import {
   Label,
 } from '@installment/ui';
 import { ArrowLeft, Store } from 'lucide-react';
+import { useShopCategories } from '../lib/merchant-api';
 
 /**
  * Opening a shop, in three steps.
@@ -46,6 +47,10 @@ export function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [tin, setTin] = useState('');
+  const [categorySlug, setCategorySlug] = useState('');
+  const [momoNumber, setMomoNumber] = useState('');
+  const [momoProvider, setMomoProvider] = useState<'' | 'mtn' | 'tgo' | 'vod'>('');
+  const categories = useShopCategories();
 
   async function run(work: () => Promise<void>) {
     setError(null);
@@ -85,6 +90,13 @@ export function SignupPage() {
       email: email.trim(),
       password,
       ...(tin.trim() ? { tin: tin.trim() } : {}),
+      ...(categorySlug ? { primary_category_slug: categorySlug } : {}),
+      // Both or neither, which is what the schema refines on. A number typed
+      // without a network picked is the one case worth catching here rather
+      // than after a round trip.
+      ...(momoNumber.trim() && momoProvider
+        ? { momo_number: momoNumber.trim(), momo_provider: momoProvider }
+        : {}),
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? 'Check the details and try again.');
@@ -243,6 +255,58 @@ export function SignupPage() {
                       minLength={8}
                       required
                     />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="category">What do you mainly sell?</Label>
+                    <select
+                      id="category"
+                      className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
+                      value={categorySlug}
+                      onChange={(e) => setCategorySlug(e.target.value)}
+                      disabled={categories.isPending}
+                    >
+                      <option value="">Not sure yet</option>
+                      {(categories.data ?? []).map((c) => (
+                        <option key={c.slug} value={c.slug}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      Where buyers browsing shops will find you. You can change it later.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="momo_number">MoMo number for payouts (optional)</Label>
+                    <div className="flex gap-2">
+                      <select
+                        aria-label="Mobile money network"
+                        className="h-9 w-32 shrink-0 rounded-md border border-input bg-card px-2 text-sm"
+                        value={momoProvider}
+                        onChange={(e) =>
+                          setMomoProvider(e.target.value as '' | 'mtn' | 'tgo' | 'vod')
+                        }
+                      >
+                        <option value="">Network</option>
+                        <option value="mtn">MTN</option>
+                        <option value="vod">Telecel</option>
+                        <option value="tgo">AirtelTigo</option>
+                      </select>
+                      <Input
+                        id="momo_number"
+                        inputMode="tel"
+                        value={momoNumber}
+                        onChange={(e) => setMomoNumber(e.target.value)}
+                        placeholder="024 455 1338"
+                      />
+                    </div>
+                    {/* Said plainly, because the number has to be the owner's
+                        and a merchant who learns that later has already given
+                        us the wrong one. */}
+                    <p className="text-xs text-muted-foreground">
+                      We check the name on the wallet before saving it, so it has to be in the
+                      business owner&rsquo;s name. Add it later from Payout account if you prefer.
+                    </p>
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="tin">TIN (optional)</Label>

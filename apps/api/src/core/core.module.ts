@@ -730,6 +730,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
         customers: CustomersService,
         merchants: MerchantsService,
         stores: StoresService,
+        payoutAccount: PayoutAccountService,
       ) =>
         new AuthService({
           users,
@@ -745,15 +746,26 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
           // Composed here rather than injected into core: stores live in
           // @installment/commerce, which depends on core, so core takes a
           // callback and never learns what a store is.
-          provisionStore: ({ merchantId, shopName }) =>
+          assertShopCategory: (slug) => stores.assertCategory(slug),
+          provisionStore: ({ merchantId, shopName, categorySlug }) =>
             provisionStore(
               stores,
-              { merchantId, shopName },
+              { merchantId, shopName, categorySlug },
               {
                 actorId: SYSTEM_ACTORS.SYSTEM,
                 actorType: 'system',
               },
             ),
+          // Same reasoning, one step further: this is the only part of signup
+          // that talks to Paystack, and composing it here keeps that dependency
+          // out of every AuthService fixture.
+          setMobileMoneyPayout: async ({ merchantId, momoNumber, momoProvider }) => {
+            await payoutAccount.setMobileMoney(
+              merchantId,
+              { momo_number: momoNumber, momo_provider: momoProvider },
+              { actorId: merchantId, actorType: 'merchant' },
+            );
+          },
         }),
       inject: [
         UsersService,
@@ -765,6 +777,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
         CustomersService,
         MerchantsService,
         StoresService,
+        PayoutAccountService,
       ],
     },
   ],

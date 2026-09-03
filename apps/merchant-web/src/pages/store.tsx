@@ -13,6 +13,7 @@ import { apiErrorMessage } from '@installment/web-kit';
 import { ImagePlus, Store as StoreIcon } from 'lucide-react';
 import {
   useMerchantStore,
+  useShopCategories,
   useUpdateMerchantStore,
   useUploadStoreArtwork,
 } from '../lib/merchant-api';
@@ -50,6 +51,12 @@ function StoreForm() {
   const [about, setAbout] = useState(s.about ?? '');
   const [supportEmail, setSupportEmail] = useState(s.support_email ?? '');
   const [supportPhone, setSupportPhone] = useState(s.support_phone ?? '');
+  const categories = useShopCategories();
+  // The store row carries the foreign key; the form and the API both speak
+  // slugs, so the current value is looked up rather than stored twice.
+  const currentCategorySlug =
+    (categories.data ?? []).find((c) => c.id === s.primary_category_id)?.slug ?? '';
+  const [categorySlug, setCategorySlug] = useState(currentCategorySlug);
 
   // Re-seed from the server's copy after a save, so the form and the shop agree.
   useEffect(() => {
@@ -59,11 +66,17 @@ function StoreForm() {
     setSupportPhone(s.support_phone ?? '');
   }, [s.display_name, s.about, s.support_email, s.support_phone]);
 
+  // Separately, because it also has to wait for the category list to arrive.
+  useEffect(() => {
+    setCategorySlug(currentCategorySlug);
+  }, [currentCategorySlug]);
+
   const dirty =
     displayName !== s.display_name ||
     about !== (s.about ?? '') ||
     supportEmail !== (s.support_email ?? '') ||
-    supportPhone !== (s.support_phone ?? '');
+    supportPhone !== (s.support_phone ?? '') ||
+    categorySlug !== currentCategorySlug;
 
   async function pickArtwork(file: File | undefined, purpose: 'store_logo' | 'store_banner') {
     if (!file) return;
@@ -86,6 +99,7 @@ function StoreForm() {
       about: about.trim() || undefined,
       support_email: supportEmail.trim() || undefined,
       support_phone: supportPhone.trim() || undefined,
+      ...(categorySlug ? { primary_category_slug: categorySlug } : {}),
     });
   }
 
@@ -213,6 +227,27 @@ function StoreForm() {
                 maxLength={20}
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="primary_category">What you mainly sell</Label>
+            <select
+              id="primary_category"
+              className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
+              value={categorySlug}
+              onChange={(e) => setCategorySlug(e.target.value)}
+              disabled={categories.isPending}
+            >
+              <option value="">Not set</option>
+              {(categories.data ?? []).map((c) => (
+                <option key={c.slug} value={c.slug}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Where buyers browsing shops will find you.
+            </p>
           </div>
 
           <div className="space-y-1.5">

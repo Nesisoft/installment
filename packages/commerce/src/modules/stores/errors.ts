@@ -18,3 +18,10 @@ export class StoreTransitionError extends Error {
     this.name = 'StoreTransitionError';
   }
 }
+
+export class UnknownStoreCategoryError extends Error {
+  constructor(slug: string) {
+    super(`"${slug}" is not a category a shop can be listed under`);
+    this.name = 'UnknownStoreCategoryError';
+  }
+}
