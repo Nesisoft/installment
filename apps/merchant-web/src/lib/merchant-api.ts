@@ -20,6 +20,7 @@ import type {
   MerchantProductDetails,
   MerchantProductImage,
   MerchantProductRow,
+  MerchantStats,
   MerchantStore,
   MerchantStatement,
   Order,
@@ -53,6 +54,19 @@ export function useMerchantBalances() {
   return useQuery({
     queryKey: ['merchant', 'balances'],
     queryFn: async () => (await api.get<MerchantBalances>('/merchant/balances')).data,
+  });
+}
+
+/**
+ * Trading figures over a rolling window. The window is part of the key, so
+ * switching 7 → 30 → 90 refetches rather than reusing the wrong numbers.
+ */
+export function useMerchantStats(days: 7 | 30 | 90) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'stats', days],
+    queryFn: async () =>
+      (await api.get<MerchantStats>('/merchant/stats', { params: { days } })).data,
   });
 }
 

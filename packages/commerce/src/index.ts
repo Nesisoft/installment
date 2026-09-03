@@ -38,6 +38,19 @@ export {
   type DeviceOwner,
 } from '@installment/core';
 
+// Analytics: the merchant's own trading figures
+export {
+  MerchantStatsService,
+  MERCHANT_STATS_WINDOWS,
+  merchantStatsQuerySchema,
+  type MerchantStats,
+  type MerchantStatsChange,
+  type MerchantStatsDay,
+  type MerchantStatsPeriod,
+  type MerchantStatsQuery,
+  type MerchantStatsWindow,
+} from './modules/analytics/merchant-stats.service';
+
 // Orders: cart + addresses + checkout/orders (with the engine hand-off)
 export * from './modules/orders/dto';
 export * from './modules/orders/errors';

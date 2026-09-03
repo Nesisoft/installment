@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import {
   FulfilmentService,
+  MerchantStatsService,
   OrdersService,
   markDeliveredSchema,
   markOutForDeliverySchema,
@@ -75,6 +76,7 @@ export class MerchantPortalController {
   constructor(
     private readonly plans: CustomerPlansService,
     private readonly dashboard: MerchantDashboardService,
+    private readonly stats: MerchantStatsService,
     private readonly merchants: MerchantsService,
     private readonly planTemplates: PlanTemplatesService,
     private readonly fulfilment: FulfilmentService,
@@ -291,6 +293,22 @@ export class MerchantPortalController {
   @Get('balances')
   balances(@CurrentMerchantId() merchantId: string) {
     return this.dashboard.getBalances(merchantId);
+  }
+
+  /**
+   * The merchant's own trading figures, over 7, 30 or 90 days.
+   *
+   * `days` is validated in the service and refused if it is not one of those,
+   * rather than clamped: a client asking for 45 and being handed 30 would read
+   * the answer as 45.
+   *
+   * No traffic-source breakdown. The design has a card for one and there is no
+   * attribution model in this system to fill it — see `MerchantStatsService`.
+   */
+  @Get('stats')
+  @ApiOperation({ summary: 'Sales, orders, average basket and cancellations over a window' })
+  merchantStats(@CurrentMerchantId() merchantId: string, @Query() q: Record<string, string>) {
+    return this.stats.forMerchant(merchantId, q.days === undefined ? {} : { days: q.days });
   }
 
   @Get('payouts')

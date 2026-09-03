@@ -16,6 +16,7 @@ import type {
   InstallmentFrequencyDays,
   InstallmentStatus,
   LedgerDirection,
+  MerchantStatsWindow,
   MerchantStatus,
   MomoProvider,
   NotificationChannel,
@@ -392,6 +393,48 @@ export interface MerchantBalances {
   lifetimeSettledPesewas: number;
   openReservesCount: number;
   activePlans: number;
+}
+
+/** One day of trading, for the merchant analytics bar chart. */
+export interface MerchantStatsDay {
+  /** `YYYY-MM-DD`, UTC — which for Ghana (UTC+0, no DST) is the local day. */
+  date: string;
+  orders: number;
+  grossSoldPesewas: number;
+}
+
+export interface MerchantStatsPeriod {
+  from: string;
+  to: string;
+  /** Placed in the period, less anything since cancelled or returned. */
+  grossSoldPesewas: number;
+  orders: number;
+  averageBasketPesewas: number;
+  /** What the ledger says is the merchant's, on this period's sales. */
+  netEarnedPesewas: number;
+  /** Everything credited to the merchant in the period, whatever it was for. */
+  creditedPesewas: number;
+  /** All pre-payment: a paid order cannot be cancelled, only refunded. */
+  cancelledOrders: number;
+  cancelledValuePesewas: number;
+}
+
+/** `null` where the previous period was zero — there is no change from nothing. */
+export interface MerchantStatsChange {
+  grossSoldPct: number | null;
+  ordersPct: number | null;
+  averageBasketPct: number | null;
+  netEarnedPct: number | null;
+}
+
+export interface MerchantStats {
+  merchantId: string;
+  windowDays: MerchantStatsWindow;
+  generatedAt: string;
+  current: MerchantStatsPeriod;
+  previous: MerchantStatsPeriod;
+  change: MerchantStatsChange;
+  daily: MerchantStatsDay[];
 }
 
 export interface MerchantPayoutRow {

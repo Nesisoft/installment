@@ -70,6 +70,18 @@ export interface RefundReversalSummary {
  * No actual money moves; the settlement worker pays merchants from
  * `merchant_payable` balances later.
  */
+/**
+ * Every accrual transaction for a plan starts with this. Exported — the bare
+ * prefix and the per-plan builder both — because the merchant stats read has to
+ * find a plan's accruals again from SQL, and a second copy of the format in
+ * another package is a rename waiting to go unnoticed.
+ */
+export const PLAN_ACCRUAL_TX_PREFIX = 'accrue:';
+
+export function accrualTransactionIdPrefix(customerPlanId: string): string {
+  return `${PLAN_ACCRUAL_TX_PREFIX}${customerPlanId}:`;
+}
+
 export class PayoutRecorder {
   constructor(
     private readonly db: Database,
@@ -152,7 +164,7 @@ export class PayoutRecorder {
   }
 
   private buildTransactionId(input: RecordPayoutAccrualInput): string {
-    const base = `accrue:${input.customerPlanId}:${input.trigger}`;
+    const base = `${accrualTransactionIdPrefix(input.customerPlanId)}${input.trigger}`;
     return input.trigger === 'installment_n' ? `${base}:${input.installmentNumber}` : base;
   }
 

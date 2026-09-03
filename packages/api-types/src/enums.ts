@@ -126,6 +126,13 @@ export const LEDGER_ACCOUNT_TYPES = [
 
 export type LedgerAccountType = (typeof LEDGER_ACCOUNT_TYPES)[number];
 
+// An array for the same reason as LEDGER_ACCOUNT_TYPES above: the API refuses a
+// window it does not offer rather than clamping, so a mirror that drifts would
+// have a client asking for a range the server answers with a 400.
+export const MERCHANT_STATS_WINDOWS = [7, 30, 90] as const;
+
+export type MerchantStatsWindow = (typeof MERCHANT_STATS_WINDOWS)[number];
+
 export type TelcoHealthStatus = 'healthy' | 'degraded' | 'down' | 'unknown';
 
 // --- Commerce (catalog) -----------------------------------------------------
