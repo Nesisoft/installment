@@ -268,7 +268,10 @@ export const RULE_LIBRARY: RuleBlueprint[] = [
   defineRule({
     id: 'score.employer_linked',
     category: 'score',
-    description: 'Verified employer linkage',
+    // Was "Verified employer linkage", which it never checked — the collector
+    // reports a link an operator typed. Verification gates the approval path in
+    // the engine instead; here a live link is worth points on its own.
+    description: 'Employer linkage (employer active)',
     defaultConfig: { base: 75, consentBonus: 50, tenureBonusMonths: 12, tenureBonus: 25 },
     build:
       ({ base, consentBonus, tenureBonusMonths, tenureBonus }) =>

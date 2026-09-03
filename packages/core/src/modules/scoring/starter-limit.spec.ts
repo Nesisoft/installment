@@ -54,6 +54,7 @@ function newShopper(over: Partial<{ [K in keyof FeatureVector]: Partial<FeatureV
     },
     employment: {
       employerLinked: false,
+      employerVerified: false,
       salaryBand: 'mid',
       employmentMonths: 0,
       payrollDeductionConsent: false,
@@ -212,14 +213,25 @@ describe('thin-file starter limit', () => {
     });
   });
 
+  /**
+   * A policy where every tier is the same number. These tests use an unlinked
+   * shopper, for whom only the base tier is reachable; flattening the three
+   * keeps each case about the one number it is varying.
+   */
+  const flatPolicy = (maxFinancedGhs: number) => ({
+    maxFinancedGhs,
+    maxFinancedWithEmployerGhs: maxFinancedGhs,
+    maxFinancedWithPayrollGhs: maxFinancedGhs,
+  });
+
   describe('policy configuration', () => {
     it('is switched off entirely by a zero cap', () => {
-      const off = new ScoringEngine(DEFAULT_RULESET, { maxFinancedGhs: 0 });
+      const off = new ScoringEngine(DEFAULT_RULESET, flatPolicy(0));
       expect(off.score(newShopper(), NOW).outcome).toBe('declined');
     });
 
     it('widens when the cap is raised', () => {
-      const generous = new ScoringEngine(DEFAULT_RULESET, { maxFinancedGhs: 2_000 });
+      const generous = new ScoringEngine(DEFAULT_RULESET, flatPolicy(2_000));
       const d = generous.score(newShopper({ request: { orderAmountGhs: 3_000 } }), NOW);
       expect(d.outcome).toBe('approved');
       expect(d.approvedLimitGhs).toBe(3_000);
@@ -233,8 +245,8 @@ describe('thin-file starter limit', () => {
         tenure: { accountAgeDays: 400 },
         behavior: { successfulChargeCount: 40, momoTransactionShare: 0.5 },
       });
-      const tight = new ScoringEngine(DEFAULT_RULESET, { maxFinancedGhs: 1 });
-      const loose = new ScoringEngine(DEFAULT_RULESET, { maxFinancedGhs: 100_000 });
+      const tight = new ScoringEngine(DEFAULT_RULESET, flatPolicy(1));
+      const loose = new ScoringEngine(DEFAULT_RULESET, flatPolicy(100_000));
 
       expect(tight.score(scored, NOW)).toEqual(loose.score(scored, NOW));
     });

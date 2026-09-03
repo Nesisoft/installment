@@ -58,6 +58,7 @@ describe('configuration tuning', () => {
     const input = f({
       employment: {
         employerLinked: true,
+        employerVerified: true,
         payrollDeductionConsent: true,
         employmentMonths: 24,
         salaryBand: 'mid',

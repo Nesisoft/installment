@@ -108,6 +108,23 @@ export const envSchema = z.object({
    * afternoon losses say so, without a deploy. `0` switches the policy off.
    */
   CREDIT_STARTER_MAX_FINANCED_GHS: z.coerce.number().int().min(0).default(250),
+  /**
+   * The same ceiling when a **verified** link to an **active** employer exists.
+   *
+   * The one thing about a first-time customer that somebody outside this
+   * company has confirmed. Not the bare link — an operator types those and they
+   * land active immediately — but a link that was checked, against an employer
+   * whose partnership is still live.
+   */
+  CREDIT_STARTER_MAX_FINANCED_EMPLOYER_GHS: z.coerce.number().int().min(0).default(750),
+  /**
+   * And when that link also carries payroll-deduction consent.
+   *
+   * The largest step, because it is the only tier where repayment does not
+   * depend on the customer choosing to pay: the employer remits from salary
+   * before it reaches them.
+   */
+  CREDIT_STARTER_MAX_FINANCED_PAYROLL_GHS: z.coerce.number().int().min(0).default(2_000),
   SMS_SENDER_ID: z.string().default('Installmt'),
   // Which SMS provider actually dispatches. `console` logs and delivers
   // nothing — fine locally, catastrophic in production, where customer auth is

@@ -63,6 +63,11 @@ describe.skipIf(!RUN_DB)('Scoring collectors (integration)', () => {
       { name: `Acme ${suffix}`, sector: 'private' },
       SYSTEM_ACTOR,
     );
+    // Employers are created `pending`, and EmploymentCollector requires the
+    // employer's own partnership to be live before it will report a link. This
+    // fixture used to leave Acme pending and still expect the payroll signals
+    // — which is what the collector used to do.
+    await employers.transition(employer.id, { event: 'activate' }, SYSTEM_ACTOR);
     employerId = employer.id;
   });
 
@@ -170,6 +175,7 @@ describe.skipIf(!RUN_DB)('Scoring collectors (integration)', () => {
       const sig = await new EmploymentCollector(db).collect(id);
       expect(sig).toEqual({
         employerLinked: false,
+        employerVerified: false,
         salaryBand: 'unknown',
         employmentMonths: null,
         payrollDeductionConsent: false,
@@ -190,6 +196,9 @@ describe.skipIf(!RUN_DB)('Scoring collectors (integration)', () => {
       );
       const sig = await new EmploymentCollector(db).collect(id);
       expect(sig.employerLinked).toBe(true);
+      // A link is live the moment it is saved; verification is a separate act
+      // and this one has not had it.
+      expect(sig.employerVerified).toBe(false);
       expect(sig.salaryBand).toBe('mid');
       expect(sig.payrollDeductionConsent).toBe(true);
       expect(sig.employmentMonths!).toBeGreaterThanOrEqual(12);

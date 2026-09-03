@@ -39,7 +39,21 @@ export interface FeatureVector {
     distinctDevicesLast90Days: number;
   };
   employment: {
+    /**
+     * An active employment row against an employer that is itself active.
+     * Both halves matter: a link to a terminated employer says where somebody
+     * used to work.
+     */
     employerLinked: boolean;
+    /**
+     * Somebody checked the link — `customer_employment.verified_at` is set.
+     *
+     * Separate from `employerLinked` because a link is created by an operator
+     * typing a name and an employee number, and lands `active` immediately.
+     * That is enough to score on; it is not enough to lend a first-time
+     * customer money against.
+     */
+    employerVerified: boolean;
     salaryBand: 'unknown' | 'low' | 'mid' | 'high';
     employmentMonths: number | null;
     payrollDeductionConsent: boolean;

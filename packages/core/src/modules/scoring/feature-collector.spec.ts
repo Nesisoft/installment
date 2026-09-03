@@ -57,6 +57,7 @@ const tenure: FeatureVector['tenure'] = {
 };
 const employment: FeatureVector['employment'] = {
   employerLinked: true,
+  employerVerified: true,
   salaryBand: 'mid',
   employmentMonths: 24,
   payrollDeductionConsent: true,

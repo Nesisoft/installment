@@ -39,6 +39,7 @@ function prime(): FeatureVector {
     },
     employment: {
       employerLinked: true,
+      employerVerified: true,
       salaryBand: 'high',
       employmentMonths: 24,
       payrollDeductionConsent: true,
@@ -307,9 +308,14 @@ describe('ScoringEngine — bands, limits, outcomes', () => {
     });
     const d = engine.score(f, NOW);
     expect(d.outcome).toBe('counter_offer');
+    // Capped at what the requested plan finances: GHS 4,000 at a 4000 bps
+    // deposit lends GHS 2,400. This used to read 2,500 financed / 1,500 down —
+    // the band limit, which is measured on the order — so the "restructure" of
+    // an order judged too large cut the customer's deposit and raised our
+    // exposure by 100 cedis. A counter-offer may only reduce it.
     expect(d.counterOffer).toEqual({
-      downPaymentGhs: 1500,
-      revisedAmountGhs: 2500,
+      downPaymentGhs: 1600,
+      revisedAmountGhs: 2400,
       revisedTermMonths: 3,
     });
   });
