@@ -16,9 +16,15 @@ import {
   type TransitionStoreInput,
   type UpdateStoreInput,
 } from './dto';
-import { StoreConflictError, StoreNotFoundError, StoreTransitionError } from './errors';
+import {
+  StoreConflictError,
+  StoreNotFoundError,
+  StoreTransitionError,
+  UnknownStoreCategoryError,
+} from './errors';
 
 const s = schema.stores;
+const cat = schema.categories;
 
 export type Store = typeof schema.stores.$inferSelect;
 export type StoreStatus = (typeof schema.stores.$inferSelect)['status'];
@@ -60,6 +66,7 @@ export class StoresService {
 
   async create(rawInput: unknown, actor: StoreActor): Promise<Store> {
     const input: CreateStoreInput = createStoreSchema.parse(rawInput);
+    const categoryId = await this.categoryIdFor(input.primary_category_slug);
 
     return runInTransaction(this.db, async (tx) => {
       let row: Store;
@@ -75,6 +82,7 @@ export class StoresService {
             banner_key: input.banner_key,
             support_email: input.support_email,
             support_phone: input.support_phone,
+            primary_category_id: categoryId,
             policies: input.policies ?? {},
             metadata: input.metadata ?? {},
           })
@@ -165,13 +173,22 @@ export class StoresService {
     scope: StoreScope = {},
   ): Promise<Store> {
     const patch: UpdateStoreInput = updateStoreSchema.parse(rawPatch);
+    // The wire says `primary_category_slug`; the column is a foreign key. Pull
+    // it out of the patch entirely, so an unrecognised slug fails before
+    // anything is written and never reaches `.set()` as a stray column.
+    const { primary_category_slug: categorySlug, ...columns } = patch;
+    const categoryId =
+      categorySlug === undefined ? undefined : await this.categoryIdFor(categorySlug);
 
     return runInTransaction(this.db, async (tx) => {
       let row: Store | undefined;
       try {
         const rows = await tx
           .update(s)
-          .set({ ...patch })
+          .set({
+            ...columns,
+            ...(categoryId === undefined ? {} : { primary_category_id: categoryId }),
+          })
           .where(
             and(
               eq(s.id, id),
@@ -200,6 +217,40 @@ export class StoresService {
 
       return row;
     });
+  }
+
+  /**
+   * Refuses a slug that is not a category a shop can be listed under.
+   *
+   * Public so signup can check before it creates anything. Without it, a bad
+   * slug fails inside `provisionStore` — after the merchant and its login are
+   * already committed — and the person is left with an account they cannot
+   * retry into and a shop that does not exist.
+   */
+  async assertCategory(slug: string): Promise<void> {
+    await this.categoryIdFor(slug);
+  }
+
+  /**
+   * Turns a category slug into the foreign key, refusing anything that is not a
+   * real top-level category.
+   *
+   * Top-level only, and enforced here because a foreign key cannot see
+   * `parent_id`. A shop listed under "Laptops" would be invisible to anyone
+   * browsing "Electronics" — the taxonomy has one level of shops and two of
+   * products, and mixing them makes the shop rail wrong rather than merely
+   * specific.
+   */
+  private async categoryIdFor(slug: string | undefined): Promise<string | undefined> {
+    if (slug === undefined) return undefined;
+    const rows = await this.db
+      .select({ id: cat.id })
+      .from(cat)
+      .where(and(eq(cat.slug, slug), isNull(cat.parent_id), eq(cat.is_active, true)))
+      .limit(1);
+    const row = rows[0];
+    if (!row) throw new UnknownStoreCategoryError(slug);
+    return row.id;
   }
 
   async transition(id: string, rawInput: unknown, actor: StoreActor): Promise<Store> {

@@ -54,6 +54,8 @@ export interface StorefrontStore {
   logo_url: string | null;
   banner_url: string | null;
   support_phone: string | null;
+  /** What the shop mainly sells. Null for shops that predate the question. */
+  category: { id: string; name: string; slug: string } | null;
   joined_at: string;
   product_count: number;
   rating_avg: number | null;

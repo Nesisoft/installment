@@ -111,15 +111,30 @@ export type MerchantSignupVerifyCodeInput = z.infer<typeof merchantSignupVerifyC
  * name — letting a stranger claim one at signup is how well-known names get
  * squatted.
  */
-export const merchantSignupCompleteSchema = z.object({
-  signupToken: z.string().min(1),
-  business_name: z.string().trim().min(1).max(200),
-  legal_name: z.string().trim().min(1).max(200),
-  email: z.string().email(),
-  password: z.string().min(8).max(200),
-  tin: z.string().trim().min(1).max(60).optional(),
-  registration_number: z.string().trim().min(1).max(60).optional(),
-});
+export const merchantSignupCompleteSchema = z
+  .object({
+    signupToken: z.string().min(1),
+    business_name: z.string().trim().min(1).max(200),
+    legal_name: z.string().trim().min(1).max(200),
+    email: z.string().email(),
+    password: z.string().min(8).max(200),
+    tin: z.string().trim().min(1).max(60).optional(),
+    registration_number: z.string().trim().min(1).max(60).optional(),
+    /** A slug from `GET /storefront/categories`; top-level only. */
+    primary_category_slug: z.string().trim().min(1).max(120).optional(),
+    /**
+     * Where payouts should go. Both or neither: a number without a network
+     * cannot be resolved, and a network without a number is not a destination.
+     * The number is never stored as given — it goes through the same
+     * resolve-then-create-recipient flow as the payout-account screen.
+     */
+    momo_number: phoneSchema.optional(),
+    momo_provider: z.enum(['mtn', 'tgo', 'vod']).optional(),
+  })
+  .refine((v) => Boolean(v.momo_number) === Boolean(v.momo_provider), {
+    message: 'A MoMo payout number needs its network, and a network needs a number',
+    path: ['momo_provider'],
+  });
 export type MerchantSignupCompleteInput = z.infer<typeof merchantSignupCompleteSchema>;
 
 export const refreshSchema = z.object({ refreshToken: z.string().min(1) });

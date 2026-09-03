@@ -236,6 +236,7 @@ export const categoriesRelations = relations(categories, ({one, many}) => ({
 	categories: many(categories, {
 		relationName: "categories_parent_id_categories_id"
 	}),
+	stores: many(stores),
 }));
 
 export const storesRelations = relations(stores, ({one, many}) => ({
@@ -243,6 +244,10 @@ export const storesRelations = relations(stores, ({one, many}) => ({
 	merchant: one(merchants, {
 		fields: [stores.merchant_id],
 		references: [merchants.id]
+	}),
+	category: one(categories, {
+		fields: [stores.primary_category_id],
+		references: [categories.id]
 	}),
 	product_reviews: many(product_reviews),
 	orders: many(orders),

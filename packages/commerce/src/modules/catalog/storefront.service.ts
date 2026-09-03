@@ -115,6 +115,8 @@ export interface StorefrontStore {
   logo_url: string | null;
   banner_url: string | null;
   support_phone: string | null;
+  /** What the shop mainly sells. Null for shops that predate the question. */
+  category: { id: string; name: string; slug: string } | null;
   joined_at: string;
   product_count: number;
   rating_avg: number | null;
@@ -658,6 +660,7 @@ export class StorefrontService {
         logo_key: st.logo_key,
         banner_key: st.banner_key,
         support_phone: st.support_phone,
+        primary_category_id: st.primary_category_id,
         created_at: st.created_at,
         product_count: sql<number>`(SELECT COUNT(*)::int FROM products pr
           WHERE pr.store_id = stores.id AND pr.status = 'active' AND pr.deleted_at IS NULL)`,
@@ -695,6 +698,7 @@ export class StorefrontService {
       logo_url: this.media.url(row.logo_key),
       banner_url: this.media.url(row.banner_key),
       support_phone: row.support_phone,
+      category: await this.categoryOf(row.primary_category_id),
       joined_at: row.created_at,
       product_count: row.product_count,
       rating_avg: row.rating_avg === null ? null : Number(row.rating_avg),

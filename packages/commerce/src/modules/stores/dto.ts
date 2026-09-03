@@ -12,6 +12,15 @@ export const createStoreSchema = z.object({
   banner_key: z.string().trim().min(1).max(500).optional(),
   support_email: z.string().email().optional(),
   support_phone: z.string().trim().min(7).max(20).optional(),
+  /**
+   * What the shop mainly sells, as a category slug.
+   *
+   * A slug rather than a uuid because that is what `/storefront/categories`
+   * already hands every client, and because a request body naming `electronics`
+   * is readable in a log where a uuid is not. The service turns it into the
+   * foreign key and refuses one that is not a real top-level category.
+   */
+  primary_category_slug: z.string().trim().min(1).max(120).optional(),
   policies: z.record(z.unknown()).optional(),
   metadata: z.record(z.unknown()).optional(),
 });

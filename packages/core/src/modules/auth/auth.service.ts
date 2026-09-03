@@ -6,6 +6,7 @@ import { UserNotFoundError } from '../users/errors';
 import { CustomersService } from '../customers/customers.service';
 import { MerchantsService } from '../merchants/merchants.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
+import { type MomoProviderCode } from '../../shared/validators/ghana';
 import {
   loginSchema,
   otpStartSchema,
@@ -74,7 +75,39 @@ export interface AuthServiceDeps {
    * been created for this merchant yet", and an admin reviews every signup
    * before it can trade anyway.
    */
-  provisionStore?: (input: { merchantId: string; shopName: string }) => Promise<void>;
+  provisionStore?: (input: {
+    merchantId: string;
+    shopName: string;
+    categorySlug?: string;
+  }) => Promise<void>;
+  /**
+   * Refuses a shop category that does not exist, before anything is written.
+   *
+   * Separate from `provisionStore` and called first, because that one runs
+   * after the merchant and its login are committed: a bad slug there would cost
+   * somebody an account they then cannot re-register with. Commerce owns what a
+   * valid shop category is; core only asks.
+   */
+  assertShopCategory?: (slug: string) => Promise<void>;
+  /**
+   * Turns the MoMo number a merchant gave at signup into a real payout
+   * destination.
+   *
+   * A callback for the same reason as `provisionStore`, and one more: it is the
+   * only thing in signup that talks to a payment provider, and taking
+   * `PayoutAccountService` directly would make every AuthService fixture grow a
+   * Paystack stub.
+   *
+   * Called after the account exists and allowed to fail. A merchant who mistyped
+   * a digit, or a provider having a bad afternoon, must not cost somebody their
+   * shop — and the failure is visible and recoverable: the payout-account screen
+   * says "not connected" and the settlement run skips them until it is.
+   */
+  setMobileMoneyPayout?: (input: {
+    merchantId: string;
+    momoNumber: string;
+    momoProvider: MomoProviderCode;
+  }) => Promise<void>;
 }
 
 /** Signup codes live in their own keyspace so a login code cannot create an account. */
@@ -315,6 +348,11 @@ export class AuthService {
     if (await merchants.findByPhone(phone)) throw new PhoneAlreadyRegisteredError();
     if (await this.deps.users.findByEmail(input.email)) throw new EmailAlreadyRegisteredError();
 
+    // Before the first write, for the reason on the dep itself.
+    if (input.primary_category_slug && this.deps.assertShopCategory) {
+      await this.deps.assertShopCategory(input.primary_category_slug);
+    }
+
     const systemActor = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 
     // No commercial terms in the input, so the platform's defaults apply. A
@@ -343,7 +381,31 @@ export class AuthService {
     );
 
     if (this.deps.provisionStore) {
-      await this.deps.provisionStore({ merchantId: merchant.id, shopName: input.business_name });
+      await this.deps.provisionStore({
+        merchantId: merchant.id,
+        shopName: input.business_name,
+        categorySlug: input.primary_category_slug,
+      });
+    }
+
+    // Last, and swallowed. Everything above is this person's account; this is a
+    // convenience that saves them a trip to the payout screen, and it reaches a
+    // third party over the network to do it. A merchant with a shop and no
+    // payout account is a state the portal already explains and already lets
+    // them fix. A merchant with no shop because Paystack timed out is not.
+    if (this.deps.setMobileMoneyPayout && input.momo_number && input.momo_provider) {
+      try {
+        await this.deps.setMobileMoneyPayout({
+          merchantId: merchant.id,
+          momoNumber: input.momo_number,
+          momoProvider: input.momo_provider,
+        });
+      } catch {
+        // Nothing was written: `set` resolves and creates the recipient before
+        // it touches the row, so a failure here leaves the bank columns null
+        // rather than holding an unverified number that looks like a
+        // destination.
+      }
     }
 
     await this.deps.users.recordLogin(user.id);
