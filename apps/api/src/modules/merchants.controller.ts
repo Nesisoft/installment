@@ -12,8 +12,10 @@ import {
 } from '@nestjs/common';
 import {
   MerchantDashboardService,
+  MerchantKycService,
   MerchantsService,
   PERMISSIONS,
+  rejectKycDocumentSchema,
   renderMerchantStatementCsv,
   renderMerchantStatementHtml,
   type AuditActorType,
@@ -53,6 +55,7 @@ export class MerchantsController {
   constructor(
     private readonly merchants: MerchantsService,
     private readonly dashboard: MerchantDashboardService,
+    private readonly kycService: MerchantKycService,
   ) {}
 
   private actor(user: AuthenticatedUser): MerchantActor {
@@ -118,6 +121,45 @@ export class MerchantsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.merchants.attachPaystackRecipient(id, body, this.actor(user));
+  }
+
+  // --- KYC review -----------------------------------------------------------
+  //
+  // The reviewer's half of merchant onboarding. Before this, activation was a
+  // button with no document behind it; `MerchantsService.transition` now
+  // refuses a first activation until the required types below are approved.
+
+  @Get(':id/kyc')
+  @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
+  @ApiOperation({ summary: "A merchant's KYC documents and what is outstanding" })
+  kyc(@Param('id') id: string) {
+    return this.kycService.statusFor(id);
+  }
+
+  @Post(':id/kyc/:documentId/approve')
+  @RequirePermissions(PERMISSIONS.MERCHANTS_WRITE)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Approve one KYC document' })
+  approveKyc(
+    @Param('id') id: string,
+    @Param('documentId') documentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.kycService.approve(documentId, this.actor(user));
+  }
+
+  @Post(':id/kyc/:documentId/reject')
+  @RequirePermissions(PERMISSIONS.MERCHANTS_WRITE)
+  @ApiZodBody(rejectKycDocumentSchema)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Reject one KYC document, with a reason' })
+  rejectKyc(
+    @Param('id') id: string,
+    @Param('documentId') documentId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.kycService.reject(documentId, body, this.actor(user));
   }
 
   @Get(':id/balances')

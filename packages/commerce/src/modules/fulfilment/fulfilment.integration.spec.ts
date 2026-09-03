@@ -9,6 +9,7 @@ import {
   LedgerService,
   MerchantsService,
   SYSTEM_ACTORS,
+  approveRequiredMerchantKyc,
 } from '@installment/core';
 import { StoresService } from '../stores/stores.service';
 import { ProductsService } from '../catalog/products.service';
@@ -72,6 +73,9 @@ describe.skipIf(!RUN_DB)('FulfilmentService (integration)', () => {
     // enforces that, where before it asked only about the variant and the
     // product. This fixture never activated anything and so was quietly
     // selling from an unopened shop.
+    // A merchant's first activation needs approved KYC documents behind it;
+    // this fixture's subject is not KYC, so it satisfies the requirement.
+    await approveRequiredMerchantKyc(db, merchant.id, ACTOR);
     await merchants.transition(merchant.id, { event: 'activate' }, ACTOR);
     await stores.transition(store.id, { event: 'activate' }, ACTOR);
     const product = await products.create(

@@ -34,7 +34,8 @@ export type UploadPurpose =
   | 'store_logo'
   | 'store_banner'
   | 'category_image'
-  | 'kyc_document';
+  | 'kyc_document'
+  | 'merchant_kyc_document';
 
 export interface UploadPurposeRule {
   visibility: StorageVisibility;
@@ -66,6 +67,19 @@ export const UPLOAD_PURPOSES: Record<UploadPurpose, UploadPurposeRule> = {
    * the key, and keys leak through logs, screenshots and referrer headers.
    */
   kyc_document: { visibility: 'private', types: DOCUMENT_TYPES, owner: 'customer', folder: 'kyc' },
+  /**
+   * The merchant half of the same problem, and a separate purpose rather than a
+   * second owner on `kyc_document`: the folder is what scopes one merchant's
+   * evidence away from another's, and `keyBelongsTo` compares against a prefix
+   * built from exactly this row. Sharing the folder would put a merchant id and
+   * a customer id in the same namespace and make that comparison meaningless.
+   */
+  merchant_kyc_document: {
+    visibility: 'private',
+    types: DOCUMENT_TYPES,
+    owner: 'merchant',
+    folder: 'merchant-kyc',
+  },
 };
 
 export const requestUploadSchema = z.object({

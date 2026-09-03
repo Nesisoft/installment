@@ -66,6 +66,48 @@ export interface ResolvedPayoutAccount {
   bank_code: string;
 }
 
+// --- KYC -------------------------------------------------------------------
+
+export const MERCHANT_KYC_DOC_TYPES = [
+  'ghana_card_front',
+  'ghana_card_back',
+  'shop_photo',
+  'business_registration',
+] as const;
+export type MerchantKycDocType = (typeof MERCHANT_KYC_DOC_TYPES)[number];
+
+export interface MerchantKycDocument {
+  id: string;
+  merchant_id: string;
+  doc_type: MerchantKycDocType;
+  storage_key: string;
+  status: 'submitted' | 'approved' | 'rejected';
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+}
+
+export interface MerchantKycStatus {
+  documents: MerchantKycDocument[];
+  /** Required types with no approved document yet. Empty means ready to review. */
+  outstanding: MerchantKycDocType[];
+  complete: boolean;
+  /** Activated before document review existed; the gate lets them keep trading. */
+  exempt: boolean;
+}
+
+/** Mirrors `submitKycDocumentSchema` in core. */
+export const submitKycDocumentSchema = z.object({
+  doc_type: z.enum(MERCHANT_KYC_DOC_TYPES),
+  storage_key: z.string().trim().min(1),
+});
+export type SubmitKycDocumentInput = z.infer<typeof submitKycDocumentSchema>;
+
+export const rejectKycDocumentSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+});
+export type RejectKycDocumentInput = z.infer<typeof rejectKycDocumentSchema>;
+
 export interface ListMerchantsParams {
   status?: string;
   limit?: number;

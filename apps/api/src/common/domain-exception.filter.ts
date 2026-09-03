@@ -55,6 +55,11 @@ export const NAME_STATUS: Record<string, number> = {
   // 409
   UserConflictError: HttpStatus.CONFLICT,
   MerchantConflictError: HttpStatus.CONFLICT,
+  MerchantKycDocumentNotFoundError: HttpStatus.NOT_FOUND,
+  // Both are the caller's to fix: replace a document a reviewer has reopened,
+  // or finish KYC before asking for activation.
+  MerchantKycAlreadyApprovedError: HttpStatus.CONFLICT,
+  MerchantKycIncompleteError: HttpStatus.UNPROCESSABLE_ENTITY,
   // A payout account nobody could confirm is a bad request, not a server
   // fault: the merchant can fix it by correcting the number or the bank.
   PayoutAccountUnresolvedError: HttpStatus.UNPROCESSABLE_ENTITY,

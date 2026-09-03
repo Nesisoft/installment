@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   Package,
   Receipt,
+  ShieldCheck,
   ShoppingBag,
   Store,
   Wallet,
@@ -63,6 +64,12 @@ export const NAV: NavItem[] = [
     label: 'Payout account',
     icon: Landmark,
     hint: 'The bank account settlements are paid into',
+  },
+  {
+    to: '/kyc',
+    label: 'Verification',
+    icon: ShieldCheck,
+    hint: 'The documents that let your shop trade',
   },
 ];
 

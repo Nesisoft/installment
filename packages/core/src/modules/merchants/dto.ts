@@ -61,6 +61,30 @@ export type ResolvePayoutAccountInput = z.infer<typeof resolvePayoutAccountSchem
 export const setPayoutAccountSchema = resolvePayoutAccountSchema;
 export type SetPayoutAccountInput = z.infer<typeof setPayoutAccountSchema>;
 
+export const MERCHANT_KYC_DOC_TYPE_VALUES = [
+  'ghana_card_front',
+  'ghana_card_back',
+  'shop_photo',
+  'business_registration',
+] as const;
+
+export const submitKycDocumentSchema = z.object({
+  doc_type: z.enum(MERCHANT_KYC_DOC_TYPE_VALUES),
+  /**
+   * The key the presigned-upload flow minted. Checked against the caller's own
+   * `private/merchant-kyc/<merchant_id>/` prefix at the edge before it reaches
+   * this service — a client-supplied key is a client-supplied victim.
+   */
+  storage_key: z.string().trim().min(1),
+});
+export type SubmitKycDocumentInput = z.infer<typeof submitKycDocumentSchema>;
+
+export const rejectKycDocumentSchema = z.object({
+  /** Read by the next reviewer, and by the merchant, who has to know what to send instead. */
+  reason: z.string().trim().min(1).max(500),
+});
+export type RejectKycDocumentInput = z.infer<typeof rejectKycDocumentSchema>;
+
 export const listMerchantsSchema = z.object({
   status: z.enum(['pending_kyc', 'active', 'suspended', 'offboarded']).optional(),
   limit: z.number().int().min(1).max(200).default(50),

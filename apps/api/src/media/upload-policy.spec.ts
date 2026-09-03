@@ -36,6 +36,19 @@ describe('deriveUploadKey', () => {
     expect(derived.visibility).toBe('private');
   });
 
+  it('namespaces a merchant KYC document by the merchant, in its own folder', () => {
+    const derived = derive(
+      { purpose: 'merchant_kyc_document', content_type: 'image/jpeg' },
+      MERCHANT,
+    );
+
+    // A separate folder from `kyc/`, which is the customer's. Sharing it would
+    // put merchant ids and customer ids in one namespace and make the prefix
+    // comparison in keyBelongsTo meaningless.
+    expect(derived.key).toMatch(new RegExp(`^merchant-kyc/${MERCHANT}/[0-9a-f-]{36}\\.jpg$`));
+    expect(derived.visibility).toBe('private');
+  });
+
   it('leaves platform-owned artwork unnamespaced', () => {
     expect(derive({ purpose: 'category_image', content_type: 'image/png' }).key).toMatch(
       /^categories\/[0-9a-f-]{36}\.png$/,
@@ -130,12 +143,17 @@ describe('deriveUploadKey', () => {
 });
 
 describe('UPLOAD_PURPOSES', () => {
-  it('keeps KYC the only private purpose', () => {
+  it('keeps identity documents the only private purposes', () => {
     const priv = Object.entries(UPLOAD_PURPOSES)
       .filter(([, rule]) => rule.visibility === 'private')
-      .map(([purpose]) => purpose);
+      .map(([purpose]) => purpose)
+      .sort();
 
-    expect(priv).toEqual(['kyc_document']);
+    // Exact, not a superset, in both directions. A new private purpose is a new
+    // pile of personal data and should be a deliberate line in this list; a
+    // purpose that quietly LEAVES it is a leak — the catalogue art and product
+    // photographs here are public by design, and a Ghana Card never is.
+    expect(priv).toEqual(['kyc_document', 'merchant_kyc_document']);
   });
 
   it('never accepts a type a browser will execute', () => {
@@ -185,6 +203,21 @@ describe('keyBelongsTo', () => {
 
   it('refuses a private key offered to a public purpose', () => {
     expect(keyBelongsTo('product_image', `private/kyc/${MERCHANT}/card.jpg`, MERCHANT)).toBe(false);
+  });
+
+  it('refuses another merchant’s KYC key, which is the whole point of the check', () => {
+    // The attach route takes this key back from the client. Without the check a
+    // merchant could submit the object at somebody else's key as their own
+    // evidence — and be activated on a stranger's Ghana Card.
+    const mine = `private/${derive({ purpose: 'merchant_kyc_document', content_type: 'image/jpeg' }, MERCHANT).key}`;
+    const theirs = `private/${derive({ purpose: 'merchant_kyc_document', content_type: 'image/jpeg' }, OTHER).key}`;
+
+    expect(keyBelongsTo('merchant_kyc_document', mine, MERCHANT)).toBe(true);
+    expect(keyBelongsTo('merchant_kyc_document', theirs, MERCHANT)).toBe(false);
+    // And a customer KYC key is not a merchant KYC key, however similar it looks.
+    expect(
+      keyBelongsTo('merchant_kyc_document', `private/kyc/${MERCHANT}/card.jpg`, MERCHANT),
+    ).toBe(false);
   });
 
   it('matches nothing rather than the whole folder when there is no owner', () => {
