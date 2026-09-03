@@ -54,6 +54,7 @@ function afterPlans(plans: number, accountAgeDays: number): FeatureVector {
     },
     employment: {
       employerLinked: false,
+      employerVerified: false,
       salaryBand: 'mid',
       employmentMonths: 0,
       payrollDeductionConsent: false,

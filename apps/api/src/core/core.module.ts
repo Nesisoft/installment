@@ -342,6 +342,12 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
           FeatureCollector.fromDb(db),
           new ScoringEngine(DEFAULT_RULESET, {
             maxFinancedGhs: config.get('CREDIT_STARTER_MAX_FINANCED_GHS', { infer: true }),
+            maxFinancedWithEmployerGhs: config.get('CREDIT_STARTER_MAX_FINANCED_EMPLOYER_GHS', {
+              infer: true,
+            }),
+            maxFinancedWithPayrollGhs: config.get('CREDIT_STARTER_MAX_FINANCED_PAYROLL_GHS', {
+              infer: true,
+            }),
           }),
           applications,
         ),
