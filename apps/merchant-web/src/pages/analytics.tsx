@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@installment/ui';
 import { formatGhs } from '@installment/api-types';
-import type { MerchantStats, MerchantStatsDay } from '@installment/api-types';
+import type {
+  MerchantStats,
+  MerchantStatsDay,
+  MerchantStatsPaymentMix,
+} from '@installment/api-types';
 import { useMerchantStats } from '../lib/merchant-api';
 import { PageHeader } from '../components/page-header';
 import { ErrorState } from '../components/data-states';
@@ -71,23 +75,105 @@ function DailyBars({ days }: { days: MerchantStatsDay[] }) {
   const dense = days.length > 14;
 
   return (
-    <div className="flex h-40 items-end gap-[2px]" role="img" aria-label="Sales by day">
+    <div className="flex h-40 gap-[2px]" role="img" aria-label="Sales by day">
       {days.map((d, i) => (
-        <div key={d.date} className="flex flex-1 flex-col items-center justify-end gap-1">
-          <div
-            className={
-              d.grossSoldPesewas > 0 ? 'w-full rounded-t bg-primary' : 'w-full rounded-t bg-muted'
-            }
-            style={{
-              height: `${Math.max(2, Math.round((d.grossSoldPesewas / peak) * 100))}%`,
-            }}
-            title={`${d.date} · ${formatGhs(d.grossSoldPesewas)} · ${d.orders} order${d.orders === 1 ? '' : 's'}`}
-          />
-          {!dense || i === 0 || i === days.length - 1 ? (
-            <span className="text-[10px] text-muted-foreground">{d.date.slice(5)}</span>
-          ) : null}
+        <div key={d.date} className="flex flex-1 flex-col items-center">
+          {/* The bar's height is a percentage, so it needs a parent with a
+              height to be a percentage OF. `flex-1` inside this fixed-height
+              column gives it one — against an auto-height parent every bar
+              collapses to nothing, which is what it did. */}
+          <div className="flex w-full flex-1 items-end">
+            <div
+              className={
+                d.grossSoldPesewas > 0 ? 'w-full rounded-t bg-primary' : 'w-full rounded-t bg-muted'
+              }
+              style={{
+                height: `${Math.max(2, Math.round((d.grossSoldPesewas / peak) * 100))}%`,
+              }}
+              title={`${d.date} · ${formatGhs(d.grossSoldPesewas)} · ${d.orders} order${d.orders === 1 ? '' : 's'}`}
+            />
+          </div>
+          {/* Always the same height, labelled or not, so the bars stay on one
+              baseline at 90-day density where most labels are dropped. */}
+          <span className="h-4 text-[10px] leading-4 text-muted-foreground">
+            {!dense || i === 0 || i === days.length - 1 ? d.date.slice(5) : ''}
+          </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * How the period's sales split between paying over time and paying outright.
+ *
+ * One stacked bar rather than two numbers, because the useful question is the
+ * proportion — a seller deciding whether instalments are worth offering. The
+ * basket comparison underneath is the reason they usually are, and it is
+ * computed here from the two sides rather than sent as its own figure: it is a
+ * subtraction, and an API field that is only ever `a - b` is a field that can
+ * disagree with `a` and `b`.
+ */
+function PaymentMix({ mix }: { mix: MerchantStatsPaymentMix }) {
+  const { installment, full } = mix;
+  const total = installment.orders + full.orders;
+  if (total === 0) {
+    return <p className="text-sm text-muted-foreground">Nothing sold in this period yet.</p>;
+  }
+
+  const basketGap = installment.averageBasketPesewas - full.averageBasketPesewas;
+  const rows = [
+    { label: 'Paid in instalments', side: installment, className: 'bg-primary' },
+    // A dark neutral rather than a pale one: the two sides always sum to 100%,
+    // so the track is never visible, and a pale fill at 100% read as an empty
+    // track rather than a full one.
+    { label: 'Paid outright', side: full, className: 'bg-foreground/45' },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
+        {rows.map((r) =>
+          r.side.orders === 0 ? null : (
+            <div
+              key={r.label}
+              className={r.className}
+              style={{ width: `${r.side.shareOfOrdersPct ?? 0}%` }}
+              title={`${r.label}: ${r.side.orders} of ${total} orders`}
+            />
+          ),
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-x-8 gap-y-2">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-baseline gap-2">
+            <span className={`mt-1.5 size-2 shrink-0 rounded-full ${r.className}`} />
+            <div>
+              <div className="text-sm font-semibold">
+                {r.side.shareOfOrdersPct ?? 0}%
+                <span className="ml-1.5 font-normal text-muted-foreground">
+                  {r.side.orders} order{r.side.orders === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {r.label} · {formatGhs(r.side.averageBasketPesewas)} average
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Only worth a sentence when both sides exist to compare. */}
+      {installment.orders > 0 && full.orders > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {basketGap === 0
+            ? 'Both kinds of order carry the same average basket in your shop.'
+            : `Instalment orders carry a ${formatGhs(Math.abs(basketGap))} ${
+                basketGap > 0 ? 'higher' : 'lower'
+              } average basket than paid-outright orders in your shop.`}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -172,6 +258,16 @@ export function AnalyticsPage() {
         <CardContent>
           {stats.isPending ? <Skeleton className="h-40 w-full" /> : null}
           {s ? <DailyBars days={s.daily} /> : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Instalments vs paid outright</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {stats.isPending ? <Skeleton className="h-20 w-full" /> : null}
+          {s ? <PaymentMix mix={s.current.paymentMix} /> : null}
         </CardContent>
       </Card>
 

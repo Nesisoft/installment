@@ -242,6 +242,104 @@ describe.skipIf(!RUN_DB)('MerchantStatsService (integration)', () => {
     expect((await stats.forMerchant(merchantId, { days: 7 })).current.orders).toBe(0);
   });
 
+  // ------------------------------------------------------- the payment split
+
+  it('splits the period by how it was paid for, and the two sides reconcile', async () => {
+    const { merchantId, storeId } = await shop();
+    await sellFinanced(storeId, 40_000, today());
+    await sellFinanced(storeId, 20_000, today());
+    await sellFinanced(storeId, 30_000, today());
+    await sellOutright(storeId, 10_000, today());
+
+    const s = await stats.forMerchant(merchantId, { days: 7 });
+    const { installment, full } = s.current.paymentMix;
+
+    expect(installment).toMatchObject({
+      orders: 3,
+      grossSoldPesewas: 90_000,
+      averageBasketPesewas: 30_000,
+      shareOfOrdersPct: 75,
+    });
+    expect(full).toMatchObject({
+      orders: 1,
+      grossSoldPesewas: 10_000,
+      averageBasketPesewas: 10_000,
+      shareOfOrdersPct: 25,
+    });
+
+    // The property worth having: the split is the headline, added up a
+    // different way. A mix that did not reconcile with the number above it on
+    // the screen would be worse than no mix at all.
+    expect(installment.orders + full.orders).toBe(s.current.orders);
+    expect(installment.grossSoldPesewas + full.grossSoldPesewas).toBe(s.current.grossSoldPesewas);
+    expect((installment.shareOfOrdersPct ?? 0) + (full.shareOfOrdersPct ?? 0)).toBe(100);
+  });
+
+  it('says nothing rather than 0% when the period sold nothing', async () => {
+    const { merchantId } = await shop();
+
+    const { installment, full } = (await stats.forMerchant(merchantId, { days: 7 })).current
+      .paymentMix;
+
+    // "0% paid in instalments" for a shop that sold nothing is a false
+    // statement, not a zero.
+    expect(installment).toMatchObject({ orders: 0, grossSoldPesewas: 0, shareOfOrdersPct: null });
+    expect(full).toMatchObject({ orders: 0, shareOfOrdersPct: null });
+  });
+
+  it('reads 100% to one side when only one kind of sale happened', async () => {
+    const { merchantId, storeId } = await shop();
+    await sellOutright(storeId, 12_000, today());
+
+    const { installment, full } = (await stats.forMerchant(merchantId, { days: 7 })).current
+      .paymentMix;
+
+    expect(full.shareOfOrdersPct).toBe(100);
+    expect(installment.shareOfOrdersPct).toBe(0);
+    expect(installment.averageBasketPesewas).toBe(0);
+  });
+
+  it('splits the previous period on its own orders, not the current one’s', async () => {
+    const { merchantId, storeId } = await shop();
+    await sellOutright(storeId, 10_000, daysAgo(2)); // current window
+    await sellFinanced(storeId, 40_000, daysAgo(9)); // the one before
+
+    const s = await stats.forMerchant(merchantId, { days: 7 });
+
+    expect(s.current.paymentMix.full.orders).toBe(1);
+    expect(s.current.paymentMix.installment.orders).toBe(0);
+    expect(s.previous.paymentMix.installment.orders).toBe(1);
+    expect(s.previous.paymentMix.full.orders).toBe(0);
+  });
+
+  it('leaves an abandoned checkout out of the split, as it does out of the total', async () => {
+    const { merchantId, storeId } = await shop();
+    await sellOutright(storeId, 10_000, today());
+    await abandon(storeId, 90_000, today());
+
+    const s = await stats.forMerchant(merchantId, { days: 7 });
+
+    // The split comes off the same rows as the headline, so the exclusion is
+    // inherited rather than re-stated — this pins that it actually is.
+    expect(s.current.paymentMix.full.orders).toBe(1);
+    expect(s.current.paymentMix.full.grossSoldPesewas).toBe(10_000);
+    expect(s.current.cancelledOrders).toBe(1);
+  });
+
+  it('keeps the daily chart one bar per day when a day has both kinds', async () => {
+    const { merchantId, storeId } = await shop();
+    await sellOutright(storeId, 10_000, today());
+    await sellFinanced(storeId, 20_000, today());
+
+    const s = await stats.forMerchant(merchantId, { days: 7 });
+
+    // Two rows come back from the group-by for the same day; the chart wants
+    // them added, not listed twice.
+    const traded = s.daily.filter((d) => d.orders > 0);
+    expect(traded).toHaveLength(1);
+    expect(traded[0]).toMatchObject({ orders: 2, grossSoldPesewas: 30_000 });
+  });
+
   // ----------------------------------------------------------- cancellations
 
   async function abandon(storeId: string, price: number, when: Date) {
