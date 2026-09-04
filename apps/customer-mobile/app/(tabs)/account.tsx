@@ -134,17 +134,23 @@ export default function AccountScreen(): React.ReactElement {
 
       <View style={styles.body}>
         {!me.ghana_card_verified ? (
-          <Card style={styles.kyc}>
-            <View style={styles.kycHead}>
-              <Icon name="shield" size={18} color={color.warn} />
-              <Text variant="smallMedium">Verify your Ghana Card</Text>
-              <Pill label="COMING SOON" tone="warn" />
-            </View>
-            <Text variant="tiny" tone="muted">
-              A verified card raises the limit you can spread across instalments. Card capture is
-              not in the app yet — we will let you know when it is.
-            </Text>
-          </Card>
+          <Pressable onPress={() => router.push('/ghana-card')}>
+            <Card style={styles.kyc}>
+              <View style={styles.kycHead}>
+                <Icon name="shield" size={18} color={color.warn} />
+                <Text variant="smallMedium">Verify your Ghana Card</Text>
+                <Icon name="chevron-right" size={16} color={color.muted} />
+              </View>
+              {/* This card carried a "COMING SOON" pill from the day the app
+                  shipped, and it was accurate: `attachGhanaCard` had one caller
+                  and it was the admin console, so there was nowhere for a
+                  shopper to send a card. Now there is. */}
+              <Text variant="tiny" tone="muted">
+                A verified card raises the limit you can spread across instalments. It takes a photo
+                and about a minute.
+              </Text>
+            </Card>
+          </Pressable>
         ) : null}
 
         <Card bare>

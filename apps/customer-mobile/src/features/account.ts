@@ -6,8 +6,10 @@ import type {
   CustomerPlan,
   CustomerProfile,
   FeedInstallment,
+  GhanaCardStatusView,
   InstallmentRow,
   MomoProvider,
+  PresignedUpload,
   StorefrontProduct,
 } from './types';
 
@@ -227,5 +229,63 @@ export function useRegisterDevice() {
       app_version?: string;
       device_name?: string;
     }) => (await api.post('/me/devices', input)).data,
+  });
+}
+
+// --- Ghana Card ---------------------------------------------------------------
+
+export function useGhanaCard(enabled = true): UseQueryResult<GhanaCardStatusView> {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['ghana-card'],
+    queryFn: async () => (await api.get<GhanaCardStatusView>('/me/ghana-card')).data,
+    enabled,
+  });
+}
+
+/**
+ * Sends a photo of the card, then the card itself.
+ *
+ * Three steps, and they have to be in this order: the server mints a key it
+ * chose (namespaced by the caller's own customer id, so the route cannot be
+ * pointed at anyone else's folder), the phone PUTs the bytes straight to
+ * storage, and only then is the key attached. Nothing here ever posts an image
+ * through the API.
+ */
+export function useSubmitGhanaCard() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      cardNumber: string;
+      image: { uri: string; mimeType?: string | null; fileSize?: number | null };
+    }): Promise<GhanaCardStatusView> => {
+      const contentType = input.image.mimeType ?? 'image/jpeg';
+      const blob = await (await fetch(input.image.uri)).blob();
+
+      const { data: presigned } = await api.post<PresignedUpload>('/me/uploads', {
+        purpose: 'kyc_document',
+        content_type: contentType,
+        content_length: input.image.fileSize ?? blob.size,
+      });
+
+      const put = await fetch(presigned.url, {
+        method: presigned.method,
+        headers: presigned.headers,
+        body: blob,
+      });
+      if (!put.ok) throw new Error(`The photo could not be uploaded (${put.status}).`);
+
+      const { data } = await api.post<GhanaCardStatusView>('/me/ghana-card', {
+        ghana_card_number: input.cardNumber,
+        ghana_card_image_key: presigned.key,
+      });
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(['ghana-card'], data);
+      // The tier moved, and the profile screen shows it.
+      void queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
   });
 }

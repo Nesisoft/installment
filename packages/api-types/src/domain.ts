@@ -396,6 +396,24 @@ export interface MerchantBalances {
 }
 
 /** One day of trading, for the merchant analytics bar chart. */
+export const GHANA_CARD_STATUSES = ['submitted', 'approved', 'rejected'] as const;
+export type GhanaCardStatus = (typeof GHANA_CARD_STATUSES)[number];
+
+/** What a customer is shown about their own Ghana Card. */
+export interface GhanaCardStatusView {
+  /** `null` until a card has been sent at all. */
+  status: GhanaCardStatus | null;
+  /** `GHA-•••••6789-0` — enough to recognise, useless to impersonate. */
+  card_number_masked: string | null;
+  has_scan: boolean;
+  verified: boolean;
+  verified_at: string | null;
+  reviewed_at: string | null;
+  /** Set only on a rejection, and the thing the customer has to act on. */
+  rejection_reason: string | null;
+  kyc_tier: number;
+}
+
 export interface MerchantStatsDay {
   /** `YYYY-MM-DD`, UTC — which for Ghana (UTC+0, no DST) is the local day. */
   date: string;

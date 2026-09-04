@@ -36,10 +36,20 @@ export const customers = pgTable("customers", {
 	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
 	user_id: uuid(),
+	ghana_card_status: text(),
+	ghana_card_reviewed_by: uuid(),
+	ghana_card_reviewed_at: timestamp({ withTimezone: true, mode: 'string' }),
+	ghana_card_rejection_reason: text(),
 }, (table) => [
 	index("customers_blocklist_idx").using("btree", table.is_on_blocklist.asc().nullsLast().op("bool_ops")).where(sql`(is_on_blocklist = true)`),
+	index("customers_ghana_card_status_idx").using("btree", table.ghana_card_status.asc().nullsLast().op("text_ops")).where(sql`((ghana_card_status IS NOT NULL) AND (deleted_at IS NULL))`),
 	index("customers_kyc_tier_idx").using("btree", table.kyc_tier.asc().nullsLast().op("int2_ops")).where(sql`(deleted_at IS NULL)`),
 	index("customers_phone_idx").using("btree", table.phone.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
+	foreignKey({
+			columns: [table.ghana_card_reviewed_by],
+			foreignColumns: [users.id],
+			name: "customers_ghana_card_reviewed_by_fkey"
+		}).onDelete("set null"),
 	foreignKey({
 			columns: [table.user_id],
 			foreignColumns: [users.id],
@@ -49,6 +59,9 @@ export const customers = pgTable("customers", {
 	unique("customers_phone_key").on(table.phone),
 	unique("customers_ghana_card_number_key").on(table.ghana_card_number),
 	unique("customers_user_id_key").on(table.user_id),
+	check("customers_ghana_card_status_check", sql`ghana_card_status = ANY (ARRAY['submitted'::text, 'approved'::text, 'rejected'::text])`),
+	check("customers_ghana_card_status_needs_card", sql`(ghana_card_status IS NULL) OR (ghana_card_number IS NOT NULL)`),
+	check("customers_ghana_card_verified_matches_status", sql`ghana_card_verified = ((ghana_card_status IS NOT NULL) AND (ghana_card_status = 'approved'::text))`),
 	check("customers_kyc_tier_check", sql`kyc_tier = ANY (ARRAY[0, 1, 2])`),
 	check("customers_momo_provider_check", sql`(momo_provider IS NULL) OR (momo_provider = ANY (ARRAY['mtn'::text, 'tgo'::text, 'vod'::text]))`),
 ]);
