@@ -104,8 +104,8 @@ export class StorefrontController {
   @Get('categories')
   @ApiOperation({ summary: 'Active categories with artwork and product counts' })
   @ApiModel('StorefrontCategory', { array: true })
-  categoryList() {
-    return this.storefront.categories();
+  categoryList(@Query() query: Record<string, string>) {
+    return this.storefront.categories(query);
   }
 
   /**

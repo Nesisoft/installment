@@ -62,6 +62,26 @@ INSERT INTO categories (id, name, slug, position, is_active, accent_hex) VALUES
   ('eeeeeeee-eeee-eeee-eeee-0000000dd006', 'Kids',        'kids',        6, TRUE, '#DFE7EC')
 ON CONFLICT (id) DO NOTHING;
 
+-- File Phones and Laptops under Electronics.
+--
+-- dev-fixtures.sql creates them, and has to: it runs first and its demo product
+-- needs a category. Electronics does not exist yet at that point, so they are
+-- inserted flat and parented here, where the top-level taxonomy is defined.
+--
+-- It matters beyond tidiness. Merchant signup asks what a shop sells and offers
+-- the top-level categories, so left flat these two show up as shop categories —
+-- a seller could file their whole business under "Laptops", which is not one of
+-- the six the design offers and is invisible to anyone browsing Electronics.
+--
+-- Matched by slug rather than by dev-fixtures' uuids, so it holds whoever
+-- created the rows, and guarded on `parent_id IS NULL` so a re-run is a no-op
+-- and a deliberate re-parenting later is not undone.
+UPDATE categories
+   SET parent_id = 'eeeeeeee-eeee-eeee-eeee-0000000dd002',
+       position  = CASE slug WHEN 'phones' THEN 1 ELSE 2 END
+ WHERE slug IN ('phones', 'laptops')
+   AND parent_id IS NULL;
+
 -- ---------------------------------------------------------------- merchants
 INSERT INTO merchants (id, business_name, legal_name, email, phone, status) VALUES
   ('eeeeeeee-eeee-eeee-eeee-0000000cc001', 'Adepa Couture',   'Adepa Couture Ltd',    'hello@adepa.example',    '+233302000101', 'active'),

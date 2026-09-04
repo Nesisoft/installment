@@ -163,6 +163,9 @@ INSERT INTO plan_templates (
 )
 ON CONFLICT (id) DO NOTHING;
 
+-- Inserted flat because Electronics does not exist yet: this file runs before
+-- marketplace-demo.sql, which defines the top-level taxonomy and is where these
+-- two are parented under it. Nothing here should treat them as top-level.
 INSERT INTO categories (id, name, slug, position, is_active) VALUES
   ('dddddddd-dddd-dddd-dddd-00000000c001', 'Phones', 'phones', 1, TRUE),
   ('dddddddd-dddd-dddd-dddd-00000000c002', 'Laptops', 'laptops', 2, TRUE)
