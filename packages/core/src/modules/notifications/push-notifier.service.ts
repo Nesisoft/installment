@@ -177,4 +177,34 @@ export class PushNotifier {
       data: { kind: 'order_placed', orderId: args.orderId, orderNumber: args.orderNumber },
     });
   }
+
+  /**
+   * A buyer's order has moved — shipped, out for delivery, delivered.
+   *
+   * Push-only on purpose. These are the events `order_events` has always
+   * recorded and nothing has ever told anybody about: a customer who did not
+   * open the app learned nothing. They are also not money notices, so paying
+   * an SMS aggregator per order per step would be a real cost with nothing
+   * riding on it — unlike the templates in `NotificationService`, which go by
+   * SMS regardless and push as well.
+   *
+   * The title and body are the timeline event's own words, handed down by the
+   * caller, so the tray and the order screen cannot disagree.
+   */
+  async notifyCustomerOfOrderEvent(args: {
+    customerId: string;
+    orderId: string;
+    orderNumber: string;
+    eventType: string;
+    title: string;
+    body: string;
+  }): Promise<PushOutcome> {
+    return this.send({
+      owner: { customerId: args.customerId },
+      templateId: args.eventType,
+      title: args.title,
+      body: args.body,
+      data: { kind: args.eventType, orderId: args.orderId, orderNumber: args.orderNumber },
+    });
+  }
 }

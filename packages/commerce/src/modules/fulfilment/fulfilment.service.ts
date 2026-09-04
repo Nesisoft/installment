@@ -78,6 +78,24 @@ const MS_PER_DAY = 86_400_000;
  * Osu · GHS 15" line in the design had nothing behind it. This is where that
  * number now comes from.
  */
+/**
+ * The slice of the push notifier this service needs.
+ *
+ * A narrow port for the same reason `MerchantOrderNotifier` is one in
+ * `OrdersService`: commerce says what it requires, the real notifier satisfies
+ * it structurally, and the fixtures hand over a plain object.
+ */
+export interface CustomerOrderNotifier {
+  notifyCustomerOfOrderEvent(args: {
+    customerId: string;
+    orderId: string;
+    orderNumber: string;
+    eventType: string;
+    title: string;
+    body: string;
+  }): Promise<unknown>;
+}
+
 export class FulfilmentService {
   constructor(
     private readonly db: Database,
@@ -88,6 +106,16 @@ export class FulfilmentService {
      */
     private readonly audit?: AuditLogger,
     private readonly plans?: CustomerPlansService,
+    /**
+     * Tells the buyer their order moved.
+     *
+     * Until this, nothing did: every step here writes an `order_events` row the
+     * app can render, and a customer who did not open the app learned nothing.
+     * Push-only, and deliberately not SMS — a marketplace paying per message
+     * for "out for delivery" on every order is a cost with no money riding on
+     * it, and the timeline is already in the app for anyone who looks.
+     */
+    private readonly customerNotifier?: CustomerOrderNotifier,
   ) {}
 
   /**
@@ -265,7 +293,7 @@ export class FulfilmentService {
   ): Promise<Order> {
     const input: MarkShippedInput = markShippedSchema.parse(rawInput);
 
-    return runInTransaction(this.db, async (tx) => {
+    const shipped = await runInTransaction(this.db, async (tx) => {
       const order = await this.lockOrder(tx, orderId, opts.merchantId);
 
       await this.upsertShipment(tx, orderId, {
@@ -299,6 +327,50 @@ export class FulfilmentService {
           : (input.note ?? null),
       });
     });
+
+    await this.announce(shipped, 'order.shipped', 'Shipped', {
+      courierName: input.courier_name ?? null,
+      note: input.note ?? null,
+    });
+    return shipped;
+  }
+
+  /**
+   * Pushes an order event to the buyer, after the transaction that raised it.
+   *
+   * After, and swallowed, for the same reason the merchant announcement in
+   * `OrdersService` is: the delivery physically happened, and a provider outage
+   * must not roll it back. Nothing here is the only record — `order_events`
+   * already holds the timeline.
+   *
+   * The copy is the event's own `label` and `detail`, verbatim. They were
+   * written for the buyer and the app renders them in the timeline, so reusing
+   * them is the only way the tray and the screen cannot come to disagree.
+   */
+  private async announce(
+    order: Order,
+    eventType: string,
+    label: string,
+    copy: { courierName?: string | null; riderName?: string | null; note?: string | null },
+  ): Promise<void> {
+    if (!this.customerNotifier) return;
+    const body =
+      (copy.riderName ? `${copy.riderName} is on the way.` : null) ??
+      (copy.courierName ? `On its way with ${copy.courierName}.` : null) ??
+      copy.note ??
+      `Order ${order.order_number}`;
+    try {
+      await this.customerNotifier.notifyCustomerOfOrderEvent({
+        customerId: order.customer_id,
+        orderId: order.id,
+        orderNumber: order.order_number,
+        eventType,
+        title: label,
+        body,
+      });
+    } catch {
+      // Recorded by the notifier; never the caller's problem.
+    }
   }
 
   /**
@@ -316,7 +388,7 @@ export class FulfilmentService {
   ): Promise<Order> {
     const input: MarkOutForDeliveryInput = markOutForDeliverySchema.parse(rawInput);
 
-    return runInTransaction(this.db, async (tx) => {
+    const out = await runInTransaction(this.db, async (tx) => {
       const order = await this.lockOrder(tx, orderId, opts.merchantId);
       if (order.status !== 'shipped') {
         throw new OrderNotFulfillableError(orderId, order.status, 'out for delivery');
@@ -339,6 +411,12 @@ export class FulfilmentService {
 
       return order;
     });
+
+    await this.announce(out, 'order.out_for_delivery', 'Out for delivery', {
+      riderName: input.rider_name ?? null,
+      note: input.note ?? null,
+    });
+    return out;
   }
 
   /**
@@ -395,6 +473,17 @@ export class FulfilmentService {
         now,
       );
     }
+
+    // The buyer's most-wanted notification, and it also opens the return
+    // window — so it is the one fulfilment push that is arguably load-bearing.
+    // Still after the engine hand-off: a reserve clock that failed to start
+    // matters more than a tray message, and the order is delivered either way.
+    await this.announce(
+      order,
+      'order.delivered',
+      order.fulfilment_method === 'pickup' ? 'Collected' : 'Delivered',
+      { note: input.received_by ? `Received by ${input.received_by}.` : (input.note ?? null) },
+    );
 
     return order;
   }
