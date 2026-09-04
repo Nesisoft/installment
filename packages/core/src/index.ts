@@ -380,8 +380,11 @@ export {
 export * from './modules/customers/ghana-card-verifier';
 export {
   CustomersService,
+  GHANA_CARD_STATUSES,
   type Customer,
   type CustomerActor,
+  type GhanaCardStatus,
+  type GhanaCardStatusView,
 } from './modules/customers/customers.service';
 export * from './modules/employers/state-machine';
 export {
@@ -474,6 +477,7 @@ export {
 export * from './shared/constants/system-actors';
 export * from './shared/test-fixtures/users';
 export * from './shared/test-fixtures/merchant-kyc';
+export * from './shared/test-fixtures/ghana-card';
 
 // Generic shared helpers used by @installment/commerce (which owns the domain).
 export * from './shared/validators/slug';

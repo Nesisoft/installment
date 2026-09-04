@@ -296,3 +296,28 @@ export interface ChargeResult {
   reference: string;
   message?: string;
 }
+
+// --- Ghana Card (KYC tier 1) --------------------------------------------------
+
+export type GhanaCardStatus = 'submitted' | 'approved' | 'rejected';
+
+export interface GhanaCardStatusView {
+  /** `null` until a card has been sent at all. */
+  status: GhanaCardStatus | null;
+  card_number_masked: string | null;
+  has_scan: boolean;
+  verified: boolean;
+  verified_at: string | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  kyc_tier: number;
+}
+
+/** What `POST /me/uploads` hands back for a direct-to-storage PUT. */
+export interface PresignedUpload {
+  key: string;
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  expires_at: string;
+}

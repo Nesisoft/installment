@@ -4,6 +4,7 @@ import { createTestDb, schema } from '@installment/db';
 import { eq } from 'drizzle-orm';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
+import { approveGhanaCard } from '../../shared/test-fixtures/ghana-card';
 import { CustomersService } from '../customers/customers.service';
 import { MockGhanaCardVerifier } from '../customers/ghana-card-verifier';
 import { PlanTemplatesService } from '../plans/plan-templates.service';
@@ -80,13 +81,14 @@ describe.skipIf(!RUN_DB)('thin-file starter limit (integration)', () => {
     const firstSeen = new Date(Date.now() - phoneAgeDays * 86_400_000).toISOString();
     await db
       .update(schema.customers)
-      .set({
-        ghana_card_verified: true,
-        ghana_card_verified_at: firstSeen,
-        kyc_tier: 2,
-        phone_first_seen_at: firstSeen,
-      })
+      .set({ phone_first_seen_at: firstSeen })
       .where(eq(schema.customers.id, customer.id));
+    // Through the real service, which grants tier 1. This fixture used to write
+    // `kyc_tier: 2` by hand — a state nothing in the product can produce, so
+    // the 100-point band of `score.kyc_tier` was being asserted into existence
+    // here. The assertions below still hold at tier 1, and now hold against a
+    // customer who could actually exist.
+    await approveGhanaCard(db, customer.id);
     return customer.id;
   }
 

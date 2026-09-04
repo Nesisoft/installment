@@ -4,6 +4,7 @@ import { createTestDb, schema } from '@installment/db';
 import { eq } from 'drizzle-orm';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
+import { approveGhanaCard } from '../../shared/test-fixtures/ghana-card';
 import { CustomersService } from '../customers/customers.service';
 import { MockGhanaCardVerifier } from '../customers/ghana-card-verifier';
 import { EmployersService } from '../employers/employers.service';
@@ -81,13 +82,14 @@ describe.skipIf(!RUN_DB)('employer-linked first-timers (integration)', () => {
     const firstSeen = new Date(Date.now() - 90 * 86_400_000).toISOString();
     await db
       .update(schema.customers)
-      .set({
-        ghana_card_verified: true,
-        ghana_card_verified_at: firstSeen,
-        kyc_tier: 2,
-        phone_first_seen_at: firstSeen,
-      })
+      .set({ phone_first_seen_at: firstSeen })
       .where(eq(schema.customers.id, customer.id));
+    // Through the real service, which grants tier 1. This fixture used to write
+    // `kyc_tier: 2` by hand — a state nothing in the product can produce, so
+    // the 100-point band of `score.kyc_tier` was being asserted into existence
+    // here. The assertions below still hold at tier 1, and now hold against a
+    // customer who could actually exist.
+    await approveGhanaCard(db, customer.id);
     return customer.id;
   }
 
@@ -260,13 +262,27 @@ describe.skipIf(!RUN_DB)('employer-linked first-timers (integration)', () => {
   });
 
   /**
-   * The two scores this whole change sits between, taken from real rows rather
-   * than a fixture: 225 unemployed (unscorable, declined) and 375 with a live
-   * employer link (subprime, and before this change, manual_review). The unit
-   * spec's 275/425 are higher because its fixture grants a known device and
-   * address proof that nothing populates on a real customer yet.
+   * The two scores this change sits between, from real rows: 175 unemployed and
+   * 325 with a live employer link.
+   *
+   * These were 225 and 375 until the fixture stopped writing `kyc_tier: 2` by
+   * hand. Nothing in this system raises the tier past 1 — `verifyGhanaCard`
+   * caps it there and no other writer exists — so the 100-point band of
+   * `score.kyc_tier` was being asserted into existence by the fixture, and
+   * every number here was 50 too high. PLATFORM-ROADMAP.md's own arithmetic
+   * makes the same mistake, counting "KYC tier 2 100" toward a first-timer
+   * ceiling of 325; the real ceiling is 275.
+   *
+   * The consequence is the interesting part: **a verified, employed first-timer
+   * does not reach `subprime` at all.** 325 is under the 350 floor, so both of
+   * these customers are `unscorable`, and every approval either of them gets is
+   * the starter policy's doing rather than the score's. That was already true
+   * of the unemployed one; it is now true of both.
+   *
+   * The unit spec's 275/425 are higher again because its fixture grants a known
+   * device and address proof that nothing populates on a real customer yet.
    */
-  it('puts the two first-timers either side of the subprime floor', async () => {
+  it('separates the two first-timers by exactly the rule under test', async () => {
     const unemployed = await verifiedNewCustomer();
     const employed = await verifiedNewCustomer();
     await employ(employed, await activeEmployer(), { verify: true, consent: true });
@@ -274,12 +290,25 @@ describe.skipIf(!RUN_DB)('employer-linked first-timers (integration)', () => {
     const a = await decide(unemployed, 600);
     const b = await decide(employed, 600);
 
-    expect(a.score).toBe(225);
-    expect(a.riskBand).toBe('unscorable');
-    expect(b.score).toBe(375);
-    expect(b.riskBand).toBe('subprime');
+    expect(a.score).toBe(175);
+    expect(b.score).toBe(325);
     // The 150-point difference is one rule, and it is the one under test.
     expect(b.rulesFired.find((r) => r.ruleId === 'score.employer_linked')?.points).toBe(150);
+  });
+
+  it('leaves even the employed first-timer short of the subprime floor', async () => {
+    // Worth its own test because it is a policy fact, not an implementation
+    // detail: 325 < 350, so nothing a first-time customer can do — verify their
+    // card, hold down a verified job — scores them into a band. Approval for
+    // them is the starter ceiling or nothing, and that is the decision waiting
+    // on an owner.
+    const employed = await verifiedNewCustomer();
+    await employ(employed, await activeEmployer(), { verify: true, consent: true });
+
+    const decision = await decide(employed, 600);
+
+    expect(decision.score).toBeLessThan(350);
+    expect(decision.riskBand).toBe('unscorable');
   });
 
   it('is the policy deciding, not a creditworthy applicant', async () => {
@@ -289,10 +318,13 @@ describe.skipIf(!RUN_DB)('employer-linked first-timers (integration)', () => {
     const decision = await decide(customerId, 1_500);
 
     // The band and score stay honest: somebody reading this decision has to be
-    // able to see a deliberate appetite rather than a strong file.
+    // able to see a deliberate appetite rather than a strong file. `unscorable`
+    // rather than `subprime` since the fixture stopped claiming tier 2 — which
+    // makes the point more sharply, not less: this approval comes entirely from
+    // the payroll ceiling.
     expect(decision.outcome).toBe('approved');
-    expect(decision.riskBand).toBe('subprime');
-    expect(decision.score).toBeLessThan(500);
+    expect(decision.riskBand).toBe('unscorable');
+    expect(decision.score).toBeLessThan(350);
   });
 
   it('still refuses a customer whose Ghana Card is not verified', async () => {

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -25,6 +26,7 @@ import {
   CustomerPlansService,
   CustomersService,
   InstallmentsFeedService,
+  attachGhanaCardSchema,
   setMomoSchema,
   updateCustomerSchema,
 } from '@installment/core';
@@ -32,6 +34,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators';
 import { ApiModel } from '../common/api-model';
 import { ApiZodBody } from '../common/api-zod';
+import { keyBelongsTo } from '../media/upload-policy';
 
 /**
  * What a customer may change about themselves.
@@ -128,6 +131,50 @@ export class MeShopperController {
       },
       created_at: customer.created_at,
     };
+  }
+
+  // --- Ghana Card -----------------------------------------------------------
+
+  /**
+   * A customer's own Ghana Card, sent from their own phone.
+   *
+   * Until this, `attachGhanaCard` had exactly one caller — the admin console —
+   * so a shopper could not submit a card at all, and `POST /me/uploads` has
+   * been minting presigned URLs for `kyc_document` with nothing to attach the
+   * key to. Without a card, `verifyGhanaCard` refuses, `kyc_tier` stays 0, and
+   * the 50 points a verified card is worth are unreachable from the app.
+   *
+   * The key is checked against the prefix this customer's uploads are issued
+   * under — the same guard the merchant KYC route uses. Without it a customer
+   * could submit the object at somebody else's key as their own identity
+   * document, which is the one thing an identity check must not allow.
+   */
+  @Get('ghana-card')
+  @ApiOperation({ summary: 'The state of my Ghana Card, and why it was rejected' })
+  async ghanaCard(@CurrentUser() user: AuthenticatedUser) {
+    const customer = await this.customers.findByUserId(user.id);
+    if (!customer) throw new CustomerNotFoundError(user.id);
+    return this.customers.ghanaCardStatusFor(customer.id);
+  }
+
+  @Post('ghana-card')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Send my Ghana Card for review' })
+  @ApiZodBody(attachGhanaCardSchema)
+  async attachGhanaCard(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    const customer = await this.customers.findByUserId(user.id);
+    if (!customer) throw new CustomerNotFoundError(user.id);
+
+    const key = (body as { ghana_card_image_key?: unknown }).ghana_card_image_key;
+    if (typeof key === 'string' && !keyBelongsTo('kyc_document', key, customer.id)) {
+      throw new BadRequestException('ghana_card_image_key was not issued to this customer');
+    }
+
+    await this.customers.attachGhanaCard(customer.id, body, {
+      actorId: customer.id,
+      actorType: 'customer',
+    });
+    return this.customers.ghanaCardStatusFor(customer.id);
   }
 
   @Patch('profile')

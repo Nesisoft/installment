@@ -2,9 +2,15 @@ import { relations } from "drizzle-orm/relations";
 import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, products, stores, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, customer_card_authorizations, refunds, product_reviews, wishlist_items, search_queries, pickup_hubs, order_events, shipments, customer_credit_standing, merchant_kyc_documents, push_devices, permissions, role_permissions, roles, user_roles } from "./schema";
 
 export const customersRelations = relations(customers, ({one, many}) => ({
-	user: one(users, {
+	user_ghana_card_reviewed_by: one(users, {
+		fields: [customers.ghana_card_reviewed_by],
+		references: [users.id],
+		relationName: "customers_ghana_card_reviewed_by_users_id"
+	}),
+	user_user_id: one(users, {
 		fields: [customers.user_id],
-		references: [users.id]
+		references: [users.id],
+		relationName: "customers_user_id_users_id"
 	}),
 	customer_employments: many(customer_employment),
 	applications: many(applications),
@@ -22,7 +28,12 @@ export const customersRelations = relations(customers, ({one, many}) => ({
 }));
 
 export const usersRelations = relations(users, ({many}) => ({
-	customers: many(customers),
+	customers_ghana_card_reviewed_by: many(customers, {
+		relationName: "customers_ghana_card_reviewed_by_users_id"
+	}),
+	customers_user_id: many(customers, {
+		relationName: "customers_user_id_users_id"
+	}),
 	collections_cases: many(collections_cases),
 	collections_actions: many(collections_actions),
 	rule_definitions: many(rule_definitions),

@@ -36,6 +36,44 @@ export interface CustomerActor {
   actorType: AuditActorType;
 }
 
+/**
+ * The reviewer to record on the row, or null.
+ *
+ * `ghana_card_reviewed_by` is a foreign key into `users`, and only a person has
+ * a row there: `actorOf` maps both admin and agent staff to `'admin'`, while a
+ * sweep or a worker has a `SYSTEM_ACTORS` constant for an id, which would break
+ * the key. The audit event records the actor either way — this column is the
+ * shortcut for the console, not the record.
+ */
+function reviewerId(actor: CustomerActor): string | null {
+  return actor.actorType === 'admin' ? actor.actorId : null;
+}
+
+export const GHANA_CARD_STATUSES = ['submitted', 'approved', 'rejected'] as const;
+export type GhanaCardStatus = (typeof GHANA_CARD_STATUSES)[number];
+
+/** What a customer is shown about their own Ghana Card. */
+export interface GhanaCardStatusView {
+  /** `null` until a card has been sent at all. */
+  status: GhanaCardStatus | null;
+  card_number_masked: string | null;
+  has_scan: boolean;
+  verified: boolean;
+  verified_at: string | null;
+  reviewed_at: string | null;
+  /** Set only on a rejection, and the thing the customer has to act on. */
+  rejection_reason: string | null;
+  kyc_tier: number;
+}
+
+/** `GHA-123456789-0` -> `GHA-•••••6789-0`. */
+function maskGhanaCard(number: string | null): string | null {
+  if (!number) return null;
+  const match = /^GHA-(\d{9})-(\d)$/.exec(number);
+  if (!match) return '•'.repeat(number.length);
+  return `GHA-${'•'.repeat(5)}${match[1]!.slice(5)}-${match[2]}`;
+}
+
 const CONSENT_COLUMN: Record<ConsentType, keyof typeof c.$inferInsert> = {
   data_processing: 'data_processing_consent_at',
   credit_scoring: 'credit_scoring_consent_at',
@@ -161,20 +199,63 @@ export class CustomersService {
     });
   }
 
+  // ------------------------------------------------------- ghanaCardStatusFor
+
+  /**
+   * What the customer's own app should say about their card.
+   *
+   * Its own read rather than more fields on the profile, for two reasons: the
+   * card number is masked here and the raw one is not something a phone needs
+   * to hold, and a rejection reason is free text written by a reviewer, which
+   * belongs behind a call the app makes when it is showing the KYC screen
+   * rather than on every profile fetch.
+   */
+  async ghanaCardStatusFor(id: string): Promise<GhanaCardStatusView> {
+    const row = await this.get(id);
+    return {
+      status: row.ghana_card_status as GhanaCardStatus | null,
+      /** Last four digits only — enough to recognise, useless to impersonate. */
+      card_number_masked: maskGhanaCard(row.ghana_card_number),
+      has_scan: row.ghana_card_image_key !== null,
+      verified: row.ghana_card_verified,
+      verified_at: row.ghana_card_verified_at,
+      reviewed_at: row.ghana_card_reviewed_at,
+      rejection_reason: row.ghana_card_rejection_reason,
+      kyc_tier: row.kyc_tier,
+    };
+  }
+
   // ----------------------------------------------------------- attachGhanaCard
 
   async attachGhanaCard(id: string, rawInput: unknown, actor: CustomerActor): Promise<Customer> {
     const input: AttachGhanaCardInput = attachGhanaCardSchema.parse(rawInput);
+    const current = await this.get(id);
+    // Re-attaching withdraws the verification, so it has to withdraw the tier
+    // that verification bought — exactly as `rejectGhanaCard` does, and for the
+    // reason stated there: nothing but this card raises the tier to 1. Without
+    // this, a customer whose card was approved and who then sent a different
+    // one kept the tier while `ghana_card_verified` was false, and the scoring
+    // engine went on paying them 50 points for a card nobody had looked at.
+    const newTier = current.kyc_tier === 1 ? 0 : current.kyc_tier;
 
     return runInTransaction(this.db, async (tx) => {
       const rows = await tx
         .update(c)
         .set({
+          kyc_tier: newTier,
           ghana_card_number: input.ghana_card_number,
           ghana_card_image_key: input.ghana_card_image_key,
           // Re-attaching invalidates any prior verification.
           ghana_card_verified: false,
           ghana_card_verified_at: null,
+          // And any prior review, including the reason. A customer who was told
+          // "the photo is too dark" and has sent a new one is waiting again,
+          // not still rejected — and leaving the old reason on the row would
+          // have their own screen contradict what they just did.
+          ghana_card_status: 'submitted',
+          ghana_card_reviewed_by: null,
+          ghana_card_reviewed_at: null,
+          ghana_card_rejection_reason: null,
         })
         .where(and(eq(c.id, id), isNull(c.deleted_at)))
         .returning();
@@ -232,6 +313,10 @@ export class CustomersService {
           ghana_card_verified: true,
           ghana_card_verified_at: nowIso,
           kyc_tier: newTier,
+          ghana_card_status: 'approved',
+          ghana_card_reviewed_by: reviewerId(actor),
+          ghana_card_reviewed_at: nowIso,
+          ghana_card_rejection_reason: null,
         })
         .where(and(eq(c.id, id), isNull(c.deleted_at)))
         .returning();
@@ -281,6 +366,12 @@ export class CustomersService {
           ghana_card_verified: false,
           ghana_card_verified_at: null,
           kyc_tier: newTier,
+          ghana_card_status: 'rejected',
+          ghana_card_reviewed_by: reviewerId(actor),
+          ghana_card_reviewed_at: new Date().toISOString(),
+          // On the row, not only in the audit log. The customer has to be told
+          // what to send instead, and they cannot read `audit_events`.
+          ghana_card_rejection_reason: input.reason,
         })
         .where(and(eq(c.id, id), isNull(c.deleted_at)))
         .returning();

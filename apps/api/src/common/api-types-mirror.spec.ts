@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { LEDGER_ACCOUNT_TYPES, PERMISSIONS } from '@installment/core';
+import { GHANA_CARD_STATUSES, LEDGER_ACCOUNT_TYPES, PERMISSIONS } from '@installment/core';
 import { CATALOG_PERMISSIONS, MERCHANT_STATS_WINDOWS } from '@installment/commerce';
 import {
   PERMISSIONS as MIRRORED_PERMISSIONS,
   LEDGER_ACCOUNT_TYPES as MIRRORED_LEDGER_ACCOUNT_TYPES,
   MERCHANT_STATS_WINDOWS as MIRRORED_MERCHANT_STATS_WINDOWS,
+  GHANA_CARD_STATUSES as MIRRORED_GHANA_CARD_STATUSES,
 } from '@installment/api-types';
 
 /**
@@ -40,6 +41,13 @@ describe('api-types mirrors the backend contract', () => {
     // said. `customer_float` went missing for two slices behind exactly that
     // kind of unchecked declaration.
     expect([...MIRRORED_LEDGER_ACCOUNT_TYPES].sort()).toEqual([...LEDGER_ACCOUNT_TYPES].sort());
+  });
+
+  it('lists every state a Ghana Card review can be in', () => {
+    // The customer app branches on this to decide whether to offer the camera,
+    // say "we are checking", or show the reviewer's reason — so a mirror that
+    // drifted would leave a real state with no screen behind it.
+    expect([...MIRRORED_GHANA_CARD_STATUSES]).toEqual([...GHANA_CARD_STATUSES]);
   });
 
   it('lists every analytics window the merchant stats endpoint will serve', () => {

@@ -98,10 +98,20 @@ ON CONFLICT DO NOTHING;
 -- OTP login resolves the user by phone, and /me/* resolves the domain customer
 -- via customers.user_id.
 -- ============================================================================
+-- The card fields have to agree with each other: 0019 added a CHECK that
+-- `ghana_card_verified` is true exactly when `ghana_card_status = 'approved'`,
+-- and another that a status needs a card number. This fixture used to set
+-- `verified` alone, which the first of those now refuses — correctly, because
+-- "verified" with no card is a claim about a document that does not exist.
+--
+-- The image key points at an object dev storage does not hold. That is
+-- deliberate: it exercises the admin console's missing-scan fallback, which is
+-- the state a reviewer sees when a key is dangling.
 INSERT INTO customers (
   id, first_name, last_name, email, phone, date_of_birth, momo_phone, momo_provider,
-  kyc_tier, ghana_card_verified, user_id,
-  data_processing_consent_at, credit_scoring_consent_at
+  kyc_tier, ghana_card_number, ghana_card_image_key,
+  ghana_card_verified, ghana_card_verified_at, ghana_card_status, ghana_card_reviewed_at,
+  user_id, data_processing_consent_at, credit_scoring_consent_at
 ) VALUES (
   'cccccccc-cccc-cccc-cccc-000000000001',
   'Ama', 'Mensah',
@@ -110,7 +120,10 @@ INSERT INTO customers (
   '1995-06-15',
   '+233240000002',
   'mtn',
-  1, TRUE,
+  1,
+  'GHA-000000001-0',
+  'kyc/cccccccc-cccc-cccc-cccc-000000000001/ghana-card-demo.jpg',
+  TRUE, NOW(), 'approved', NOW(),
   'aaaaaaaa-aaaa-aaaa-aaaa-000000000003',
   NOW(), NOW()
 )

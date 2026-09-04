@@ -274,3 +274,220 @@ describe.skipIf(!RUN_DB)('CustomersService (integration)', () => {
     expect(await svc.findByUserId(randomUUID())).toBeUndefined();
   });
 });
+
+/**
+ * The card's review state, which the customer's own app has to be able to read.
+ *
+ * Before 0019 the row carried one boolean, so a rejected card and a
+ * never-reviewed one were byte-identical — `rejectGhanaCard` clears `verified`
+ * and keeps the number and key, which is right, but it left nothing to tell a
+ * customer whether to wait or to send a better photo. And the reason lived only
+ * in `audit_events`, which they cannot read.
+ */
+describe.skipIf(!RUN_DB)('Ghana Card review state (integration)', () => {
+  const { db, pool } = createTestDb();
+  const audit = new AuditLogger();
+  const SYSTEM_ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  const svc = (opts?: ConstructorParameters<typeof MockGhanaCardVerifier>[0]) =>
+    new CustomersService(db, audit, new MockGhanaCardVerifier(opts));
+
+  function registration() {
+    const suffix = randomUUID();
+    return {
+      first_name: 'Ama',
+      last_name: 'Mensah',
+      email: `card+${suffix}@example.com`,
+      phone: `024${Math.floor(1_000_000 + Math.random() * 8_999_999)}`,
+      consents: { data_processing: true, credit_scoring: true },
+    };
+  }
+
+  const card = () => ({
+    ghana_card_number: `GHA-${Math.floor(100_000_000 + Math.random() * 899_999_999)}-0`,
+    ghana_card_image_key: 'private/kyc/c/k.jpg',
+  });
+
+  it('says nothing at all before a card has been sent', async () => {
+    const s = svc();
+    const c = await s.register(registration(), SYSTEM_ACTOR);
+
+    const view = await s.ghanaCardStatusFor(c.id);
+
+    // `null`, not 'submitted' — a customer who has sent nothing is not waiting
+    // on a reviewer, and the app has to offer them the camera instead.
+    expect(view).toMatchObject({
+      status: null,
+      card_number_masked: null,
+      has_scan: false,
+      verified: false,
+      rejection_reason: null,
+      kyc_tier: 0,
+    });
+  });
+
+  it('is submitted once sent, and masks the number', async () => {
+    const s = svc();
+    const c = await s.register(registration(), SYSTEM_ACTOR);
+
+    await s.attachGhanaCard(
+      c.id,
+      { ...card(), ghana_card_number: 'GHA-123456789-0' },
+      SYSTEM_ACTOR,
+    );
+    const view = await s.ghanaCardStatusFor(c.id);
+
+    expect(view.status).toBe('submitted');
+    expect(view.has_scan).toBe(true);
+    // Enough to recognise their own card, useless to anyone else.
+    expect(view.card_number_masked).toBe('GHA-•••••6789-0');
+    expect(view.card_number_masked).not.toContain('12345');
+  });
+
+  it('carries the reviewer’s reason to the customer on a rejection', async () => {
+    const s = svc();
+    const c = await s.register(registration(), SYSTEM_ACTOR);
+    await s.attachGhanaCard(c.id, card(), SYSTEM_ACTOR);
+
+    await s.rejectGhanaCard(c.id, { reason: 'The photo is too dark to read' }, SYSTEM_ACTOR);
+    const view = await s.ghanaCardStatusFor(c.id);
+
+    expect(view.status).toBe('rejected');
+    // The whole point: a customer told only "not verified" cannot act.
+    expect(view.rejection_reason).toBe('The photo is too dark to read');
+    expect(view.reviewed_at).not.toBeNull();
+  });
+
+  it('distinguishes a rejected card from one nobody has looked at yet', async () => {
+    // The state that was unrepresentable. Both rows have a number, a key and
+    // `verified = false`; only the status tells them apart.
+    const s = svc();
+    const waiting = await s.register(registration(), SYSTEM_ACTOR);
+    const refused = await s.register(registration(), SYSTEM_ACTOR);
+    await s.attachGhanaCard(waiting.id, card(), SYSTEM_ACTOR);
+    await s.attachGhanaCard(refused.id, card(), SYSTEM_ACTOR);
+    await s.rejectGhanaCard(refused.id, { reason: 'Expired' }, SYSTEM_ACTOR);
+
+    expect((await s.ghanaCardStatusFor(waiting.id)).status).toBe('submitted');
+    expect((await s.ghanaCardStatusFor(refused.id)).status).toBe('rejected');
+  });
+
+  it('withdraws the tier when a different card is sent', async () => {
+    // `rejectGhanaCard` lowers the tier because "that tier was raised by this
+    // card and nothing else raises it". Re-attaching withdraws the same
+    // verification, so it has to do the same — otherwise the scoring engine
+    // goes on paying 50 points for a card nobody has looked at.
+    const s = svc();
+    const c = await s.register(registration(), SYSTEM_ACTOR);
+    await s.attachGhanaCard(c.id, card(), SYSTEM_ACTOR);
+    await s.verifyGhanaCard(c.id, SYSTEM_ACTOR);
+    expect((await s.ghanaCardStatusFor(c.id)).kyc_tier).toBe(1);
+
+    await s.attachGhanaCard(c.id, card(), SYSTEM_ACTOR);
+    const view = await s.ghanaCardStatusFor(c.id);
+
+    expect(view).toMatchObject({ status: 'submitted', verified: false, kyc_tier: 0 });
+  });
+
+  it('clears the old reason when a better photo is sent', async () => {
+    const s = svc();
+    const c = await s.register(registration(), SYSTEM_ACTOR);
+    await s.attachGhanaCard(c.id, card(), SYSTEM_ACTOR);
+    await s.rejectGhanaCard(c.id, { reason: 'Too dark' }, SYSTEM_ACTOR);
+
+    await s.attachGhanaCard(c.id, card(), SYSTEM_ACTOR);
+    const view = await s.ghanaCardStatusFor(c.id);
+
+    // A customer who has acted on the feedback is waiting again, not still
+    // rejected — leaving the reason would have their screen contradict what
+    // they just did.
+    expect(view.status).toBe('submitted');
+    expect(view.rejection_reason).toBeNull();
+    expect(view.reviewed_at).toBeNull();
+  });
+
+  it('is approved once verified, and the tier goes with it', async () => {
+    const s = svc();
+    const c = await s.register(registration(), SYSTEM_ACTOR);
+    await s.attachGhanaCard(c.id, card(), SYSTEM_ACTOR);
+
+    await s.verifyGhanaCard(c.id, SYSTEM_ACTOR);
+    const view = await s.ghanaCardStatusFor(c.id);
+
+    expect(view).toMatchObject({ status: 'approved', verified: true, kyc_tier: 1 });
+    expect(view.verified_at).not.toBeNull();
+    // Tier 1, not 2 — nothing in this system sets tier 2, so the 100-point band
+    // of `score.kyc_tier` is unreachable. Pinned here so the day somebody
+    // decides what earns tier 2, this test is what tells them the decision has
+    // a home.
+    expect(view.kyc_tier).not.toBe(2);
+  });
+
+  it('takes the tier back down when an approved card is later rejected', async () => {
+    const s = svc();
+    const c = await s.register(registration(), SYSTEM_ACTOR);
+    await s.attachGhanaCard(c.id, card(), SYSTEM_ACTOR);
+    await s.verifyGhanaCard(c.id, SYSTEM_ACTOR);
+
+    await s.rejectGhanaCard(c.id, { reason: 'Belongs to someone else' }, SYSTEM_ACTOR);
+    const view = await s.ghanaCardStatusFor(c.id);
+
+    expect(view).toMatchObject({ status: 'rejected', verified: false, kyc_tier: 0 });
+  });
+
+  // ---------------------------------------------------------------- the schema
+
+  it('refuses a row where the boolean and the status disagree', async () => {
+    // Two columns for one fact, so the table refuses to hold a contradiction:
+    // without this, a writer that flipped one and forgot the other would give
+    // the scoring engine and the customer's own screen different answers.
+    const s = svc();
+    const c = await s.register(registration(), SYSTEM_ACTOR);
+    await s.attachGhanaCard(c.id, card(), SYSTEM_ACTOR);
+
+    await expect(
+      db
+        .update(schema.customers)
+        .set({ ghana_card_verified: true })
+        .where(eq(schema.customers.id, c.id)),
+    ).rejects.toThrow();
+
+    await expect(
+      db
+        .update(schema.customers)
+        .set({ ghana_card_status: 'approved' })
+        .where(eq(schema.customers.id, c.id)),
+    ).rejects.toThrow();
+  });
+
+  it('refuses “verified” on a customer with no card at all', async () => {
+    // The shape a CHECK on the bare comparison would have let through: with a
+    // NULL status, `verified = (status = 'approved')` is NULL, and a CHECK
+    // passes on NULL.
+    const s = svc();
+    const c = await s.register(registration(), SYSTEM_ACTOR);
+
+    await expect(
+      db
+        .update(schema.customers)
+        .set({ ghana_card_verified: true })
+        .where(eq(schema.customers.id, c.id)),
+    ).rejects.toThrow();
+  });
+
+  it('refuses a status with no card behind it', async () => {
+    const s = svc();
+    const c = await s.register(registration(), SYSTEM_ACTOR);
+
+    await expect(
+      db
+        .update(schema.customers)
+        .set({ ghana_card_status: 'submitted' })
+        .where(eq(schema.customers.id, c.id)),
+    ).rejects.toThrow();
+  });
+});
