@@ -236,9 +236,13 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
       // The plans service is what turns a delivery into a reserve release, so a
       // deployment without it would mark orders delivered and never start the
       // merchant's payout clock.
-      useFactory: (db: Database, audit: AuditLogger, plans: CustomerPlansService) =>
-        new FulfilmentService(db, audit, plans),
-      inject: [DRIZZLE, AuditLogger, CustomerPlansService],
+      useFactory: (
+        db: Database,
+        audit: AuditLogger,
+        plans: CustomerPlansService,
+        push: PushNotifier,
+      ) => new FulfilmentService(db, audit, plans, push),
+      inject: [DRIZZLE, AuditLogger, CustomerPlansService, PushNotifier],
     },
     {
       provide: WishlistService,
@@ -634,9 +638,17 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
     },
     {
       provide: NotificationService,
-      useFactory: (db: Database, sms: SmsSender, config: ConfigService<Env, true>) =>
-        new NotificationService(db, sms, config.get('SMS_SENDER_ID', { infer: true })),
-      inject: [DRIZZLE, SMS_SENDER, ConfigService],
+      // The push notifier is the fourth argument, not a replacement for the
+      // SMS sender: every template it renders is a money notice, so the SMS
+      // goes regardless and the push is the tappable copy for whoever has the
+      // app installed.
+      useFactory: (
+        db: Database,
+        sms: SmsSender,
+        config: ConfigService<Env, true>,
+        push: PushNotifier,
+      ) => new NotificationService(db, sms, config.get('SMS_SENDER_ID', { infer: true }), push),
+      inject: [DRIZZLE, SMS_SENDER, ConfigService, PushNotifier],
     },
     {
       provide: PaymentLinkDispatcher,
