@@ -403,6 +403,21 @@ export interface MerchantStatsDay {
   grossSoldPesewas: number;
 }
 
+/** One side of the payment-type split. */
+export interface MerchantStatsByPaymentType {
+  orders: number;
+  grossSoldPesewas: number;
+  averageBasketPesewas: number;
+  /** Share of the period's orders. `null` when the period sold nothing. */
+  shareOfOrdersPct: number | null;
+}
+
+/** Instalments versus paid outright, over the same orders as the headline. */
+export interface MerchantStatsPaymentMix {
+  installment: MerchantStatsByPaymentType;
+  full: MerchantStatsByPaymentType;
+}
+
 export interface MerchantStatsPeriod {
   from: string;
   to: string;
@@ -417,6 +432,8 @@ export interface MerchantStatsPeriod {
   /** All pre-payment: a paid order cannot be cancelled, only refunded. */
   cancelledOrders: number;
   cancelledValuePesewas: number;
+  /** The two sides always add up to `orders` and `grossSoldPesewas`. */
+  paymentMix: MerchantStatsPaymentMix;
 }
 
 /** `null` where the previous period was zero — there is no change from nothing. */

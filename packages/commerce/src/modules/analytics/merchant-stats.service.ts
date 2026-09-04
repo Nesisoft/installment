@@ -32,6 +32,38 @@ export interface MerchantStatsDay {
   grossSoldPesewas: number;
 }
 
+/** One side of the payment-type split. */
+export interface MerchantStatsByPaymentType {
+  orders: number;
+  grossSoldPesewas: number;
+  /** `grossSoldPesewas / orders` for this side alone. 0 with no orders. */
+  averageBasketPesewas: number;
+  /**
+   * Share of the period's orders, to one decimal place. `null` when the period
+   * sold nothing: a share of no orders is not 0%, it is undefined, and a client
+   * rendering "0% paid in instalments" for a shop that sold nothing has said
+   * something false.
+   */
+  shareOfOrdersPct: number | null;
+}
+
+/**
+ * How the period's sales split between paying outright and paying over time.
+ *
+ * Derived from `orders.payment_type`, which checkout writes as exactly `full`
+ * or `installment` and the column's CHECK permits nothing else — so unlike the
+ * traffic-sources card below, this is a real division of real rows. It comes
+ * out of the same query as the headline figures, which means the two sides
+ * always add up to `orders` and `grossSoldPesewas`; a mix that did not
+ * reconcile with the number above it would be worse than no mix at all.
+ */
+export interface MerchantStatsPaymentMix {
+  /** Orders with a credit plan behind them — "Pay in 4" and its siblings. */
+  installment: MerchantStatsByPaymentType;
+  /** Orders paid in one go, on MoMo or a card. */
+  full: MerchantStatsByPaymentType;
+}
+
 export interface MerchantStatsPeriod {
   from: string;
   to: string;
@@ -75,6 +107,8 @@ export interface MerchantStatsPeriod {
   cancelledOrders: number;
   /** What those abandoned orders would have been worth. */
   cancelledValuePesewas: number;
+  /** Instalments versus paid outright, over the same orders as above. */
+  paymentMix: MerchantStatsPaymentMix;
 }
 
 /**
@@ -123,9 +157,13 @@ const IS_A_SALE = sql`o.status NOT IN (${sql.join(
 
 interface SoldRow {
   day: string;
+  payment_type: PaymentType;
   orders: number;
   gross: string;
 }
+
+/** The whole vocabulary of `orders.payment_type`, per its CHECK constraint. */
+type PaymentType = 'installment' | 'full';
 interface NetRow {
   day: string;
   net: string;
@@ -147,6 +185,10 @@ interface CreditedRow {
  * seller's — on payment, or on financing going live), the `order.cancelled`
  * timeline event, and `merchant_payable` in the ledger. Nothing is estimated
  * and nothing is modelled.
+ *
+ * The payment-type split is the one breakdown here, and it is one the rows can
+ * answer: `orders.payment_type` is written by checkout and constrained to
+ * exactly two values.
  *
  * Deliberately absent: where the order came from. The design has a
  * traffic-sources card — marketplace search / flyer links / category browse /
@@ -183,13 +225,21 @@ export class MerchantStatsService {
     const currentDays = fillDays(sold, net, currentFrom, to);
     const previousDays = fillDays(sold, net, previousFrom, currentFrom);
 
-    const current = period(currentFrom, to, currentDays, currentCancels, currentCredited);
+    const current = period(
+      currentFrom,
+      to,
+      currentDays,
+      currentCancels,
+      currentCredited,
+      paymentMix(sold, currentFrom, to),
+    );
     const previous = period(
       previousFrom,
       currentFrom,
       previousDays,
       previousCancels,
       previousCredited,
+      paymentMix(sold, previousFrom, currentFrom),
     );
 
     return {
@@ -222,6 +272,7 @@ export class MerchantStatsService {
   private async soldByDay(merchantId: string, from: Date, to: Date): Promise<SoldRow[]> {
     const result = await this.db.execute(sql`
       SELECT to_char(o.placed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+             o.payment_type                                        AS payment_type,
              count(*)::int                                         AS orders,
              coalesce(sum(o.total_pesewas), 0)::text               AS gross
       FROM orders o
@@ -229,7 +280,7 @@ export class MerchantStatsService {
         AND o.placed_at >= ${from.toISOString()}
         AND o.placed_at <  ${to.toISOString()}
         AND ${IS_A_SALE}
-      GROUP BY 1
+      GROUP BY 1, 2
       ORDER BY 1
     `);
     return result.rows as unknown as SoldRow[];
@@ -335,19 +386,57 @@ function utcDateKey(d: Date): string {
  * information a merchant is looking at the chart for.
  */
 export function fillDays(sold: SoldRow[], net: NetRow[], from: Date, to: Date): DayTotals[] {
-  const soldBy = new Map(sold.map((r) => [r.day, r]));
+  // One row per (day, payment_type) now, so a day with both kinds of sale has
+  // two — summed back together here, because the chart is one bar per day.
+  const soldBy = new Map<string, { orders: number; gross: number }>();
+  for (const r of sold) {
+    const acc = soldBy.get(r.day) ?? { orders: 0, gross: 0 };
+    soldBy.set(r.day, {
+      orders: acc.orders + Number(r.orders),
+      gross: acc.gross + toPesewas(r.gross),
+    });
+  }
   const netBy = new Map(net.map((r) => [r.day, r]));
   const out: DayTotals[] = [];
   for (let d = new Date(from); d < to; d = addDays(d, 1)) {
     const key = utcDateKey(d);
     out.push({
       date: key,
-      orders: Number(soldBy.get(key)?.orders ?? 0),
-      grossSoldPesewas: toPesewas(soldBy.get(key)?.gross),
+      orders: soldBy.get(key)?.orders ?? 0,
+      grossSoldPesewas: soldBy.get(key)?.gross ?? 0,
       netEarnedPesewas: toPesewas(netBy.get(key)?.net),
     });
   }
   return out;
+}
+
+/**
+ * The payment-type split for one period, from the same rows as everything else.
+ *
+ * Sliced on the date key rather than re-queried: `YYYY-MM-DD` sorts
+ * lexicographically, so the half-open `[from, to)` the rest of this file works
+ * in is a plain string comparison, and the mix is guaranteed to reconcile with
+ * the totals because it is the same numbers added up a different way.
+ */
+export function paymentMix(sold: SoldRow[], from: Date, to: Date): MerchantStatsPaymentMix {
+  const fromKey = utcDateKey(from);
+  const toKey = utcDateKey(to);
+  const inPeriod = sold.filter((r) => r.day >= fromKey && r.day < toKey);
+  const totalOrders = inPeriod.reduce((n, r) => n + Number(r.orders), 0);
+
+  const side = (type: PaymentType): MerchantStatsByPaymentType => {
+    const rows = inPeriod.filter((r) => r.payment_type === type);
+    const orders = rows.reduce((n, r) => n + Number(r.orders), 0);
+    const grossSoldPesewas = rows.reduce((n, r) => n + toPesewas(r.gross), 0);
+    return {
+      orders,
+      grossSoldPesewas,
+      averageBasketPesewas: orders === 0 ? 0 : Math.floor(grossSoldPesewas / orders),
+      shareOfOrdersPct: totalOrders === 0 ? null : Math.round((orders / totalOrders) * 1000) / 10,
+    };
+  };
+
+  return { installment: side('installment'), full: side('full') };
 }
 
 function period(
@@ -356,6 +445,7 @@ function period(
   days: DayTotals[],
   cancels: CancelRow,
   creditedPesewas: number,
+  mix: MerchantStatsPaymentMix,
 ): MerchantStatsPeriod {
   const grossSoldPesewas = days.reduce((n, d) => n + d.grossSoldPesewas, 0);
   const orders = days.reduce((n, d) => n + d.orders, 0);
@@ -372,6 +462,7 @@ function period(
     creditedPesewas,
     cancelledOrders: Number(cancels.cancelled ?? 0),
     cancelledValuePesewas: toPesewas(cancels.value),
+    paymentMix: mix,
   };
 }
 
