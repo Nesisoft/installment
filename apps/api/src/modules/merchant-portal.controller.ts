@@ -16,9 +16,11 @@ import {
   FulfilmentService,
   MerchantStatsService,
   OrdersService,
+  ReturnsService,
   markDeliveredSchema,
   markOutForDeliverySchema,
   markShippedSchema,
+  rejectReturnSchema,
 } from '@installment/commerce';
 import {
   CustomerPlansService,
@@ -77,6 +79,7 @@ export class MerchantPortalController {
     private readonly plans: CustomerPlansService,
     private readonly dashboard: MerchantDashboardService,
     private readonly stats: MerchantStatsService,
+    private readonly orderReturns: ReturnsService,
     private readonly merchants: MerchantsService,
     private readonly planTemplates: PlanTemplatesService,
     private readonly fulfilment: FulfilmentService,
@@ -288,6 +291,42 @@ export class MerchantPortalController {
   @ApiModel('Merchant')
   setPayoutAccount(@Body() body: unknown, @CurrentMerchantId() merchantId: string) {
     return this.payoutAccount.set(merchantId, body, this.actor(merchantId));
+  }
+
+  // ------------------------------------------------------------------ returns
+  //
+  // The seller decides on what comes back. Approving reverses the sale in the
+  // ledger, puts the stock back on sale and raises the buyer's refund, all in
+  // one transaction — so there is no state in which the order says `returned`
+  // and nobody is on the hook for the money.
+
+  @Get('returns')
+  @ApiOperation({ summary: 'Returns waiting on me, and the ones I have decided' })
+  returns(@CurrentMerchantId() merchantId: string, @Query() q: Record<string, string>) {
+    return this.orderReturns.list(q, { merchantId });
+  }
+
+  @Get('returns/:id')
+  @ApiOperation({ summary: 'One return' })
+  returnDetail(@Param('id') id: string, @CurrentMerchantId() merchantId: string) {
+    return this.orderReturns.get(id, { merchantId });
+  }
+
+  @Post('returns/:id/approve')
+  @ApiOperation({ summary: 'Accept the return, refund the buyer and restock' })
+  approveReturn(@Param('id') id: string, @CurrentMerchantId() merchantId: string) {
+    return this.orderReturns.approve(id, this.actor(merchantId), { merchantId });
+  }
+
+  @Post('returns/:id/reject')
+  @ApiOperation({ summary: 'Refuse the return, saying why' })
+  @ApiZodBody(rejectReturnSchema)
+  rejectReturn(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentMerchantId() merchantId: string,
+  ) {
+    return this.orderReturns.reject(id, body, this.actor(merchantId), { merchantId });
   }
 
   @Get('balances')

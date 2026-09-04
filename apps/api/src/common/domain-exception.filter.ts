@@ -67,6 +67,14 @@ export const NAME_STATUS: Record<string, number> = {
   // A category slug that names nothing is the caller's mistake, and the list of
   // valid ones is a public GET away.
   UnknownStoreCategoryError: HttpStatus.UNPROCESSABLE_ENTITY,
+  // Returns. A buyer asking for something the order's state does not allow is a
+  // 422; asking twice while somebody is looking is a conflict; a window that
+  // has closed is gone rather than wrong, which is also a 422.
+  OrderNotReturnableError: HttpStatus.UNPROCESSABLE_ENTITY,
+  ReturnWindowClosedError: HttpStatus.UNPROCESSABLE_ENTITY,
+  ReturnAlreadyOpenError: HttpStatus.CONFLICT,
+  ReturnAlreadyDecidedError: HttpStatus.CONFLICT,
+  ReturnNotFoundError: HttpStatus.NOT_FOUND,
   DuplicateEmploymentError: HttpStatus.CONFLICT,
   DuplicateApplicationError: HttpStatus.CONFLICT,
   IllegalMerchantTransitionError: HttpStatus.CONFLICT,

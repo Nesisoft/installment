@@ -7,6 +7,7 @@ import { PROVIDER_CASH_REF } from '../schedules/plan-cash-ledger';
 
 const refunds = schema.refunds;
 const attempts = schema.payment_attempts;
+const orders = schema.orders;
 
 export type Refund = typeof schema.refunds.$inferSelect;
 
@@ -38,6 +39,12 @@ export interface RefundClient {
 export interface RecordRefundIntentInput {
   customerPlanId: string;
   scheduleId: string;
+  amountPesewas: number;
+}
+
+export interface RecordOrderReturnRefundInput {
+  orderReturnId: string;
+  orderId: string;
   amountPesewas: number;
 }
 
@@ -153,6 +160,54 @@ export class RefundService {
         schedule_id: input.scheduleId,
         amount_pesewas: input.amountPesewas,
         reference: refundReference(input.scheduleId),
+        method,
+        provider_transaction_reference: transactionReference,
+        status: 'initiated',
+      })
+      .onConflictDoNothing();
+  }
+
+  /**
+   * The obligation to pay a buyer back for a returned order.
+   *
+   * The sibling of {@link recordIntent}, and the reason 0020 relaxed
+   * `refunds.customer_plan_id` and `schedule_id` to nullable: both were NOT
+   * NULL, so every row in this table was a refund of one instalment on one
+   * credit plan and an outright purchase — which is most of them — had no way
+   * to be refunded at all. The engine, the disbursement sweep and the
+   * reconciliation path were all real and all unreachable for those orders.
+   *
+   * Everything downstream is unchanged. `disburse` refunds against
+   * `provider_transaction_reference`, which for an order is the reference the
+   * charge settled under, and the sweep does not care which owner a row has.
+   */
+  async recordOrderReturnIntent(
+    input: RecordOrderReturnRefundInput,
+    tx: LedgerExecutor,
+  ): Promise<void> {
+    if (input.amountPesewas <= 0) return;
+
+    // What the buyer actually paid with. `orders.payment_reference` is written
+    // by the charge that settled the order, and its absence means the money
+    // came in out of band — a manual transfer, or a fixture — so it has to go
+    // back the same way rather than being submitted to Paystack forever.
+    const paidBy = (
+      await tx
+        .select({ reference: orders.payment_reference })
+        .from(orders)
+        .where(eq(orders.id, input.orderId))
+        .limit(1)
+    )[0];
+
+    const transactionReference = paidBy?.reference ?? null;
+    const method: RefundMethod = transactionReference ? 'paystack' : 'manual';
+
+    await tx
+      .insert(refunds)
+      .values({
+        order_return_id: input.orderReturnId,
+        amount_pesewas: input.amountPesewas,
+        reference: `refund:return:${input.orderReturnId}`,
         method,
         provider_transaction_reference: transactionReference,
         status: 'initiated',
@@ -303,11 +358,19 @@ export class RefundService {
             {
               transactionId: `refund-paid:${reference}`,
               accountType: 'refund_payable',
-              accountRef: row.customer_plan_id,
+              // The plan for an instalment refund, the return for an order one
+              // — whichever owns this row. It has to be the same ref the
+              // liability was credited under, or discharging it would drive a
+              // balance nobody credited negative.
+              accountRef: refundPayableRef(row),
               direction: 'debit',
               amountPesewas: row.amount_pesewas,
               description: 'Refund returned to customer',
-              metadata: { refund_reference: reference, schedule_id: row.schedule_id },
+              metadata: {
+                refund_reference: reference,
+                schedule_id: row.schedule_id,
+                order_return_id: row.order_return_id,
+              },
             },
             {
               transactionId: `refund-paid:${reference}`,
@@ -447,4 +510,18 @@ export class RefundService {
       .set({ status: 'unknown', last_error: error })
       .where(eq(refunds.id, row.id));
   }
+}
+
+/**
+ * The account a refund's liability sits under.
+ *
+ * `refunds` gained a second owner in 0020: a row belongs to a schedule (an
+ * instalment being given back) or to an order return, and the CHECK guarantees
+ * exactly one. The liability is credited under that owner's id and has to be
+ * discharged under the same one.
+ */
+function refundPayableRef(row: Refund): string {
+  const ref = row.customer_plan_id ?? row.order_return_id;
+  if (!ref) throw new Error(`Refund ${row.reference} has neither a plan nor a return`);
+  return ref;
 }

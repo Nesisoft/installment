@@ -70,6 +70,7 @@ import {
   FulfilmentService,
   MediaService,
   MerchantStatsService,
+  ReturnsService,
   ReviewsService,
   StorefrontService,
   WishlistService,
@@ -466,6 +467,21 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
       inject: [DRIZZLE, LedgerService],
     },
     {
+      provide: ReturnsService,
+      // The refund recorder is what turns an approved return into money the
+      // buyer is actually owed; without it the books would be reversed and
+      // nothing would ever pay them. The notifier tells them what was decided.
+      useFactory: (
+        db: Database,
+        ledger: LedgerService,
+        audit: AuditLogger,
+        inventory: InventoryService,
+        refunds: RefundService,
+        push: PushNotifier,
+      ) => new ReturnsService(db, ledger, audit, inventory, refunds, push),
+      inject: [DRIZZLE, LedgerService, AuditLogger, InventoryService, RefundService, PushNotifier],
+    },
+    {
       provide: MerchantStatsService,
       useFactory: (db: Database) => new MerchantStatsService(db),
       inject: [DRIZZLE],
@@ -844,6 +860,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
     RefundService,
     MerchantDashboardService,
     MerchantStatsService,
+    ReturnsService,
     CollectionsService,
     PaymentService,
     IdempotencyService,

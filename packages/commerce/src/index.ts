@@ -38,6 +38,18 @@ export {
   type DeviceOwner,
 } from '@installment/core';
 
+// Returns: sending an order back, and the decision on it
+export {
+  ReturnsService,
+  type OrderReturn,
+  type ReturnActor,
+  type ReturnDecisionNotifier,
+  type ReturnRefundRecorder,
+  type ReturnScope,
+} from './modules/returns/returns.service';
+export * from './modules/returns/dto';
+export * from './modules/returns/errors';
+
 // Analytics: the merchant's own trading figures
 export {
   MerchantStatsService,
