@@ -1020,8 +1020,8 @@ export const customer_card_authorizations = pgTable("customer_card_authorization
 
 export const refunds = pgTable("refunds", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
-	customer_plan_id: uuid().notNull(),
-	schedule_id: uuid().notNull(),
+	customer_plan_id: uuid(),
+	schedule_id: uuid(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	amount_pesewas: bigint({ mode: "number" }).notNull(),
 	reference: text().notNull(),
@@ -1034,8 +1034,10 @@ export const refunds = pgTable("refunds", {
 	submitted_at: timestamp({ withTimezone: true, mode: 'string' }),
 	succeeded_at: timestamp({ withTimezone: true, mode: 'string' }),
 	failed_at: timestamp({ withTimezone: true, mode: 'string' }),
+	order_return_id: uuid(),
 }, (table) => [
 	index("refunds_inflight_idx").using("btree", table.submitted_at.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = ANY (ARRAY['pending_confirmation'::text, 'unknown'::text]))`),
+	uniqueIndex("refunds_order_return_id_key").using("btree", table.order_return_id.asc().nullsLast().op("uuid_ops")),
 	index("refunds_plan_idx").using("btree", table.customer_plan_id.asc().nullsLast().op("timestamptz_ops"), table.requested_at.desc().nullsFirst().op("timestamptz_ops")),
 	index("refunds_unsent_idx").using("btree", table.requested_at.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'initiated'::text) AND (method = 'paystack'::text))`),
 	foreignKey({
@@ -1043,6 +1045,11 @@ export const refunds = pgTable("refunds", {
 			foreignColumns: [customer_plans.id],
 			name: "refunds_customer_plan_id_fkey"
 		}),
+	foreignKey({
+			columns: [table.order_return_id],
+			foreignColumns: [order_returns.id],
+			name: "refunds_order_return_id_fkey"
+		}).onDelete("restrict"),
 	foreignKey({
 			columns: [table.schedule_id],
 			foreignColumns: [installment_schedule.id],
@@ -1053,6 +1060,7 @@ export const refunds = pgTable("refunds", {
 	check("refunds_amount_pesewas_check", sql`amount_pesewas > 0`),
 	check("refunds_check", sql`((method = 'paystack'::text) AND (provider_transaction_reference IS NOT NULL)) OR ((method = 'manual'::text) AND (provider_transaction_reference IS NULL))`),
 	check("refunds_method_check", sql`method = ANY (ARRAY['paystack'::text, 'manual'::text])`),
+	check("refunds_one_owner", sql`((customer_plan_id IS NOT NULL) AND (schedule_id IS NOT NULL) AND (order_return_id IS NULL)) OR ((customer_plan_id IS NULL) AND (schedule_id IS NULL) AND (order_return_id IS NOT NULL))`),
 	check("refunds_status_check", sql`status = ANY (ARRAY['initiated'::text, 'pending_confirmation'::text, 'succeeded'::text, 'failed'::text, 'unknown'::text])`),
 ]);
 
@@ -1430,6 +1438,46 @@ export const push_devices = pgTable("push_devices", {
 	unique("push_devices_expo_token_key").on(table.expo_token),
 	check("push_devices_one_owner", sql`((customer_id IS NOT NULL) AND (merchant_id IS NULL)) OR ((customer_id IS NULL) AND (merchant_id IS NOT NULL))`),
 	check("push_devices_platform_check", sql`platform = ANY (ARRAY['android'::text, 'ios'::text, 'web'::text])`),
+]);
+
+export const order_returns = pgTable("order_returns", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	order_id: uuid().notNull(),
+	customer_id: uuid().notNull(),
+	status: text().default('requested').notNull(),
+	reason: text().notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	refund_amount_pesewas: bigint({ mode: "number" }).notNull(),
+	requested_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	decided_by: uuid(),
+	decided_at: timestamp({ withTimezone: true, mode: 'string' }),
+	decision_note: text(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("order_returns_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("timestamptz_ops"), table.requested_at.desc().nullsFirst().op("timestamptz_ops")),
+	uniqueIndex("order_returns_one_open_idx").using("btree", table.order_id.asc().nullsLast().op("uuid_ops")).where(sql`(status = 'requested'::text)`),
+	index("order_returns_queue_idx").using("btree", table.requested_at.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'requested'::text)`),
+	foreignKey({
+			columns: [table.customer_id],
+			foreignColumns: [customers.id],
+			name: "order_returns_customer_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.decided_by],
+			foreignColumns: [users.id],
+			name: "order_returns_decided_by_fkey"
+		}).onDelete("set null"),
+	foreignKey({
+			columns: [table.order_id],
+			foreignColumns: [orders.id],
+			name: "order_returns_order_id_fkey"
+		}).onDelete("cascade"),
+	check("order_returns_decided_together", sql`(status = ANY (ARRAY['requested'::text, 'cancelled'::text])) = (decided_at IS NULL)`),
+	check("order_returns_reason_check", sql`length(btrim(reason)) > 0`),
+	check("order_returns_refund_amount_pesewas_check", sql`refund_amount_pesewas > 0`),
+	check("order_returns_rejection_needs_note", sql`(status <> 'rejected'::text) OR ((decision_note IS NOT NULL) AND (length(btrim(decision_note)) > 0))`),
+	check("order_returns_status_check", sql`status = ANY (ARRAY['requested'::text, 'approved'::text, 'rejected'::text, 'cancelled'::text])`),
 ]);
 
 export const role_permissions = pgTable("role_permissions", {

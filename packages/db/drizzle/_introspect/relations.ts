@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, products, stores, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, customer_card_authorizations, refunds, product_reviews, wishlist_items, search_queries, pickup_hubs, order_events, shipments, customer_credit_standing, merchant_kyc_documents, push_devices, permissions, role_permissions, roles, user_roles } from "./schema";
+import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, products, stores, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, customer_card_authorizations, refunds, order_returns, product_reviews, wishlist_items, search_queries, pickup_hubs, order_events, shipments, customer_credit_standing, merchant_kyc_documents, push_devices, permissions, role_permissions, roles, user_roles } from "./schema";
 
 export const customersRelations = relations(customers, ({one, many}) => ({
 	user_ghana_card_reviewed_by: one(users, {
@@ -25,6 +25,7 @@ export const customersRelations = relations(customers, ({one, many}) => ({
 	orders: many(orders),
 	customer_credit_standings: many(customer_credit_standing),
 	push_devices: many(push_devices),
+	order_returns: many(order_returns),
 }));
 
 export const usersRelations = relations(users, ({many}) => ({
@@ -38,6 +39,7 @@ export const usersRelations = relations(users, ({many}) => ({
 	collections_actions: many(collections_actions),
 	rule_definitions: many(rule_definitions),
 	merchant_kyc_documents: many(merchant_kyc_documents),
+	order_returns: many(order_returns),
 	user_roles_granted_by: many(user_roles, {
 		relationName: "user_roles_granted_by_users_id"
 	}),
@@ -378,6 +380,7 @@ export const ordersRelations = relations(orders, ({one, many}) => ({
 	}),
 	order_events: many(order_events),
 	shipments: many(shipments),
+	order_returns: many(order_returns),
 }));
 
 export const customer_card_authorizationsRelations = relations(customer_card_authorizations, ({one}) => ({
@@ -392,9 +395,29 @@ export const refundsRelations = relations(refunds, ({one}) => ({
 		fields: [refunds.customer_plan_id],
 		references: [customer_plans.id]
 	}),
+	order_return: one(order_returns, {
+		fields: [refunds.order_return_id],
+		references: [order_returns.id]
+	}),
 	installment_schedule: one(installment_schedule, {
 		fields: [refunds.schedule_id],
 		references: [installment_schedule.id]
+	}),
+}));
+
+export const order_returnsRelations = relations(order_returns, ({one, many}) => ({
+	refunds: many(refunds),
+	customer: one(customers, {
+		fields: [order_returns.customer_id],
+		references: [customers.id]
+	}),
+	user: one(users, {
+		fields: [order_returns.decided_by],
+		references: [users.id]
+	}),
+	order: one(orders, {
+		fields: [order_returns.order_id],
+		references: [orders.id]
 	}),
 }));
 

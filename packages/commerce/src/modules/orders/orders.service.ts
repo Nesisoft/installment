@@ -513,7 +513,19 @@ export class OrdersService {
 
       const [updated] = await tx
         .update(o)
-        .set({ status: 'paid', placed_at: now.toISOString() })
+        .set({
+          status: 'paid',
+          placed_at: now.toISOString(),
+          // The reference this order settled under, in the column meant to hold
+          // it. `OrderPaymentService` writes it on the MoMo and card paths and
+          // this one never did — it took the reference, put it in the audit row
+          // and the ledger metadata, and left the column null. That was
+          // invisible until a refund needed it: `refunds` classifies a row
+          // without a provider reference as `manual`, so refunding a returned
+          // order that Paystack had settled would have been parked for somebody
+          // to send by hand.
+          payment_reference: provider_reference,
+        })
         .where(and(eq(o.id, order.id), eq(o.status, 'pending_payment')))
         .returning();
       if (!updated) throw new OrderNotPayableError(orderId, order.status);

@@ -15,10 +15,12 @@ import { z } from 'zod';
 import {
   DevicesService,
   FulfilmentService,
+  ReturnsService,
   ReviewsService,
   WishlistService,
   createReviewSchema,
   registerDeviceSchema,
+  requestReturnSchema,
 } from '@installment/commerce';
 import {
   CustomerCreditService,
@@ -78,6 +80,7 @@ export class MeShopperController {
     private readonly reviews: ReviewsService,
     private readonly devices: DevicesService,
     private readonly fulfilment: FulfilmentService,
+    private readonly returns: ReturnsService,
   ) {}
 
   private async customerId(user: AuthenticatedUser): Promise<string> {
@@ -131,6 +134,38 @@ export class MeShopperController {
       },
       created_at: customer.created_at,
     };
+  }
+
+  // --- Returns --------------------------------------------------------------
+
+  /**
+   * A buyer asks to send an order back.
+   *
+   * `orders.status` has permitted `'returned'` since 0006 and nothing has ever
+   * written it — there was no route to use. Scoped to the caller's own customer
+   * id inside the service's transaction, so another customer's order answers
+   * "not returnable: not found" rather than confirming it exists.
+   */
+  @Post('orders/:id/return')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Ask to return an order' })
+  @ApiZodBody(requestReturnSchema)
+  async requestReturn(
+    @Param('id') orderId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const customer = await this.customers.findByUserId(user.id);
+    if (!customer) throw new CustomerNotFoundError(user.id);
+    return this.returns.request(customer.id, orderId, body);
+  }
+
+  @Get('returns')
+  @ApiOperation({ summary: 'My returns and what was decided' })
+  async myReturns(@CurrentUser() user: AuthenticatedUser, @Query() q: Record<string, string>) {
+    const customer = await this.customers.findByUserId(user.id);
+    if (!customer) throw new CustomerNotFoundError(user.id);
+    return this.returns.listForCustomer(customer.id, q);
   }
 
   // --- Ghana Card -----------------------------------------------------------

@@ -178,6 +178,36 @@ export class InventoryService {
     return rows[0]!;
   }
 
+  /**
+   * Put sold goods back on sale — a return coming in, not a reservation being
+   * cancelled.
+   *
+   * `commit` dropped these units from `quantity_reserved` without returning
+   * them to `quantity_available`, because they had left the building. A return
+   * is the other direction: they are back, and available. Distinct from
+   * `release`, which hands a *reservation* back and is what a cancelled
+   * checkout uses — calling that here would credit stock that was never
+   * reserved and quietly drift the counters.
+   */
+  async restock(variantId: string, qty: number, tx?: TransactionalTx): Promise<InventoryRow> {
+    assertPositiveInt(qty, 'restock');
+    return this.run(tx, (exec) => this.restockIn(exec, variantId, qty));
+  }
+
+  private async restockIn(
+    tx: TransactionalTx,
+    variantId: string,
+    qty: number,
+  ): Promise<InventoryRow> {
+    const current = await this.lock(tx, variantId);
+    const rows = await tx
+      .update(inv)
+      .set({ quantity_available: current.quantity_available + qty })
+      .where(eq(inv.variant_id, variantId))
+      .returning();
+    return rows[0]!;
+  }
+
   private async commitIn(
     tx: TransactionalTx,
     variantId: string,
