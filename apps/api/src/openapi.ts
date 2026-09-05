@@ -350,6 +350,17 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     },
   } as SchemaObject;
 
+  models.MerchantCatalogSummary = {
+    type: 'object',
+    properties: {
+      products: { type: 'integer' },
+      liveProducts: { type: 'integer' },
+      variants: { type: 'integer' },
+      outOfStockVariants: { type: 'integer' },
+      lowStockVariants: { type: 'integer' },
+    },
+  } as SchemaObject;
+
   models.CreditStanding = {
     type: 'object',
     properties: {

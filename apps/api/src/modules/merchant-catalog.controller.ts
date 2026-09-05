@@ -132,6 +132,22 @@ export class MerchantCatalogController {
     };
   }
 
+  /**
+   * The catalogue in five numbers, for the home screen and the catalogue tab's
+   * filter chips.
+   *
+   * Separate from `GET products` because both callers want the counts across
+   * the WHOLE catalogue while showing one page of it — deriving them from the
+   * page would under-report the moment a merchant lists more than a page of
+   * stock, and "0 variants out of stock" is a worse lie than no number.
+   */
+  @Get('catalog/summary')
+  @ApiOperation({ summary: 'My catalogue at a glance' })
+  @ApiModel('MerchantCatalogSummary')
+  catalogSummary(@CurrentMerchantId() merchantId: string) {
+    return this.products.summaryForMerchant(merchantId);
+  }
+
   @Get('products')
   @ApiOperation({ summary: 'My products' })
   @ApiModel('MerchantProductRow', { array: true })

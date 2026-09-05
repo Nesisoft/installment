@@ -462,6 +462,28 @@ export interface MerchantStatsChange {
   netEarnedPct: number | null;
 }
 
+/** A merchant's catalogue in five numbers, for the home screen and the tab chips. */
+export interface MerchantCatalogSummary {
+  products: number;
+  liveProducts: number;
+  variants: number;
+  /** Active variants of undeleted products with nothing on the shelf. */
+  outOfStockVariants: number;
+  /** At or below the variant's own restock threshold, but not yet at zero. */
+  lowStockVariants: number;
+}
+
+/** One product's contribution to the window, for the "Best sellers" list. */
+export interface MerchantStatsTopProduct {
+  /** `null` once the catalogue row is gone; the sale still counts. */
+  productId: string | null;
+  title: string;
+  unitsSold: number;
+  grossSoldPesewas: number;
+  /** Across the product's whole range. `null` when there is nothing to read. */
+  stockAvailable: number | null;
+}
+
 export interface MerchantStats {
   merchantId: string;
   windowDays: MerchantStatsWindow;
@@ -470,6 +492,8 @@ export interface MerchantStats {
   previous: MerchantStatsPeriod;
   change: MerchantStatsChange;
   daily: MerchantStatsDay[];
+  /** `current`'s best sellers by units, most sold first. At most 5. */
+  topProducts: MerchantStatsTopProduct[];
 }
 
 export interface MerchantPayoutRow {

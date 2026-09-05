@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Ejua Sell",
+    "slug": "ejua-sell",
+    "scheme": "ejuasell",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "primaryColor": "#0F8B5E",
+    "backgroundColor": "#F5F2ED",
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "gh.nesisoft.ejuasell",
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "backgroundColor": "#0E0D0B"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "gh.nesisoft.ejuasell",
+      "supportsTablet": false
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0E0D0B",
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-system-ui",
+        {
+          "userInterfaceStyle": "light"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false,
+      "tsconfigPaths": false
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:3000"
+    }
+  }
+}
