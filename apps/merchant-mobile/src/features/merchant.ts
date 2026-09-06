@@ -10,6 +10,10 @@ import type {
   MerchantOrderPage,
   MerchantHeldReserveRow,
   MerchantPayoutsPage,
+  MerchantPlanBucket,
+  MerchantPlanCounts,
+  MerchantPlanDetail,
+  MerchantPlanPage,
   MerchantProductRow,
   MerchantStats,
   Order,
@@ -280,5 +284,42 @@ export function useCatalog(filter: CatalogFilter) {
           },
         })
       ).data,
+  });
+}
+
+// --- Credit plans ------------------------------------------------------------
+
+/**
+ * The plans running against the seller's sales.
+ *
+ * `/merchant/plan-list`, not `/merchant/plans`. The latter returns bare
+ * `customer_plans` rows — no customer, no product, no schedule, because a plan
+ * knows none of it — and is what the web portal uses. This one carries the sale
+ * and the schedule summary each card needs.
+ */
+export function usePlans(bucket: MerchantPlanBucket) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'plan-list', bucket],
+    queryFn: async () =>
+      (await api.get<MerchantPlanPage>('/merchant/plan-list', { params: { bucket, limit: 200 } }))
+        .data,
+  });
+}
+
+export function usePlanCounts() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'plan-list', 'counts'],
+    queryFn: async () => (await api.get<MerchantPlanCounts>('/merchant/plan-list/counts')).data,
+  });
+}
+
+export function usePlan(planId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    enabled: Boolean(planId),
+    queryKey: ['merchant', 'plan', planId],
+    queryFn: async () => (await api.get<MerchantPlanDetail>(`/merchant/plan-list/${planId}`)).data,
   });
 }

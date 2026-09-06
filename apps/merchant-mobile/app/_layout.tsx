@@ -83,6 +83,7 @@ function Routes(): React.ReactElement | null {
       <Stack.Protected guard={signedIn}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="orders/[id]" />
+        <Stack.Screen name="plans/index" />
         <Stack.Screen name="plans/[id]" />
         <Stack.Screen name="products/new" />
         <Stack.Screen name="products/[id]" />

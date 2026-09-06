@@ -50,6 +50,9 @@ export const NAME_STATUS: Record<string, number> = {
   CategoryNotFoundError: HttpStatus.NOT_FOUND,
   VariantNotFoundError: HttpStatus.NOT_FOUND,
   OrderNotFoundError: HttpStatus.NOT_FOUND,
+  // 404 and not 403 for another seller's plan too: a 403 would confirm it
+  // exists, which turns uuid enumeration into a leak of who is lending to whom.
+  PlanNotFoundError: HttpStatus.NOT_FOUND,
   AddressNotFoundError: HttpStatus.NOT_FOUND,
   CartItemNotFoundError: HttpStatus.NOT_FOUND,
   // 409

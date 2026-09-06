@@ -207,7 +207,7 @@ export default function TodayScreen(): React.ReactElement {
               title="Active instalment plans"
               body={`Ejua is collecting · ${ghs(balances.data.reserveHeldPesewas)} reserve tied up`}
               tone="info"
-              onPress={() => router.push('/payouts')}
+              onPress={() => router.push('/plans')}
             />
           ) : null}
           {noActions(

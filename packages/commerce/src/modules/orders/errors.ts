@@ -35,6 +35,20 @@ export class OrderNotFoundError extends Error {
   }
 }
 
+/**
+ * A credit plan the caller cannot see.
+ *
+ * Thrown for another merchant's plan as well as for one that does not exist, so
+ * the two are indistinguishable: a 403 would confirm the plan is real, which
+ * turns uuid enumeration into a leak of who is lending to whom.
+ */
+export class PlanNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Plan "${id}" not found`);
+    this.name = 'PlanNotFoundError';
+  }
+}
+
 /** Payment confirmation was attempted on an order not awaiting payment. */
 export class OrderNotPayableError extends Error {
   constructor(id: string, status: string) {

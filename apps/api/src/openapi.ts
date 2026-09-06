@@ -509,6 +509,73 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     },
   } as SchemaObject;
 
+  const planRowProps = {
+    id: { type: 'string', format: 'uuid' },
+    status: { type: 'string' },
+    business_model: { type: 'string' },
+    orderId: { type: 'string', format: 'uuid', nullable: true },
+    orderNumber: { type: 'string', nullable: true },
+    itemSummary: { type: 'string', nullable: true },
+    customerName: { type: 'string', nullable: true },
+    orderAmountPesewas: money,
+    totalPayablePesewas: money,
+    collectedPesewas: money,
+    paidCount: { type: 'integer' },
+    installmentCount: { type: 'integer' },
+    nextDueDate: { type: 'string', format: 'date', nullable: true },
+    late: { type: 'boolean' },
+    reserveOutstandingPesewas: money,
+    createdAt: { type: 'string', format: 'date-time' },
+  };
+
+  models.MerchantPlanRow = { type: 'object', properties: planRowProps } as SchemaObject;
+
+  models.MerchantPlanPage = {
+    type: 'object',
+    properties: {
+      rows: { type: 'array', items: { $ref: '#/components/schemas/MerchantPlanRow' } },
+      total: { type: 'integer' },
+    },
+  } as SchemaObject;
+
+  models.MerchantPlanCounts = {
+    type: 'object',
+    properties: {
+      active: { type: 'integer' },
+      late: { type: 'integer' },
+      completed: { type: 'integer' },
+      all: { type: 'integer' },
+    },
+  } as SchemaObject;
+
+  models.MerchantPlanDetail = {
+    type: 'object',
+    properties: {
+      ...planRowProps,
+      installments: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            sequence_number: { type: 'integer' },
+            due_date: { type: 'string', format: 'date' },
+            amount_due_pesewas: money,
+            amount_paid_pesewas: money,
+            late_fee_pesewas: money,
+            status: { type: 'string' },
+            paid_at: { type: 'string', format: 'date-time', nullable: true },
+          },
+        },
+      },
+      settledPesewas: money,
+      mdrPesewas: money,
+      reserveWithheldPesewas: money,
+      reserveReleasesAt: { type: 'string', format: 'date-time', nullable: true },
+      mdrBps: { type: 'integer' },
+      reserveBps: { type: 'integer' },
+    },
+  } as SchemaObject;
+
   models.MerchantCatalogSummary = {
     type: 'object',
     properties: {
