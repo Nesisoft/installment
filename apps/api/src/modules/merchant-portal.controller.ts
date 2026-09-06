@@ -17,7 +17,10 @@ import {
   MerchantStatsService,
   MERCHANT_ORDER_BUCKETS,
   MerchantOrdersService,
+  MERCHANT_PLAN_BUCKETS,
+  MerchantPlansService,
   isMerchantOrderBucket,
+  isMerchantPlanBucket,
   OrdersService,
   ReturnsService,
   markDeliveredSchema,
@@ -88,6 +91,7 @@ export class MerchantPortalController {
     private readonly fulfilment: FulfilmentService,
     private readonly orders: OrdersService,
     private readonly merchantOrders: MerchantOrdersService,
+    private readonly merchantPlans: MerchantPlansService,
     private readonly payoutAccount: PayoutAccountService,
     private readonly kyc: MerchantKycService,
     private readonly devices: DevicesService,
@@ -486,6 +490,47 @@ export class MerchantPortalController {
     return renderMerchantStatementHtml(
       await this.dashboard.getMonthlyStatement(merchantId, year, month),
     );
+  }
+
+  /**
+   * The plans as the seller's app draws them.
+   *
+   * Separate from `GET plans`, which returns bare `customer_plans` rows and is
+   * what the web portal and any integrator use. Those rows carry no customer,
+   * no product and no schedule — a plan knows none of it, because the link to
+   * the order runs the other way — so a list built on them is a column of
+   * uuids. This one filters on the seller's own buckets, including `late`,
+   * which is not a status: a plan in arrears stays `active` and the overdue
+   * rows live on the schedule.
+   */
+  @Get('plan-list')
+  @ApiOperation({ summary: 'My credit plans, with the sale and the schedule behind each' })
+  @ApiModel('MerchantPlanPage')
+  planList(@Query() query: Record<string, string>, @CurrentMerchantId() merchantId: string) {
+    const bucket = query.bucket;
+    if (bucket !== undefined && !isMerchantPlanBucket(bucket)) {
+      throw new BadRequestException(`bucket must be one of ${MERCHANT_PLAN_BUCKETS.join(', ')}`);
+    }
+    return this.merchantPlans.list(merchantId, {
+      bucket,
+      limit: numOrUndefined(query.limit),
+      offset: numOrUndefined(query.offset),
+    });
+  }
+
+  @Get('plan-list/counts')
+  @ApiOperation({ summary: 'How many plans are in each bucket' })
+  @ApiModel('MerchantPlanCounts')
+  planCounts(@CurrentMerchantId() merchantId: string) {
+    return this.merchantPlans.counts(merchantId);
+  }
+
+  /** One plan: the sale, the schedule, and what the ledger settled on it. */
+  @Get('plan-list/:id')
+  @ApiOperation({ summary: 'One of my credit plans, in full' })
+  @ApiModel('MerchantPlanDetail')
+  planDetail(@Param('id') id: string, @CurrentMerchantId() merchantId: string) {
+    return this.merchantPlans.detail(merchantId, id);
   }
 
   @Get('plans')

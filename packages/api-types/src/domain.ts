@@ -470,6 +470,66 @@ export interface MerchantStatsChange {
   netEarnedPct: number | null;
 }
 
+// --- The merchant app's credit plans -----------------------------------------
+
+/**
+ * The seller's plan buckets. `late` is NOT a status: a plan whose customer has
+ * missed a payment stays `active`, and the arrears live on the schedule.
+ */
+export const MERCHANT_PLAN_BUCKETS = ['active', 'late', 'completed', 'all'] as const;
+export type MerchantPlanBucket = (typeof MERCHANT_PLAN_BUCKETS)[number];
+export type MerchantPlanCounts = Record<MerchantPlanBucket, number>;
+
+export interface MerchantPlanInstallment {
+  sequence_number: number;
+  due_date: string;
+  amount_due_pesewas: number;
+  amount_paid_pesewas: number;
+  late_fee_pesewas: number;
+  status: InstallmentStatus;
+  paid_at: string | null;
+}
+
+export interface MerchantPlanRow {
+  id: string;
+  status: CustomerPlanStatus;
+  business_model: BusinessModel;
+  /** The sale, resolved through the order. Null once the order is gone. */
+  orderId: string | null;
+  orderNumber: string | null;
+  itemSummary: string | null;
+  customerName: string | null;
+  orderAmountPesewas: number;
+  totalPayablePesewas: number;
+  /** Summed off the schedule, so it reconciles with the rows on the detail. */
+  collectedPesewas: number;
+  paidCount: number;
+  /** Payments the customer makes, deposit INCLUDED. */
+  installmentCount: number;
+  nextDueDate: string | null;
+  /** Derived from the schedule; there is no late plan status. */
+  late: boolean;
+  reserveOutstandingPesewas: number;
+  createdAt: string;
+}
+
+export interface MerchantPlanPage {
+  rows: MerchantPlanRow[];
+  total: number;
+}
+
+export interface MerchantPlanDetail extends MerchantPlanRow {
+  installments: MerchantPlanInstallment[];
+  /** What the ledger credited, not a recomputation from the rate. */
+  settledPesewas: number;
+  mdrPesewas: number;
+  reserveWithheldPesewas: number;
+  /** `null` while the plan is still running. */
+  reserveReleasesAt: string | null;
+  mdrBps: number;
+  reserveBps: number;
+}
+
 // --- The merchant app's order queue and order sheet --------------------------
 
 /**

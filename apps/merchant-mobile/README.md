@@ -23,8 +23,8 @@ ledger, not a number this app worked out.
 | 01  | Onboarding + KYC      | not built — registration is `apps/merchant-web/src/pages/signup.tsx`                     |
 | 03  | Order queue           | **built**                                                                                |
 | 04  | Order + settlement    | **built**                                                                                |
-| 05  | Instalment plans      | not built                                                                                |
-| 06  | Plan + schedule       | not built                                                                                |
+| 05  | Instalment plans      | **built** (pushed from Today, not a tab)                                                 |
+| 06  | Plan + schedule       | **built**                                                                                |
 | 07  | Catalog by variant    | **built**                                                                                |
 | 08  | List a product        | not built                                                                                |
 | 09  | Payouts + reserve     | **built**                                                                                |
@@ -133,6 +133,6 @@ something true instead. The ones already handled:
 | Per-line variant options ("Size L · Indigo")        | `order_items` snapshots title, sku, quantity and price, not option values.                                                                                                               |
 | A "Confirmed" order status                          | There is none. "Confirm order" writes `fulfilling`; the bucket mapping lives in `MERCHANT_ORDER_BUCKETS`, once.                                                                          |
 
-Still to reconcile when their screens are built: no plan reference (`PL-…`), no per-merchant
-delivery zones or return policy, no shop accent colour, no returns rate, no reply time, and
-`stores.city`/`region` have no writer anywhere.
+Still to reconcile when their screens are built: no per-merchant delivery zones or return
+policy, no shop accent colour, no returns rate, no reply time, and `stores.city`/`region` have
+no writer anywhere — so the canvas's MARKET/LOCATION step cannot be saved until one is added.
