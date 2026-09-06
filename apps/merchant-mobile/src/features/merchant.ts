@@ -8,9 +8,12 @@ import type {
   MerchantOrderCounts,
   MerchantOrderDetail,
   MerchantOrderPage,
+  MerchantHeldReserveRow,
+  MerchantPayoutsPage,
   MerchantStats,
   Order,
   OrderWithItems,
+  PayoutAccountView,
 } from '@installment/api-types';
 
 /**
@@ -201,4 +204,51 @@ export function useMarkShipped() {
 
 export function useMarkDelivered() {
   return useOrderTransition<{ note?: string }>((id) => `/merchant/orders/${id}/delivered`);
+}
+
+// --- Money -------------------------------------------------------------------
+
+/**
+ * Where the seller's payouts go.
+ *
+ * The number comes back MASKED — `••••3388`, last four only. That is the
+ * server's decision, not a formatting choice here: the unmasked account number
+ * is never surfaced on the merchant portal, so the canvas's full
+ * "024 551 3388" is not something this screen can print.
+ */
+export function usePayoutAccount() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'payout-account'],
+    queryFn: async () => (await api.get<PayoutAccountView>('/merchant/payout-account')).data,
+    staleTime: 5 * 60_000,
+    // A seller who has not set one up yet gets a 404, which is a state the
+    // screen renders rather than an error.
+    retry: false,
+  });
+}
+
+export function usePayouts(limit = 20) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'payouts', limit],
+    queryFn: async () =>
+      (await api.get<MerchantPayoutsPage>('/merchant/payouts', { params: { limit } })).data,
+  });
+}
+
+/**
+ * Reserve still held, newest first.
+ *
+ * `open` defaults to true server-side. The screen asks for both: the canvas
+ * shows released rows in the same list, greyed, and a seller checking whether
+ * last month's reserve ever arrived needs to see it did.
+ */
+export function useReserves(open: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'reserves', open],
+    queryFn: async () =>
+      (await api.get<MerchantHeldReserveRow[]>('/merchant/reserves', { params: { open } })).data,
+  });
 }

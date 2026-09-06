@@ -93,49 +93,58 @@ export default function TodayScreen(): React.ReactElement {
           </View>
         </View>
 
-        <Card dark bare style={styles.heroCard}>
-          <View style={styles.heroHead}>
-            <Text variant="eyebrow" tone="onDarkFaint">
-              {today ? `SOLD ${shortDay(today.date).toUpperCase()}` : 'SOLD TODAY'}
-            </Text>
-            {movement ? (
-              <Text
-                variant="tiny"
-                tone={movement.pct >= 0 ? 'primary' : 'accent'}
-                style={styles.movement}
-              >
-                {`${signedPct(movement.pct)} vs last ${movement.weekday}`}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Sold ${today ? shortDay(today.date) : 'today'}, ${ghs(
+            today?.grossSoldPesewas ?? 0,
+          )}. See your full performance.`}
+          onPress={() => router.push('/performance')}
+          style={({ pressed }) => (pressed ? styles.pressed : null)}
+        >
+          <Card dark bare style={styles.heroCard}>
+            <View style={styles.heroHead}>
+              <Text variant="eyebrow" tone="onDarkFaint">
+                {today ? `SOLD ${shortDay(today.date).toUpperCase()}` : 'SOLD TODAY'}
               </Text>
-            ) : null}
-          </View>
-          <Text variant="display" tone="onDark" style={styles.heroValue}>
-            {ghs(today?.grossSoldPesewas ?? 0)}
-          </Text>
-          <Text variant="small" tone="onDarkMuted">
-            {pluralise(today?.orders ?? 0, 'order')}
-            {stats.data.current.paymentMix.installment.orders > 0
-              ? ` · ${stats.data.current.paymentMix.installment.orders} on instalments this month`
-              : ''}
-          </Text>
+              {movement ? (
+                <Text
+                  variant="tiny"
+                  tone={movement.pct >= 0 ? 'primary' : 'accent'}
+                  style={styles.movement}
+                >
+                  {`${signedPct(movement.pct)} vs last ${movement.weekday}`}
+                </Text>
+              ) : null}
+            </View>
+            <Text variant="display" tone="onDark" style={styles.heroValue}>
+              {ghs(today?.grossSoldPesewas ?? 0)}
+            </Text>
+            <Text variant="small" tone="onDarkMuted">
+              {pluralise(today?.orders ?? 0, 'order')}
+              {stats.data.current.paymentMix.installment.orders > 0
+                ? ` · ${stats.data.current.paymentMix.installment.orders} on instalments this month`
+                : ''}
+            </Text>
 
-          {bars.length > 0 ? (
-            <>
-              <Sparkline
-                bars={bars.map((d) => ({ date: d.date, value: d.grossSoldPesewas }))}
-                style={styles.spark}
-                accessibilityLabel={`Sales for the last ${bars.length} days`}
-              />
-              <View style={styles.sparkAxis}>
-                <Text variant="tiny" tone="onDarkFaint">
-                  {shortDay(bars[0]!.date)}
-                </Text>
-                <Text variant="tiny" tone="onDarkFaint">
-                  {shortDay(bars[bars.length - 1]!.date)}
-                </Text>
-              </View>
-            </>
-          ) : null}
-        </Card>
+            {bars.length > 0 ? (
+              <>
+                <Sparkline
+                  bars={bars.map((d) => ({ date: d.date, value: d.grossSoldPesewas }))}
+                  style={styles.spark}
+                  accessibilityLabel={`Sales for the last ${bars.length} days`}
+                />
+                <View style={styles.sparkAxis}>
+                  <Text variant="tiny" tone="onDarkFaint">
+                    {shortDay(bars[0]!.date)}
+                  </Text>
+                  <Text variant="tiny" tone="onDarkFaint">
+                    {shortDay(bars[bars.length - 1]!.date)}
+                  </Text>
+                </View>
+              </>
+            ) : null}
+          </Card>
+        </Pressable>
       </View>
 
       <View style={styles.body}>

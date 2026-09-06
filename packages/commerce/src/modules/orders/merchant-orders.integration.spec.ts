@@ -481,6 +481,37 @@ describe.skipIf(!RUN_DB)('MerchantOrdersService (integration)', () => {
     );
   });
 
+  it('finds the order behind a plan, which the schema only links the other way', async () => {
+    const { merchantId, storeId } = await shop();
+    const sale = await sellFinanced(storeId, 40_000);
+    const planId = sale.order.customer_plan_id!;
+
+    const found = await queue.ordersForPlans(merchantId, [planId]);
+
+    // Without this the reserve list is a column of uuids and cedi amounts: a
+    // `held_reserves` row knows its plan and nothing about what was sold.
+    expect(found.get(planId)).toEqual({
+      orderId: sale.order.id,
+      orderNumber: sale.order.order_number,
+      itemSummary: 'Ankara Wrap Dress',
+    });
+  });
+
+  it('never resolves another seller’s plan to their order', async () => {
+    const mine = await shop();
+    const theirs = await shop();
+    const theirSale = await sellFinanced(theirs.storeId, 40_000);
+
+    const found = await queue.ordersForPlans(mine.merchantId, [theirSale.order.customer_plan_id!]);
+
+    expect(found.size).toBe(0);
+  });
+
+  it('returns an empty map for no plans, without touching the database', async () => {
+    const { merchantId } = await shop();
+    expect((await queue.ordersForPlans(merchantId, [])).size).toBe(0);
+  });
+
   it('says an unpaid order has not settled, rather than settled for nothing', async () => {
     const { merchantId, storeId } = await shop();
     const awaiting = await unpaid(storeId, 50_000);

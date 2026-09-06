@@ -196,6 +196,13 @@ export type MerchantOrderCounts = Record<MerchantOrderBucket | 'all', number>;
  */
 const SIGN = sql`CASE WHEN le.direction = 'credit' THEN 1 ELSE -1 END`;
 
+interface PlanOrderRow {
+  plan_id: string;
+  order_id: string;
+  order_number: string;
+  item_title: string | null;
+}
+
 interface LedgerAggregateRow {
   order_id: string;
   net: string;
@@ -273,6 +280,61 @@ export class MerchantOrdersService {
       })),
       total: count,
     };
+  }
+
+  /**
+   * The order behind each of several credit plans.
+   *
+   * The link only runs one way in the schema: `orders.customer_plan_id` points
+   * at the plan, and the plan knows nothing about the order — no order id, no
+   * product, no title. So a screen built on plans or on reserves (both of which
+   * are keyed by plan) has no way to say WHICH SALE it is looking at, and shows
+   * the seller a list of uuids and cedi amounts.
+   *
+   * One query for the whole page. `DISTINCT ON` because the column is not
+   * unique — nothing stops two orders pointing at one plan, and picking the
+   * oldest keeps the answer stable rather than letting it flip between reads.
+   */
+  async ordersForPlans(
+    merchantId: string,
+    planIds: string[],
+  ): Promise<Map<string, { orderId: string; orderNumber: string; itemSummary: string | null }>> {
+    const out = new Map<
+      string,
+      { orderId: string; orderNumber: string; itemSummary: string | null }
+    >();
+    if (planIds.length === 0) return out;
+
+    const rows = await this.db.execute(sql`
+      SELECT DISTINCT ON (ord.customer_plan_id)
+             ord.customer_plan_id AS plan_id,
+             ord.id::text         AS order_id,
+             ord.order_number     AS order_number,
+             first_item.title     AS item_title
+      FROM orders ord
+      LEFT JOIN LATERAL (
+        SELECT oi.title
+        FROM order_items oi
+        WHERE oi.order_id = ord.id
+        ORDER BY oi.created_at, oi.id
+        LIMIT 1
+      ) first_item ON TRUE
+      WHERE ord.merchant_id = ${merchantId}
+        AND ord.customer_plan_id IN (${sql.join(
+          planIds.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})
+      ORDER BY ord.customer_plan_id, ord.created_at
+    `);
+
+    for (const r of rows.rows as unknown as PlanOrderRow[]) {
+      out.set(r.plan_id, {
+        orderId: r.order_id,
+        orderNumber: r.order_number,
+        itemSummary: r.item_title,
+      });
+    }
+    return out;
   }
 
   /** How many orders sit in each bucket. One query, not six. */

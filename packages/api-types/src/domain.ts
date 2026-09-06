@@ -51,6 +51,14 @@ export interface Merchant {
   default_business_model: BusinessModel;
   default_mdr_bps: number;
   default_reserve_bps: number;
+  /**
+   * The payout floor. A settlement run below this rolls into the next one
+   * instead of paying out — no row is written and nothing is queued, so the
+   * seller sees no payout at all that night. Served by `/merchant/me` since the
+   * column existed; it was simply never declared here, so no client could read
+   * the number it needed to explain a missing payout.
+   */
+  min_payout_pesewas: number;
   status: MerchantStatus;
   paystack_recipient_code: string | null;
   bank_account_number: string | null;
@@ -648,6 +656,17 @@ export interface MerchantPayoutsPage {
 export interface MerchantHeldReserveRow {
   id: string;
   customerPlanId: string;
+  /**
+   * The sale the reserve was withheld from, where the order still exists.
+   *
+   * A reserve row knows its plan and nothing else, which left the seller
+   * reading a list of uuids and cedi amounts with no way to tell which sale
+   * each one came from. Null when the order has been deleted — the reserve
+   * outlives it.
+   */
+  orderNumber: string | null;
+  /** The first line of that order, for a row a seller can recognise. */
+  itemSummary: string | null;
   businessModel: BusinessModel;
   amountPesewas: number;
   releasedPesewas: number;

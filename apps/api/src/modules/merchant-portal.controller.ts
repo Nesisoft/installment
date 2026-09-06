@@ -422,10 +422,37 @@ export class MerchantPortalController {
     });
   }
 
+  /**
+   * Reserve held against the merchant's plans, with the sale each one came from.
+   *
+   * The engine's `held_reserves` row knows its plan and nothing else — the link
+   * to the order runs the other way — so on its own the list is uuids and cedi
+   * amounts and a seller cannot tell which sale is holding their money. The
+   * order lookup lives in commerce, which owns `orders`, rather than being
+   * joined inside the engine's dashboard service: the dependency runs
+   * commerce → core and reaching back the other way to read a commerce table
+   * would invert it.
+   */
   @Get('reserves')
-  reserves(@CurrentMerchantId() merchantId: string, @Query() q: Record<string, string>) {
-    return this.dashboard.listHeldReserves(merchantId, {
+  @ApiOperation({ summary: 'Reserve held against my plans, and when each releases' })
+  @ApiModel('MerchantHeldReserve', { array: true })
+  async reserves(@CurrentMerchantId() merchantId: string, @Query() q: Record<string, string>) {
+    const rows = await this.dashboard.listHeldReserves(merchantId, {
       open: q.open === undefined ? undefined : q.open !== 'false',
+    });
+    const orders = await this.merchantOrders.ordersForPlans(
+      merchantId,
+      rows.map((r) => r.customerPlanId),
+    );
+    return rows.map((row) => {
+      const order = orders.get(row.customerPlanId);
+      return {
+        ...row,
+        // Null, not a placeholder: the reserve outlives the order, and a row
+        // reading "—" is honest where an invented reference would not be.
+        orderNumber: order?.orderNumber ?? null,
+        itemSummary: order?.itemSummary ?? null,
+      };
     });
   }
 

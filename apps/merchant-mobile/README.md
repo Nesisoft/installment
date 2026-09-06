@@ -27,8 +27,8 @@ ledger, not a number this app worked out.
 | 06  | Plan + schedule       | not built                                                                                |
 | 07  | Catalog by variant    | not built                                                                                |
 | 08  | List a product        | not built                                                                                |
-| 09  | Payouts + reserve     | not built                                                                                |
-| 10  | Performance           | not built                                                                                |
+| 09  | Payouts + reserve     | **built**                                                                                |
+| 10  | Performance           | **built** (pushed from the Today hero, not a tab)                                        |
 | 11  | Storefront + settings | not built (sign-out lives on the stub)                                                   |
 
 The unbuilt tabs are in the bar and each says so in as many words. That is deliberate: an
@@ -98,16 +98,18 @@ Most of these are the shopper app's traps too; they are repeated because they bi
 Everything is under `/merchant`, which `MerchantScopeGuard` narrows to the signed-in account. The
 app never sends a merchant id, and could not widen its own scope by doing so.
 
-| Screen element                                       | Endpoint                                                        |
-| ---------------------------------------------------- | --------------------------------------------------------------- |
-| Shop name, verified state                            | `GET /merchant/me`                                              |
-| Sold today, the 14-day bars, best sellers            | `GET /merchant/stats?days=30`                                   |
-| Payable, reserve, lifetime, active plans             | `GET /merchant/balances`                                        |
-| Variants out of stock                                | `GET /merchant/catalog/summary`                                 |
-| Orders to confirm                                    | `GET /merchant/orders?status=paid` + `?status=financing_active` |
-| The order queue and its filter counts                | `GET /merchant/queue`, `GET /merchant/queue/counts`             |
-| One order: buyer, address, settlement, plan, history | `GET /merchant/orders/:id/sheet`                                |
-| Confirm / ship / deliver                             | `POST /merchant/orders/:id/{fulfilling,ship,delivered}`         |
+| Screen element                                       | Endpoint                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| Shop name, verified state                            | `GET /merchant/me`                                                        |
+| Sold today, the 14-day bars, best sellers            | `GET /merchant/stats?days=30`                                             |
+| Payable, reserve, lifetime, active plans             | `GET /merchant/balances`                                                  |
+| Variants out of stock                                | `GET /merchant/catalog/summary`                                           |
+| Orders to confirm                                    | `GET /merchant/orders?status=paid` + `?status=financing_active`           |
+| The order queue and its filter counts                | `GET /merchant/queue`, `GET /merchant/queue/counts`                       |
+| One order: buyer, address, settlement, plan, history | `GET /merchant/orders/:id/sheet`                                          |
+| Confirm / ship / deliver                             | `POST /merchant/orders/:id/{fulfilling,ship,delivered}`                   |
+| Payouts, the reserve list, the destination           | `GET /merchant/payouts`, `/merchant/reserves`, `/merchant/payout-account` |
+| Performance over 7 / 30 / 90 days                    | `GET /merchant/stats?days=…`                                              |
 
 The Today screen asks for a **30**-day stats window even though it draws 14 bars: comparing today
 against the same weekday last week needs the eighth day back, and a 7-day window does not contain
