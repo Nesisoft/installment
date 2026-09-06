@@ -467,6 +467,26 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     ],
   } as SchemaObject;
 
+  models.MerchantHeldReserve = {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      customerPlanId: { type: 'string', format: 'uuid' },
+      orderNumber: { type: 'string', nullable: true },
+      itemSummary: { type: 'string', nullable: true },
+      businessModel: { type: 'string' },
+      amountPesewas: money,
+      releasedPesewas: money,
+      consumedForDefaultPesewas: money,
+      outstandingPesewas: money,
+      heldAt: { type: 'string', format: 'date-time' },
+      planCompletedAt: { type: 'string', format: 'date-time', nullable: true },
+      deliveredAt: { type: 'string', format: 'date-time', nullable: true },
+      releasableFrom: { type: 'string', format: 'date-time', nullable: true },
+      fullyReleasedAt: { type: 'string', format: 'date-time', nullable: true },
+    },
+  } as SchemaObject;
+
   models.MerchantCatalogSummary = {
     type: 'object',
     properties: {
