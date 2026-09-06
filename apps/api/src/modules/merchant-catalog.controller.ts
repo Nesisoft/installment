@@ -161,16 +161,26 @@ export class MerchantCatalogController {
       merchant_id: merchantId,
       category_id: query.category_id,
       status: query.status,
+      needs_restock:
+        query.needs_restock === undefined ? undefined : query.needs_restock !== 'false',
       limit: numOrUndefined(query.limit),
       offset: numOrUndefined(query.offset),
     });
     // Resolved here rather than in the browser: `storage_key` is a bucket path,
     // and every client that rebuilt the URL itself would have to be changed the
     // day this moves behind a CDN or starts signing.
-    const keys = await this.products.primaryImageKeys(rows.map((r) => r.id));
+    //
+    // The variants come with the page for the same reason the image keys do:
+    // the seller's catalogue card shows its own sizes and their stock, and
+    // fetching that per product would be one request per card.
+    const [keys, variants] = await Promise.all([
+      this.products.primaryImageKeys(rows.map((r) => r.id)),
+      this.products.variantsForProducts(rows.map((r) => r.id)),
+    ]);
     return rows.map((row) => ({
       ...row,
       primary_image_url: this.media.url(keys.get(row.id)),
+      variants: variants.get(row.id) ?? [],
     }));
   }
 

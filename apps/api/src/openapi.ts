@@ -146,7 +146,29 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
       { $ref: '#/components/schemas/Product' },
       {
         type: 'object',
-        properties: { primary_image_url: { type: 'string', nullable: true } },
+        properties: {
+          primary_image_url: { type: 'string', nullable: true },
+          variants: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                sku: { type: 'string' },
+                option_values: { type: 'object', additionalProperties: true },
+                // Inline rather than the `money` helper: that is declared
+                // further down this function and this block runs before it.
+                price_pesewas: {
+                  type: 'integer',
+                  description: 'Integer pesewas (GHS x 100)',
+                  nullable: true,
+                },
+                quantity_available: { type: 'integer' },
+                restock_threshold: { type: 'integer' },
+              },
+            },
+          },
+        },
       },
     ],
   } as SchemaObject;

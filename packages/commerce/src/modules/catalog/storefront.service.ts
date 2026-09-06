@@ -286,7 +286,9 @@ export class StorefrontService {
         .from(pv)
         .leftJoin(inv, eq(inv.variant_id, pv.id))
         .where(eq(pv.product_id, id))
-        .orderBy(asc(pv.created_at)),
+        // The seller's own order — see 0021 — so the shopper's size picker
+        // reads S, M, L, XL and not whatever order the uuids sorted in.
+        .orderBy(asc(pv.position), asc(pv.id)),
       this.db
         .select({ plan_template_id: ppo.plan_template_id })
         .from(ppo)
