@@ -21,8 +21,8 @@ ledger, not a number this app worked out.
 | 02  | Today (dashboard)     | **built**                                                                                |
 | —   | Sign in               | **built** (not in the canvas: the canvas starts at onboarding, which happens on the web) |
 | 01  | Onboarding + KYC      | not built — registration is `apps/merchant-web/src/pages/signup.tsx`                     |
-| 03  | Order queue           | not built                                                                                |
-| 04  | Order + settlement    | not built                                                                                |
+| 03  | Order queue           | **built**                                                                                |
+| 04  | Order + settlement    | **built**                                                                                |
 | 05  | Instalment plans      | not built                                                                                |
 | 06  | Plan + schedule       | not built                                                                                |
 | 07  | Catalog by variant    | not built                                                                                |
@@ -31,7 +31,7 @@ ledger, not a number this app worked out.
 | 10  | Performance           | not built                                                                                |
 | 11  | Storefront + settings | not built (sign-out lives on the stub)                                                   |
 
-The four unbuilt tabs are in the bar and each says so in as many words. That is deliberate: an
+The unbuilt tabs are in the bar and each says so in as many words. That is deliberate: an
 unbuilt Products tab rendering "No products" would tell a seller with forty listings that their
 catalogue had vanished, which is the worst lie this particular app could tell.
 
@@ -98,14 +98,39 @@ Most of these are the shopper app's traps too; they are repeated because they bi
 Everything is under `/merchant`, which `MerchantScopeGuard` narrows to the signed-in account. The
 app never sends a merchant id, and could not widen its own scope by doing so.
 
-| Screen element                            | Endpoint                                                        |
-| ----------------------------------------- | --------------------------------------------------------------- |
-| Shop name, verified state                 | `GET /merchant/me`                                              |
-| Sold today, the 14-day bars, best sellers | `GET /merchant/stats?days=30`                                   |
-| Payable, reserve, lifetime, active plans  | `GET /merchant/balances`                                        |
-| Variants out of stock                     | `GET /merchant/catalog/summary`                                 |
-| Orders to confirm                         | `GET /merchant/orders?status=paid` + `?status=financing_active` |
+| Screen element                                       | Endpoint                                                        |
+| ---------------------------------------------------- | --------------------------------------------------------------- |
+| Shop name, verified state                            | `GET /merchant/me`                                              |
+| Sold today, the 14-day bars, best sellers            | `GET /merchant/stats?days=30`                                   |
+| Payable, reserve, lifetime, active plans             | `GET /merchant/balances`                                        |
+| Variants out of stock                                | `GET /merchant/catalog/summary`                                 |
+| Orders to confirm                                    | `GET /merchant/orders?status=paid` + `?status=financing_active` |
+| The order queue and its filter counts                | `GET /merchant/queue`, `GET /merchant/queue/counts`             |
+| One order: buyer, address, settlement, plan, history | `GET /merchant/orders/:id/sheet`                                |
+| Confirm / ship / deliver                             | `POST /merchant/orders/:id/{fulfilling,ship,delivered}`         |
 
 The Today screen asks for a **30**-day stats window even though it draws 14 bars: comparing today
 against the same weekday last week needs the eighth day back, and a 7-day window does not contain
 it. Slicing one response is free; a second round trip on a Ghanaian mobile connection is not.
+
+### Where the canvas and the system disagree
+
+An API-mapping pass over all eleven screens turned up 49 places where the design shows
+something this system cannot supply. Where they conflict the data wins and the screen says
+something true instead. The ones already handled:
+
+| Canvas                                              | What is actually true                                                                                                                                                                    |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Order number `EJ-24902-GH`                          | They are `ORD-YYYYMMDD-XXXXXXXX`. The real one is rendered.                                                                                                                              |
+| A "Message" button on an order                      | There is no messaging in this system — no threads, no send route. Omitted.                                                                                                               |
+| "Print slip"                                        | No packing-slip endpoint exists. Omitted.                                                                                                                                                |
+| "In tonight's payout run"                           | The settlement batch runs at 06:00 UTC, and no endpoint publishes a next-run time.                                                                                                       |
+| "Releases 8 Oct — 14 days after the plan completes" | `reserveReleasesAt` is null while a plan is running, deliberately: the clock starts at completion or default. No date is invented, and the buffer is per business model and not exposed. |
+| "Customer arrears never reduce it"                  | False — a default consumes reserve. The sentence is not used.                                                                                                                            |
+| `NEW` as an unread marker                           | There is no seen/read column. It can only mean "awaiting confirmation".                                                                                                                  |
+| Per-line variant options ("Size L · Indigo")        | `order_items` snapshots title, sku, quantity and price, not option values.                                                                                                               |
+| A "Confirmed" order status                          | There is none. "Confirm order" writes `fulfilling`; the bucket mapping lives in `MERCHANT_ORDER_BUCKETS`, once.                                                                          |
+
+Still to reconcile when their screens are built: no plan reference (`PL-…`), no per-merchant
+delivery zones or return policy, no shop accent colour, no returns rate, no reply time, and
+`stores.city`/`region` have no writer anywhere.

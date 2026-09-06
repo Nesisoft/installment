@@ -350,6 +350,123 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     },
   } as SchemaObject;
 
+  // The merchant app's order queue and order sheet.
+  models.MerchantOrderRow = {
+    allOf: [
+      { $ref: '#/components/schemas/OrderWithItems' },
+      {
+        type: 'object',
+        properties: {
+          buyer_name: { type: 'string', nullable: true },
+          buyer_phone: { type: 'string', nullable: true },
+          settled_pesewas: { ...money, nullable: true },
+        },
+      },
+    ],
+  } as SchemaObject;
+
+  models.MerchantOrderPage = {
+    type: 'object',
+    properties: {
+      rows: { type: 'array', items: { $ref: '#/components/schemas/MerchantOrderRow' } },
+      total: { type: 'integer' },
+    },
+  } as SchemaObject;
+
+  models.MerchantOrderCounts = {
+    type: 'object',
+    properties: {
+      new: { type: 'integer' },
+      confirmed: { type: 'integer' },
+      shipped: { type: 'integer' },
+      delivered: { type: 'integer' },
+      completed: { type: 'integer' },
+      all: { type: 'integer' },
+    },
+  } as SchemaObject;
+
+  models.MerchantOrderDetail = {
+    allOf: [
+      { $ref: '#/components/schemas/OrderWithItems' },
+      {
+        type: 'object',
+        properties: {
+          buyer: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              name: { type: 'string' },
+              phone: { type: 'string' },
+            },
+          },
+          delivery: {
+            type: 'object',
+            properties: {
+              method: { type: 'string', enum: ['courier', 'pickup'] },
+              recipient: { type: 'string', nullable: true },
+              phone: { type: 'string', nullable: true },
+              region: { type: 'string', nullable: true },
+              city: { type: 'string', nullable: true },
+              area: { type: 'string', nullable: true },
+              landmark: { type: 'string', nullable: true },
+              ghanapost_gps: { type: 'string', nullable: true },
+              hub_name: { type: 'string', nullable: true },
+              hub_detail: { type: 'string', nullable: true },
+            },
+          },
+          settlement: {
+            type: 'object',
+            properties: {
+              grossPesewas: money,
+              feePesewas: money,
+              feeLabel: { type: 'string', enum: ['commission', 'mdr'] },
+              feeBps: { type: 'integer', nullable: true },
+              reservePesewas: money,
+              reserveBps: { type: 'integer', nullable: true },
+              netPesewas: money,
+              bookedAt: { type: 'string', format: 'date-time', nullable: true },
+              reserveOutstandingPesewas: money,
+              reserveReleasesAt: { type: 'string', format: 'date-time', nullable: true },
+            },
+          },
+          plan: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              status: { type: 'string' },
+              business_model: { type: 'string' },
+              mdr_bps: { type: 'integer' },
+              reserve_bps: { type: 'integer' },
+              total_payable_pesewas: money,
+              outstanding_pesewas: money,
+              collectedPesewas: money,
+              paidCount: { type: 'integer' },
+              installments: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    sequence_number: { type: 'integer' },
+                    due_date: { type: 'string', format: 'date' },
+                    amount_due_pesewas: money,
+                    amount_paid_pesewas: money,
+                    status: { type: 'string' },
+                    paid_at: { type: 'string', format: 'date-time', nullable: true },
+                  },
+                },
+              },
+              nextDueDate: { type: 'string', format: 'date', nullable: true },
+              late: { type: 'boolean' },
+            },
+          },
+          events: { type: 'array', items: { $ref: '#/components/schemas/OrderEvent' } },
+        },
+      },
+    ],
+  } as SchemaObject;
+
   models.MerchantCatalogSummary = {
     type: 'object',
     properties: {

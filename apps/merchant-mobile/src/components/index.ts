@@ -3,6 +3,7 @@ export { Button, type ButtonProps, type ButtonVariant } from './Button';
 export { Card, type CardProps } from './Card';
 export { Pill, type PillProps, type PillTone } from './Pill';
 export { Icon, type IconName, type IconProps } from './Icon';
+export { ComingNext, type ComingNextProps } from './ComingNext';
 export {
   ActionRow,
   Avatar,
@@ -15,6 +16,35 @@ export {
   type StatTileProps,
 } from './Rows';
 export { Sparkline, type SparklineBar, type SparklineProps } from './Sparkline';
+export {
+  Field,
+  Segmented,
+  Stepper,
+  ToggleRow,
+  type FieldProps,
+  type SegmentOption,
+  type SegmentedProps,
+  type StepperProps,
+  type ToggleRowProps,
+} from './Controls';
+export {
+  Line,
+  Note,
+  ScheduleStrip,
+  Timeline,
+  Total,
+  type LineProps,
+  type ScheduleCell,
+  type TimelineStep,
+  type TotalProps,
+} from './Settlement';
+export {
+  OrderStatusPill,
+  PlanStatusPill,
+  installmentLabel,
+  isAwaitingConfirmation,
+  isLateInstallment,
+} from './StatusPill';
 export {
   Screen,
   Header,

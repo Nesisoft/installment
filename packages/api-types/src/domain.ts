@@ -462,6 +462,137 @@ export interface MerchantStatsChange {
   netEarnedPct: number | null;
 }
 
+// --- The merchant app's order queue and order sheet --------------------------
+
+/**
+ * One entry in an order's history.
+ *
+ * `order_events` is written by every path that moves an order and, until the
+ * merchant order sheet, was only ever read by the shopper's tracking screen —
+ * so this is its first appearance in the shared types.
+ */
+export interface OrderEvent {
+  id: string;
+  order_id: string;
+  event_type: string;
+  /** The order status this event took it to, where the event changed one. */
+  status: string | null;
+  label: string;
+  detail: string | null;
+  occurred_at: string;
+  created_at: string;
+}
+
+/** The buyer, as the seller is allowed to see them: enough to address a parcel. */
+export interface MerchantOrderBuyer {
+  id: string;
+  name: string;
+  phone: string;
+}
+
+/**
+ * Where the order is going. Every field is nullable: `shipping_address_id` is
+ * `ON DELETE SET NULL`, so an order that has already shipped can lose its
+ * address, and a pickup order never had one.
+ */
+export interface MerchantOrderDelivery {
+  method: FulfilmentMethod;
+  recipient: string | null;
+  phone: string | null;
+  region: string | null;
+  city: string | null;
+  area: string | null;
+  landmark: string | null;
+  ghanapost_gps: string | null;
+  hub_name: string | null;
+  hub_detail: string | null;
+}
+
+/** What one order was worth to the seller, read out of the ledger, not recomputed. */
+export interface MerchantOrderSettlement {
+  grossPesewas: number;
+  feePesewas: number;
+  feeLabel: 'commission' | 'mdr';
+  feeBps: number | null;
+  reservePesewas: number;
+  reserveBps: number | null;
+  netPesewas: number;
+  /** `null` before anything has been booked — not a settlement of zero. */
+  bookedAt: string | null;
+  reserveOutstandingPesewas: number;
+  /** `null` while the plan is still running; the release clock has not started. */
+  reserveReleasesAt: string | null;
+}
+
+export interface MerchantOrderInstallment {
+  sequence_number: number;
+  due_date: string;
+  amount_due_pesewas: number;
+  amount_paid_pesewas: number;
+  status: InstallmentStatus;
+  paid_at: string | null;
+}
+
+/**
+ * The credit plan behind a financed order. `installments.length` counts the
+ * deposit; `number_of_installments` on the plan does not.
+ */
+export interface MerchantOrderPlan {
+  id: string;
+  status: CustomerPlanStatus;
+  business_model: BusinessModel;
+  mdr_bps: number;
+  reserve_bps: number;
+  total_payable_pesewas: number;
+  outstanding_pesewas: number;
+  collectedPesewas: number;
+  paidCount: number;
+  installments: MerchantOrderInstallment[];
+  nextDueDate: string | null;
+  /** Derived from the schedule: there is no late plan status. */
+  late: boolean;
+}
+
+export interface MerchantOrderRow extends Order {
+  items: OrderItem[];
+  buyer_name: string | null;
+  buyer_phone: string | null;
+  /** `null` where nothing has been booked yet. */
+  settled_pesewas: number | null;
+}
+
+export interface MerchantOrderPage {
+  rows: MerchantOrderRow[];
+  /** Over the same bucket filter, not the whole queue. */
+  total: number;
+}
+
+export interface MerchantOrderDetail extends Order {
+  items: OrderItem[];
+  buyer: MerchantOrderBuyer | null;
+  delivery: MerchantOrderDelivery;
+  settlement: MerchantOrderSettlement;
+  plan: MerchantOrderPlan | null;
+  /** The order's own history, oldest first. */
+  events: OrderEvent[];
+}
+
+/**
+ * The seller's queue buckets. Not order statuses: `new` is `paid` OR
+ * `financing_active`, and `confirmed` is `fulfilling`.
+ */
+export const MERCHANT_ORDER_BUCKETS = [
+  'new',
+  'confirmed',
+  'shipped',
+  'delivered',
+  'completed',
+] as const;
+export type MerchantOrderBucket = (typeof MERCHANT_ORDER_BUCKETS)[number];
+
+/** `all` counts every order the seller has, cancelled and returned included. */
+export type MerchantOrderCounts = Record<MerchantOrderBucket | 'all', number>;
+
 /** A merchant's catalogue in five numbers, for the home screen and the tab chips. */
 export interface MerchantCatalogSummary {
   products: number;

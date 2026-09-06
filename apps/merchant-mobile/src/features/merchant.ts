@@ -1,10 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@installment/mobile-kit';
 import type {
   Merchant,
   MerchantBalances,
   MerchantCatalogSummary,
+  MerchantOrderBucket,
+  MerchantOrderCounts,
+  MerchantOrderDetail,
+  MerchantOrderPage,
   MerchantStats,
+  Order,
   OrderWithItems,
 } from '@installment/api-types';
 
@@ -96,4 +101,104 @@ export function useOrdersAwaitingConfirmation() {
       };
     },
   });
+}
+
+// --- The order queue ---------------------------------------------------------
+
+/**
+ * A page of the queue.
+ *
+ * `/merchant/queue`, not `/merchant/orders`. The latter filters on one raw
+ * order status and is what the web portal uses; this one filters on the
+ * seller's own buckets and carries the buyer and what the ledger settled, which
+ * the app needs on every card and cannot compute for itself.
+ */
+/** The service clamps to this; asking for more silently gets you 100. */
+export const QUEUE_PAGE_SIZE = 100;
+
+export function useOrderQueue(bucket?: MerchantOrderBucket) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'queue', bucket ?? 'all'],
+    queryFn: async () =>
+      (
+        await api.get<MerchantOrderPage>('/merchant/queue', {
+          // Explicit, and the maximum the service allows. The default is 25,
+          // and the queue sorts newest first — so a shop with more than 25
+          // orders in a bucket could not reach the OLDEST unconfirmed ones,
+          // which are exactly the ones a seller most needs to get to. The
+          // screen says so when `total` exceeds what came back.
+          params: { bucket, limit: QUEUE_PAGE_SIZE },
+        })
+      ).data,
+  });
+}
+
+/** The number on each filter chip. One request, not one per chip. */
+export function useOrderCounts() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'queue', 'counts'],
+    queryFn: async () => (await api.get<MerchantOrderCounts>('/merchant/queue/counts')).data,
+  });
+}
+
+/** One order with everything the sheet draws, in one round trip. */
+export function useOrderSheet(orderId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    enabled: Boolean(orderId),
+    queryKey: ['merchant', 'order', orderId],
+    queryFn: async () =>
+      (await api.get<MerchantOrderDetail>(`/merchant/orders/${orderId}/sheet`)).data,
+  });
+}
+
+/**
+ * Every write that moves an order along, sharing one cache invalidation.
+ *
+ * The queue, the counts, the sheet and the home screen's "orders to confirm"
+ * are four views of the same fact, so a transition that refreshed only the one
+ * on screen would leave a seller looking at a badge for an order they had just
+ * confirmed — and tapping it again.
+ */
+function useOrderTransition<TBody>(path: (orderId: string) => string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, body }: { orderId: string; body?: TBody }) =>
+      (await api.post<Order>(path(orderId), body ?? {})).data,
+    onSuccess: (_data, { orderId }) => {
+      void queryClient.invalidateQueries({ queryKey: ['merchant', 'queue'] });
+      void queryClient.invalidateQueries({ queryKey: ['merchant', 'order', orderId] });
+      void queryClient.invalidateQueries({ queryKey: ['merchant', 'orders', 'awaiting'] });
+      void queryClient.invalidateQueries({ queryKey: ['merchant', 'balances'] });
+    },
+  });
+}
+
+/**
+ * "Confirm order" — the seller has seen it and is packing it.
+ *
+ * Writes `fulfilling`. There is no `confirmed` order status; "confirm" is what
+ * the seller calls this and `fulfilling` is what the state machine calls it.
+ */
+export function useConfirmOrder() {
+  return useOrderTransition<never>((id) => `/merchant/orders/${id}/fulfilling`);
+}
+
+export interface MarkShippedBody {
+  courier_name?: string;
+  courier_phone?: string;
+  rider_name?: string;
+  tracking_code?: string;
+  note?: string;
+}
+
+export function useMarkShipped() {
+  return useOrderTransition<MarkShippedBody>((id) => `/merchant/orders/${id}/ship`);
+}
+
+export function useMarkDelivered() {
+  return useOrderTransition<{ note?: string }>((id) => `/merchant/orders/${id}/delivered`);
 }

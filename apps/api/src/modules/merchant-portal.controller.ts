@@ -15,6 +15,9 @@ import {
 import {
   FulfilmentService,
   MerchantStatsService,
+  MERCHANT_ORDER_BUCKETS,
+  MerchantOrdersService,
+  isMerchantOrderBucket,
   OrdersService,
   ReturnsService,
   markDeliveredSchema,
@@ -84,6 +87,7 @@ export class MerchantPortalController {
     private readonly planTemplates: PlanTemplatesService,
     private readonly fulfilment: FulfilmentService,
     private readonly orders: OrdersService,
+    private readonly merchantOrders: MerchantOrdersService,
     private readonly payoutAccount: PayoutAccountService,
     private readonly kyc: MerchantKycService,
     private readonly devices: DevicesService,
@@ -116,11 +120,70 @@ export class MerchantPortalController {
     });
   }
 
+  /**
+   * The queue, as the app draws it.
+   *
+   * Separate from `GET orders` rather than an extra flag on it, because the two
+   * answer different questions. That route filters on one raw order status and
+   * is what the web portal and any integrator use; this one filters on the
+   * seller's own buckets — where "new" is two statuses and "confirmed" is
+   * `fulfilling`, a status whose name only a developer would recognise — and
+   * carries the buyer and what the ledger settled, which a status list does not.
+   */
+  @Get('queue')
+  @ApiOperation({ summary: 'My order queue, with the buyer and what each order settled for' })
+  @ApiModel('MerchantOrderPage')
+  queue(@Query() query: Record<string, string>, @CurrentMerchantId() merchantId: string) {
+    const bucket = query.bucket;
+    if (bucket !== undefined && !isMerchantOrderBucket(bucket)) {
+      throw new BadRequestException(
+        `bucket must be one of ${Object.keys(MERCHANT_ORDER_BUCKETS).join(', ')}`,
+      );
+    }
+    return this.merchantOrders.list(merchantId, {
+      bucket,
+      limit: numOrUndefined(query.limit),
+      offset: numOrUndefined(query.offset),
+    });
+  }
+
+  /**
+   * How many orders sit in each bucket.
+   *
+   * Its own route so the filter chips can show their counts without six
+   * requests, and so the count on a chip is the count of the list behind it —
+   * derived from the same bucket table, not from whatever page happens to be
+   * loaded.
+   */
+  @Get('queue/counts')
+  @ApiOperation({ summary: 'How many orders are in each bucket of my queue' })
+  @ApiModel('MerchantOrderCounts')
+  queueCounts(@CurrentMerchantId() merchantId: string) {
+    return this.merchantOrders.counts(merchantId);
+  }
+
   @Get('orders/:id')
   @ApiOperation({ summary: 'One of my orders' })
   @ApiModel('OrderWithItems')
   getOrder(@Param('id') id: string, @CurrentMerchantId() merchantId?: string) {
     return this.orders.getForMerchant(merchantId!, id);
+  }
+
+  /**
+   * Everything the order sheet draws: the buyer, where it is going, what the
+   * ledger paid, the plan behind it and the order's own history.
+   *
+   * One route rather than five, because a seller opening an order on a phone
+   * should wait for one round trip and not five. The alternative the app would
+   * otherwise need — order, then customer, then address, then plan, then
+   * schedule — also cannot be expressed: there is no merchant-scoped route over
+   * `customers`, `addresses` or `order_events` at all.
+   */
+  @Get('orders/:id/sheet')
+  @ApiOperation({ summary: 'One of my orders, with buyer, delivery, settlement, plan and history' })
+  @ApiModel('MerchantOrderDetail')
+  getOrderSheet(@Param('id') id: string, @CurrentMerchantId() merchantId: string) {
+    return this.merchantOrders.detail(merchantId, id);
   }
 
   /**
