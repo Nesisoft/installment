@@ -73,3 +73,4 @@ export * from './modules/orders/addresses.service';
 export * from './modules/orders/order-payment.service';
 export * from './modules/orders/cart.service';
 export * from './modules/orders/orders.service';
+export * from './modules/orders/merchant-orders.service';

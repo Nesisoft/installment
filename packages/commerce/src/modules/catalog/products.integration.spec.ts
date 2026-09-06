@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb, schema } from '@installment/db';
 import { AuditLogger, MerchantsService, SYSTEM_ACTORS } from '@installment/core';
@@ -160,5 +161,203 @@ describe.skipIf(!RUN_DB)('ProductsService (integration)', () => {
     await expect(products.getWithDetails(randomUUID())).rejects.toBeInstanceOf(
       ProductNotFoundError,
     );
+  });
+
+  /**
+   * The catalogue counts the seller app's home screen acts on.
+   *
+   * A fresh merchant per test, not the file's shared store: these are counts
+   * over a whole catalogue, and a shared store would make every assertion a
+   * function of how many products the tests above happened to create.
+   */
+  describe('summaryForMerchant', () => {
+    async function freshShop() {
+      const id = randomUUID();
+      const merchant = await merchants.create(
+        {
+          business_name: `Sum Co ${id}`,
+          legal_name: `Sum Co Ltd ${id}`,
+          email: `sum+${id}@example.gh`,
+          phone: '+233244222222',
+        },
+        SYSTEM_ACTOR,
+      );
+      const store = await stores.create(
+        { merchant_id: merchant.id, slug: `sum-${id.slice(0, 8)}`, display_name: 'Sum Store' },
+        SYSTEM_ACTOR,
+      );
+      return { merchantId: merchant.id, storeId: store.id };
+    }
+
+    const sku = () => `SKU-${randomUUID().slice(0, 8)}`;
+
+    it('is all zeroes for a shop with nothing in it', async () => {
+      const { merchantId } = await freshShop();
+
+      expect(await products.summaryForMerchant(merchantId)).toEqual({
+        products: 0,
+        liveProducts: 0,
+        variants: 0,
+        outOfStockVariants: 0,
+        lowStockVariants: 0,
+      });
+    });
+
+    it('counts products, live products and variants', async () => {
+      const shop = await freshShop();
+      await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Live dress',
+          base_price_pesewas: 32_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), quantity_available: 5 },
+            { sku: sku(), quantity_available: 2 },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+      await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Draft blazer',
+          base_price_pesewas: 64_000,
+          status: 'draft',
+          variants: [{ sku: sku(), quantity_available: 1 }],
+        },
+        SYSTEM_ACTOR,
+      );
+
+      expect(await products.summaryForMerchant(shop.merchantId)).toMatchObject({
+        products: 2,
+        liveProducts: 1,
+        variants: 3,
+        outOfStockVariants: 0,
+      });
+    });
+
+    it('counts a variant with nothing on the shelf as out of stock', async () => {
+      const shop = await freshShop();
+      await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Part-stocked dress',
+          base_price_pesewas: 32_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), quantity_available: 24 },
+            { sku: sku(), quantity_available: 0 },
+            { sku: sku(), quantity_available: 0 },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+
+      const summary = await products.summaryForMerchant(shop.merchantId);
+
+      expect(summary.variants).toBe(3);
+      expect(summary.outOfStockVariants).toBe(2);
+      // Zero is out of stock, never also low: counting it twice would report
+      // the same problem to the seller as two problems.
+      expect(summary.lowStockVariants).toBe(0);
+    });
+
+    it('counts a variant at or under its own threshold as low, but not at zero', async () => {
+      const shop = await freshShop();
+      const created = await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Thresholded',
+          base_price_pesewas: 32_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), quantity_available: 3 },
+            { sku: sku(), quantity_available: 40 },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+      await db
+        .update(schema.inventory)
+        .set({ restock_threshold: 5 })
+        .where(eq(schema.inventory.variant_id, created.variants[0]!.id));
+
+      const summary = await products.summaryForMerchant(shop.merchantId);
+
+      expect(summary.lowStockVariants).toBe(1);
+      expect(summary.outOfStockVariants).toBe(0);
+    });
+
+    it('ignores a retired variant — telling a seller to restock it is noise', async () => {
+      const shop = await freshShop();
+      const created = await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Retired size',
+          base_price_pesewas: 32_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), quantity_available: 0 },
+            { sku: sku(), quantity_available: 9 },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+      await db
+        .update(schema.product_variants)
+        .set({ is_active: false })
+        .where(eq(schema.product_variants.id, created.variants[0]!.id));
+
+      const summary = await products.summaryForMerchant(shop.merchantId);
+
+      expect(summary.variants).toBe(1);
+      expect(summary.outOfStockVariants).toBe(0);
+    });
+
+    it('ignores a deleted product', async () => {
+      const shop = await freshShop();
+      const created = await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Gone',
+          base_price_pesewas: 32_000,
+          status: 'active',
+          variants: [{ sku: sku(), quantity_available: 0 }],
+        },
+        SYSTEM_ACTOR,
+      );
+      await db
+        .update(schema.products)
+        .set({ deleted_at: new Date().toISOString() })
+        .where(eq(schema.products.id, created.id));
+
+      expect(await products.summaryForMerchant(shop.merchantId)).toMatchObject({
+        products: 0,
+        variants: 0,
+        outOfStockVariants: 0,
+      });
+    });
+
+    it('never counts another merchant’s catalogue', async () => {
+      const mine = await freshShop();
+      const theirs = await freshShop();
+      await products.create(
+        {
+          store_id: theirs.storeId,
+          title: 'Not mine',
+          base_price_pesewas: 1_000,
+          status: 'active',
+          variants: [{ sku: sku(), quantity_available: 0 }],
+        },
+        SYSTEM_ACTOR,
+      );
+
+      expect(await products.summaryForMerchant(mine.merchantId)).toMatchObject({
+        products: 0,
+        variants: 0,
+        outOfStockVariants: 0,
+      });
+    });
   });
 });

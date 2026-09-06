@@ -96,6 +96,20 @@ const RETURNABLE_STATUSES: readonly OrderStatus[] = ['paid', 'shipped', 'deliver
  *     customer is still paying — a credit unwind, not a refund. Requesting one
  *     is refused with a reason rather than half-done.
  */
+/**
+ * The prefix every ledger transaction raised by an approved return carries.
+ *
+ * Exported, with its builder, for the same reason `ORDER_PAYMENT_TX_PREFIX` and
+ * `PLAN_ACCRUAL_TX_PREFIX` are: the merchant order read has to find a return's
+ * reversal again from SQL, and a second copy of the format in another file is a
+ * rename waiting to go unnoticed.
+ */
+export const ORDER_RETURN_TX_PREFIX = 'order-return:';
+
+export function orderReturnTransactionId(orderReturnId: string): string {
+  return `${ORDER_RETURN_TX_PREFIX}${orderReturnId}`;
+}
+
 export class ReturnsService {
   constructor(
     private readonly db: Database,
@@ -249,7 +263,7 @@ export class ReturnsService {
       const total = order.total_pesewas;
       const commission = Money.fromPesewas(total).multiplyBps(order.commission_bps).toNumber();
       const merchantNet = total - commission;
-      const transactionId = `order-return:${row.id}`;
+      const transactionId = orderReturnTransactionId(row.id);
       const metadata = {
         order_id: order.id,
         order_number: order.order_number,

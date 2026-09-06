@@ -124,6 +124,27 @@ export interface MerchantStatsChange {
   netEarnedPct: number | null;
 }
 
+/**
+ * One product's contribution to the window, for the "Best sellers" list.
+ *
+ * `unitsSold` counts `order_items.quantity` rather than orders, because a
+ * merchant restocking reads units; `stockAvailable` sums `quantity_available`
+ * across the product's live variants, which is what "33 left" means on the
+ * shelf. A product deleted since the sale keeps its sale — `order_items.title`
+ * is denormalised at checkout precisely so history does not change when a
+ * catalogue row does — and then has no stock to report, so `stockAvailable`
+ * is `null` rather than 0: "we do not know" and "none left" are different
+ * things to a seller deciding what to reorder.
+ */
+export interface MerchantStatsTopProduct {
+  /** `null` once the catalogue row is gone; the sale still counts. */
+  productId: string | null;
+  title: string;
+  unitsSold: number;
+  grossSoldPesewas: number;
+  stockAvailable: number | null;
+}
+
 export interface MerchantStats {
   merchantId: string;
   windowDays: MerchantStatsWindow;
@@ -134,15 +155,17 @@ export interface MerchantStats {
   change: MerchantStatsChange;
   /** `current`, day by day, oldest first. */
   daily: MerchantStatsDay[];
+  /** `current`'s best sellers by units, most sold first. At most 5. */
+  topProducts: MerchantStatsTopProduct[];
 }
 
 /**
  * Orders that reached these states did not end up being sales.
  *
- * Only `cancelled` has a writer today; `returned` is in the orders CHECK and in
- * the transition table with nothing that reaches it yet. It is listed anyway so
- * that whoever wires returns up does not have to remember that revenue silently
- * counts them.
+ * Both have writers now: `OrdersService.cancel` for the first and
+ * `ReturnsService.approve` for the second, which was listed here before it
+ * could happen so that revenue would not silently keep counting a returned
+ * order the day returns shipped.
  */
 const NOT_A_SALE = ['cancelled', 'returned'];
 
@@ -174,6 +197,13 @@ interface CancelRow {
 }
 interface CreditedRow {
   credited: string;
+}
+interface TopProductRow {
+  product_id: string | null;
+  title: string;
+  units: number;
+  gross: string;
+  stock: number | null;
 }
 
 /**
@@ -212,15 +242,23 @@ export class MerchantStatsService {
     const currentFrom = addDays(to, -days);
     const previousFrom = addDays(to, -days * 2);
 
-    const [sold, net, currentCancels, previousCancels, currentCredited, previousCredited] =
-      await Promise.all([
-        this.soldByDay(merchantId, previousFrom, to),
-        this.netByDay(merchantId, previousFrom, to),
-        this.cancellations(merchantId, currentFrom, to),
-        this.cancellations(merchantId, previousFrom, currentFrom),
-        this.credited(merchantId, currentFrom, to),
-        this.credited(merchantId, previousFrom, currentFrom),
-      ]);
+    const [
+      sold,
+      net,
+      currentCancels,
+      previousCancels,
+      currentCredited,
+      previousCredited,
+      topProducts,
+    ] = await Promise.all([
+      this.soldByDay(merchantId, previousFrom, to),
+      this.netByDay(merchantId, previousFrom, to),
+      this.cancellations(merchantId, currentFrom, to),
+      this.cancellations(merchantId, previousFrom, currentFrom),
+      this.credited(merchantId, currentFrom, to),
+      this.credited(merchantId, previousFrom, currentFrom),
+      this.topProducts(merchantId, currentFrom, to),
+    ]);
 
     const currentDays = fillDays(sold, net, currentFrom, to);
     const previousDays = fillDays(sold, net, previousFrom, currentFrom);
@@ -259,7 +297,67 @@ export class MerchantStatsService {
         orders,
         grossSoldPesewas,
       })),
+      topProducts,
     };
+  }
+
+  /**
+   * What sold most in the window, by units.
+   *
+   * Grouped on `order_items.product_id` so two sizes of the same dress are one
+   * row, and left-joined to inventory so the seller sees what is left without a
+   * second call per product. The join is to `product_variants` rather than to
+   * the item's own `variant_id`: stock is a property of the product's whole
+   * range today, not of the variants that happened to sell, and a merchant
+   * reading "6 left" wants the shelf, not the one size in this order.
+   *
+   * Falls back to grouping by title where the catalogue row has been deleted —
+   * `order_items.product_id` is `ON DELETE SET NULL`, and dropping those rows
+   * would make the list disagree with the headline total above it.
+   */
+  private async topProducts(
+    merchantId: string,
+    from: Date,
+    to: Date,
+  ): Promise<MerchantStatsTopProduct[]> {
+    const result = await this.db.execute(sql`
+      WITH sold AS (
+        SELECT oi.product_id                                AS product_id,
+               min(oi.title)                                AS title,
+               sum(oi.quantity)::int                        AS units,
+               coalesce(sum(oi.line_total_pesewas), 0)::text AS gross
+        FROM order_items oi
+        JOIN orders o ON o.id = oi.order_id
+        WHERE o.merchant_id = ${merchantId}
+          AND o.placed_at  >= ${from.toISOString()}
+          AND o.placed_at  <  ${to.toISOString()}
+          AND ${IS_A_SALE}
+        GROUP BY coalesce(oi.product_id::text, oi.title), oi.product_id
+      )
+      SELECT s.product_id,
+             s.title,
+             s.units,
+             s.gross,
+             stock.available AS stock
+      FROM sold s
+      LEFT JOIN LATERAL (
+        SELECT sum(i.quantity_available)::int AS available
+        FROM product_variants pv
+        JOIN inventory i ON i.variant_id = pv.id
+        WHERE pv.product_id = s.product_id
+      ) stock ON TRUE
+      ORDER BY s.units DESC, s.title ASC
+      LIMIT 5
+    `);
+    return (result.rows as unknown as TopProductRow[]).map((r) => ({
+      productId: r.product_id,
+      title: r.title,
+      unitsSold: Number(r.units),
+      grossSoldPesewas: toPesewas(r.gross),
+      // `null` both when the product is gone and when it has no inventory rows
+      // at all — in either case the app has nothing true to say about stock.
+      stockAvailable: r.stock === null || r.stock === undefined ? null : Number(r.stock),
+    }));
   }
 
   /**

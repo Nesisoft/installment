@@ -35,6 +35,20 @@ const st = schema.stores;
 const pt = schema.plan_templates;
 
 /** Product columns minus the internal `search_tsv` (never returned to callers). */
+/**
+ * A merchant's catalogue in five numbers — what the home screen's "needs your
+ * action" rows and the catalogue tab's filter chips are counting.
+ */
+export interface MerchantCatalogSummary {
+  products: number;
+  liveProducts: number;
+  variants: number;
+  /** Active variants of undeleted products with nothing on the shelf. */
+  outOfStockVariants: number;
+  /** At or below the variant's own restock threshold, but not yet at zero. */
+  lowStockVariants: number;
+}
+
 const productCols = {
   id: p.id,
   store_id: p.store_id,
@@ -185,6 +199,54 @@ export class ProductsService {
       .orderBy(desc(p.created_at))
       .limit(input.limit)
       .offset(input.offset);
+  }
+
+  /**
+   * A merchant's catalogue at a glance: how many products, how many are live,
+   * and how many variants a customer currently cannot buy.
+   *
+   * One query rather than the home screen paging through the whole catalogue to
+   * count. `outOfStockVariants` is the number the app acts on — every one of
+   * them is a size a shopper is being shown nothing for — and `lowStockVariants`
+   * uses each variant's own `restock_threshold`, which is what the seller set it
+   * for.
+   *
+   * Only active variants of undeleted products count. A draft product is not
+   * hiding anything from anybody, and telling a merchant to restock a variant
+   * they have retired is noise that trains them to ignore the row.
+   */
+  async summaryForMerchant(merchantId: string): Promise<MerchantCatalogSummary> {
+    const [products] = await this.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        live: sql<number>`count(*) FILTER (WHERE ${p.status} = 'active')::int`,
+      })
+      .from(p)
+      .where(and(eq(p.merchant_id, merchantId), isNull(p.deleted_at)));
+
+    const [variants] = await this.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        outOfStock: sql<number>`count(*) FILTER (WHERE coalesce(${inv.quantity_available}, 0) = 0)::int`,
+        // Strictly above zero: a variant with none left is out of stock, not
+        // low, and counting it in both would double-report the same problem.
+        lowStock: sql<number>`count(*) FILTER (
+          WHERE coalesce(${inv.quantity_available}, 0) > 0
+            AND coalesce(${inv.quantity_available}, 0) <= coalesce(${inv.restock_threshold}, 0)
+        )::int`,
+      })
+      .from(pv)
+      .innerJoin(p, eq(pv.product_id, p.id))
+      .leftJoin(inv, eq(inv.variant_id, pv.id))
+      .where(and(eq(p.merchant_id, merchantId), isNull(p.deleted_at), eq(pv.is_active, true)));
+
+    return {
+      products: products?.total ?? 0,
+      liveProducts: products?.live ?? 0,
+      variants: variants?.total ?? 0,
+      outOfStockVariants: variants?.outOfStock ?? 0,
+      lowStockVariants: variants?.lowStock ?? 0,
+    };
   }
 
   /**

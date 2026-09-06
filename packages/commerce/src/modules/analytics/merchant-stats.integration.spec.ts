@@ -499,6 +499,94 @@ describe.skipIf(!RUN_DB)('MerchantStatsService (integration)', () => {
     expect((await stats.forMerchant(merchantId, { days: '90' })).windowDays).toBe(90);
   });
 
+  // ----------------------------------------------------------- best sellers
+
+  /** Sells `qty` of an existing variant, so two sales can share one product. */
+  async function sellVariant(variantId: string, qty: number, when: Date) {
+    const customerId = await freshCustomer();
+    await cart.addItem(customerId, { variant_id: variantId, quantity: qty });
+    const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+    return orders.confirmPayment(
+      order!.id,
+      { provider_reference: `ps_${randomUUID().slice(0, 8)}` },
+      ACTOR,
+      when,
+    );
+  }
+
+  it('ranks best sellers by units, and adds up the units across orders', async () => {
+    const { merchantId, storeId } = await shop();
+    const dress = await variant(storeId, 32_000);
+    const blazer = await variant(storeId, 64_000);
+    await sellVariant(dress, 3, today());
+    await sellVariant(dress, 2, today());
+    await sellVariant(blazer, 4, today());
+
+    const s = await stats.forMerchant(merchantId, { days: 7 });
+
+    expect(s.topProducts).toHaveLength(2);
+    // Five units of the dress beats four of the blazer, even though the blazer
+    // is worth more — a seller restocking counts units, not cedis.
+    expect(s.topProducts[0]).toMatchObject({ unitsSold: 5, grossSoldPesewas: 160_000 });
+    expect(s.topProducts[1]).toMatchObject({ unitsSold: 4, grossSoldPesewas: 256_000 });
+  });
+
+  it('reports what is left on the shelf across the product’s whole range', async () => {
+    const { merchantId, storeId } = await shop();
+    const dress = await variant(storeId, 32_000);
+    await sellVariant(dress, 6, today());
+
+    const s = await stats.forMerchant(merchantId, { days: 7 });
+
+    // `variant()` stocks 500 and checkout reserves rather than deducts, so the
+    // figure is what `quantity_available` actually holds — not 500 minus the
+    // sale, which would be this test asserting its own arithmetic.
+    const [top] = s.topProducts;
+    expect(top?.unitsSold).toBe(6);
+    expect(top?.stockAvailable).toBeTypeOf('number');
+    expect(top?.stockAvailable).toBeGreaterThanOrEqual(0);
+  });
+
+  it('keeps a sale out of the list once the order is cancelled', async () => {
+    const { merchantId, storeId } = await shop();
+    const dress = await variant(storeId, 32_000);
+    const customerId = await freshCustomer();
+    await cart.addItem(customerId, { variant_id: dress, quantity: 2 });
+    const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+    await orders.cancel(order!.id, { reason: 'Abandoned — swept' }, ACTOR);
+
+    const s = await stats.forMerchant(merchantId, { days: 7 });
+
+    // The same NOT_A_SALE rule the headline uses. A list that disagreed with
+    // the total above it would be worse than no list.
+    expect(s.topProducts).toEqual([]);
+    expect(s.current.grossSoldPesewas).toBe(0);
+  });
+
+  it('never shows another merchant’s products', async () => {
+    const mine = await shop();
+    const theirs = await shop();
+    await sellVariant(await variant(mine.storeId, 10_000), 1, today());
+    await sellVariant(await variant(theirs.storeId, 90_000), 9, today());
+
+    const s = await stats.forMerchant(mine.merchantId, { days: 7 });
+
+    expect(s.topProducts).toHaveLength(1);
+    expect(s.topProducts[0]?.unitsSold).toBe(1);
+  });
+
+  it('caps the list at five', async () => {
+    const { merchantId, storeId } = await shop();
+    for (let i = 0; i < 7; i += 1) {
+      await sellVariant(await variant(storeId, 1_000 * (i + 1)), i + 1, today());
+    }
+
+    const s = await stats.forMerchant(merchantId, { days: 7 });
+
+    expect(s.topProducts).toHaveLength(5);
+    expect(s.topProducts.map((p) => p.unitsSold)).toEqual([7, 6, 5, 4, 3]);
+  });
+
   it('reports zeroes for a merchant who has never sold anything', async () => {
     const { merchantId } = await shop();
 
@@ -515,5 +603,6 @@ describe.skipIf(!RUN_DB)('MerchantStatsService (integration)', () => {
     });
     expect(s.change.grossSoldPct).toBeNull();
     expect(s.daily).toHaveLength(30);
+    expect(s.topProducts).toEqual([]);
   });
 });
