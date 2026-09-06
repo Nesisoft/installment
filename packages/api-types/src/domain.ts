@@ -875,8 +875,25 @@ export interface MerchantStore extends Store {
   banner_url: string | null;
 }
 
+/** One buyable variant of a product, with what is on the shelf. */
+export interface ProductVariantStock {
+  id: string;
+  sku: string;
+  /** `{"size":"L"}` — whatever the seller named their options. */
+  option_values: Record<string, unknown>;
+  /** `null` means the variant sells at the product's base price. */
+  price_pesewas: number | null;
+  quantity_available: number;
+  restock_threshold: number;
+}
+
 export interface MerchantProductRow extends Product {
   primary_image_url: string | null;
+  /**
+   * Active variants only, with stock. Comes with the page so a catalogue of
+   * thirty cards is one request rather than thirty-one.
+   */
+  variants: ProductVariantStock[];
 }
 
 export interface MerchantProductDetails extends Omit<ProductDetails, 'images'> {

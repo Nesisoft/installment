@@ -10,6 +10,7 @@ import type {
   MerchantOrderPage,
   MerchantHeldReserveRow,
   MerchantPayoutsPage,
+  MerchantProductRow,
   MerchantStats,
   Order,
   OrderWithItems,
@@ -250,5 +251,34 @@ export function useReserves(open: boolean) {
     queryKey: ['merchant', 'reserves', open],
     queryFn: async () =>
       (await api.get<MerchantHeldReserveRow[]>('/merchant/reserves', { params: { open } })).data,
+  });
+}
+
+// --- Catalogue ---------------------------------------------------------------
+
+/** The catalogue tab's filters. `restock` is a stock fact, not a product status. */
+export type CatalogFilter = 'all' | 'live' | 'restock';
+
+/**
+ * A page of the seller's own products, each with its variants and their stock.
+ *
+ * The variants come with the page. Fetching them per card would be one request
+ * per product, and a catalogue of thirty is thirty-one round trips on a
+ * Ghanaian mobile connection.
+ */
+export function useCatalog(filter: CatalogFilter) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'catalog', filter],
+    queryFn: async () =>
+      (
+        await api.get<MerchantProductRow[]>('/merchant/products', {
+          params: {
+            status: filter === 'live' ? 'active' : undefined,
+            needs_restock: filter === 'restock' ? true : undefined,
+            limit: 100,
+          },
+        })
+      ).data,
   });
 }

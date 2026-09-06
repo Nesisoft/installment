@@ -733,8 +733,10 @@ export const product_variants = pgTable("product_variants", {
 	is_active: boolean().default(true).notNull(),
 	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	position: integer().default(0).notNull(),
 }, (table) => [
 	index("product_variants_product_idx").using("btree", table.product_id.asc().nullsLast().op("uuid_ops")),
+	index("product_variants_product_position_idx").using("btree", table.product_id.asc().nullsLast().op("int4_ops"), table.position.asc().nullsLast().op("int4_ops")),
 	foreignKey({
 			columns: [table.product_id],
 			foreignColumns: [products.id],

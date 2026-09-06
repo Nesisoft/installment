@@ -25,7 +25,7 @@ ledger, not a number this app worked out.
 | 04  | Order + settlement    | **built**                                                                                |
 | 05  | Instalment plans      | not built                                                                                |
 | 06  | Plan + schedule       | not built                                                                                |
-| 07  | Catalog by variant    | not built                                                                                |
+| 07  | Catalog by variant    | **built**                                                                                |
 | 08  | List a product        | not built                                                                                |
 | 09  | Payouts + reserve     | **built**                                                                                |
 | 10  | Performance           | **built** (pushed from the Today hero, not a tab)                                        |

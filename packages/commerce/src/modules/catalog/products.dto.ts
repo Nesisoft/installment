@@ -61,6 +61,15 @@ export const listProductsSchema = z.object({
   merchant_id: z.string().uuid().optional(),
   category_id: z.string().uuid().optional(),
   status: z.enum(PRODUCT_STATUSES).optional(),
+  /**
+   * Only products with at least one active variant a customer cannot buy.
+   *
+   * A filter and not a status: "needs restock" is a fact about inventory, not
+   * about the product row, and the seller's catalogue tab treats it as a
+   * sibling of Live because that is how they think about it. Deriving it in the
+   * client would need every variant of every product on the page.
+   */
+  needs_restock: z.boolean().optional(),
   limit: z.number().int().min(1).max(100).default(50),
   offset: z.number().int().min(0).default(0),
 });

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import {
   AuditLogger,
@@ -39,6 +39,18 @@ const pt = schema.plan_templates;
  * A merchant's catalogue in five numbers — what the home screen's "needs your
  * action" rows and the catalogue tab's filter chips are counting.
  */
+/** One buyable variant of a product, with what is on the shelf. */
+export interface ProductVariantStock {
+  id: string;
+  sku: string;
+  /** `{"size":"L"}` — whatever the seller named their options. */
+  option_values: Record<string, unknown>;
+  /** `null` means the variant sells at the product's base price. */
+  price_pesewas: number | null;
+  quantity_available: number;
+  restock_threshold: number;
+}
+
 export interface MerchantCatalogSummary {
   products: number;
   liveProducts: number;
@@ -150,8 +162,11 @@ export class ProductsService {
         .returning({ id: p.id });
       const productId = inserted[0]!.id;
 
-      for (const variant of input.variants ?? []) {
-        await this.insertVariantTx(tx, productId, variant);
+      // The order they were sent in IS the seller's order — S, M, L, XL — and
+      // it is the only place that information exists.
+      const variants = input.variants ?? [];
+      for (let i = 0; i < variants.length; i += 1) {
+        await this.insertVariantTx(tx, productId, variants[i]!, i);
       }
       if (input.images?.length) {
         await tx.insert(pi).values(
@@ -192,6 +207,20 @@ export class ProductsService {
     if (input.merchant_id) where.push(eq(p.merchant_id, input.merchant_id));
     if (input.category_id) where.push(eq(p.category_id, input.category_id));
     if (input.status) where.push(eq(p.status, input.status));
+    if (input.needs_restock) {
+      // EXISTS rather than a join: a product with three empty sizes must appear
+      // once, not three times, and a join would need a DISTINCT that fights the
+      // ORDER BY. Only ACTIVE variants count — telling a seller to restock a
+      // size they have retired is noise that trains them to ignore the filter.
+      where.push(sql`EXISTS (
+        SELECT 1
+        FROM product_variants v
+        LEFT JOIN inventory i ON i.variant_id = v.id
+        WHERE v.product_id = ${p.id}
+          AND v.is_active
+          AND coalesce(i.quantity_available, 0) = 0
+      )`);
+    }
     return this.db
       .select(productCols)
       .from(p)
@@ -247,6 +276,58 @@ export class ProductsService {
       outOfStockVariants: variants?.outOfStock ?? 0,
       lowStockVariants: variants?.lowStock ?? 0,
     };
+  }
+
+  /**
+   * Every active variant of several products, with what is on the shelf.
+   *
+   * For the seller's catalogue, where a card shows its own sizes and their
+   * stock. `getWithDetails` already returns this for ONE product; a list of
+   * thirty cards calling it thirty times is thirty-one round trips on a
+   * Ghanaian mobile connection, which is the difference between a screen and a
+   * spinner.
+   *
+   * `quantity_available` is left-joined and coalesced because a variant created
+   * without an initial stock figure has no `inventory` row at all — and a
+   * missing row means none on the shelf, not unknown.
+   */
+  async variantsForProducts(productIds: string[]): Promise<Map<string, ProductVariantStock[]>> {
+    const byProduct = new Map<string, ProductVariantStock[]>();
+    if (productIds.length === 0) return byProduct;
+
+    const rows = await this.db
+      .select({
+        id: pv.id,
+        product_id: pv.product_id,
+        sku: pv.sku,
+        option_values: pv.option_values,
+        price_pesewas: pv.price_pesewas,
+        quantity_available: sql<number>`coalesce(${inv.quantity_available}, 0)::int`,
+        restock_threshold: sql<number>`coalesce(${inv.restock_threshold}, 0)::int`,
+      })
+      .from(pv)
+      .leftJoin(inv, eq(inv.variant_id, pv.id))
+      .where(and(inArray(pv.product_id, productIds), eq(pv.is_active, true)))
+      // `position` is the seller's own order, written at insert. `id` is the
+      // tiebreak for rows backfilled to the same position by 0021 — every
+      // variant of a product shares `created_at` (one transaction), so without
+      // a tiebreak the size chips would reorder themselves between reads.
+      .orderBy(asc(pv.position), asc(pv.id));
+
+    for (const row of rows) {
+      const bucket = byProduct.get(row.product_id);
+      const variant: ProductVariantStock = {
+        id: row.id,
+        sku: row.sku,
+        option_values: (row.option_values ?? {}) as Record<string, unknown>,
+        price_pesewas: row.price_pesewas,
+        quantity_available: Number(row.quantity_available),
+        restock_threshold: Number(row.restock_threshold),
+      };
+      if (bucket) bucket.push(variant);
+      else byProduct.set(row.product_id, [variant]);
+    }
+    return byProduct;
   }
 
   /**
@@ -306,7 +387,9 @@ export class ProductsService {
       .from(pv)
       .leftJoin(inv, eq(inv.variant_id, pv.id))
       .where(eq(pv.product_id, id))
-      .orderBy(pv.created_at);
+      // The seller's own order — see 0021. Every variant of a product shares
+      // `created_at`, so ordering by it was arbitrary.
+      .orderBy(asc(pv.position), asc(pv.id));
     const images = await this.db
       .select()
       .from(pi)
@@ -364,7 +447,18 @@ export class ProductsService {
     const input: AddVariantInput = addVariantSchema.parse(rawInput);
     return runInTransaction(this.db, async (tx) => {
       await this.assertProduct(tx, productId, scope);
-      const variantId = await this.insertVariantTx(tx, productId, input);
+      // Onto the end. `max + 1` and not `count`, so a variant added after one
+      // was deleted does not collide with an existing position.
+      const [last] = await tx
+        .select({ highest: sql<number | null>`max(${pv.position})` })
+        .from(pv)
+        .where(eq(pv.product_id, productId));
+      const variantId = await this.insertVariantTx(
+        tx,
+        productId,
+        input,
+        last?.highest === null || last?.highest === undefined ? 0 : Number(last.highest) + 1,
+      );
       await this.audit.append(tx, {
         entityType: 'product',
         entityId: productId,
@@ -443,10 +537,20 @@ export class ProductsService {
 
   // ------------------------------------------------------------- internal
 
+  /**
+   * @param position Where this variant sits among the product's own.
+   *
+   * Passed in rather than derived, because the two callers know different
+   * things: creating a product knows the whole list and its index, while
+   * `addVariant` has to look up what is already there. Both must supply one —
+   * a product's variants are inserted in ONE transaction, so `created_at` is
+   * the transaction's start time for every row and cannot separate them.
+   */
   private async insertVariantTx(
     tx: Pick<Database, 'insert'>,
     productId: string,
     v: VariantInput,
+    position: number,
   ): Promise<string> {
     let variantId: string;
     try {
@@ -458,6 +562,7 @@ export class ProductsService {
           option_values: v.option_values ?? {},
           price_pesewas: v.price_pesewas ?? null,
           barcode: v.barcode,
+          position,
         })
         .returning({ id: pv.id });
       variantId = rows[0]!.id;

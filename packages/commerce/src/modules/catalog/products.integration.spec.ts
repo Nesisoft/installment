@@ -164,6 +164,265 @@ describe.skipIf(!RUN_DB)('ProductsService (integration)', () => {
   });
 
   /**
+   * The variant stock the seller's catalogue card draws, and the filter behind
+   * its "Needs restock" chip.
+   *
+   * A fresh merchant per test for the same reason as the summary block below:
+   * these read a whole catalogue, and the file's shared store is whatever the
+   * tests above happened to create.
+   */
+  describe('catalogue for the seller app', () => {
+    async function freshShop() {
+      const id = randomUUID();
+      const merchant = await merchants.create(
+        {
+          business_name: `Cat Co ${id}`,
+          legal_name: `Cat Co Ltd ${id}`,
+          email: `cat+${id}@example.gh`,
+          phone: '+233244333333',
+        },
+        SYSTEM_ACTOR,
+      );
+      const store = await stores.create(
+        { merchant_id: merchant.id, slug: `cat-${id.slice(0, 8)}`, display_name: 'Cat Store' },
+        SYSTEM_ACTOR,
+      );
+      return { merchantId: merchant.id, storeId: store.id };
+    }
+
+    const sku = () => `SKU-${randomUUID().slice(0, 8)}`;
+
+    it('brings every active variant back with its stock, in one call', async () => {
+      const shop = await freshShop();
+      const created = await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Ankara Wrap Dress',
+          base_price_pesewas: 32_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), option_values: { size: 'S' }, quantity_available: 24 },
+            { sku: sku(), option_values: { size: 'M' }, quantity_available: 0 },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+
+      const byProduct = await products.variantsForProducts([created.id]);
+      const variants = byProduct.get(created.id) ?? [];
+
+      expect(variants).toHaveLength(2);
+      expect(variants.map((v) => v.option_values)).toEqual([{ size: 'S' }, { size: 'M' }]);
+      expect(variants.map((v) => v.quantity_available)).toEqual([24, 0]);
+    });
+
+    it('reads a variant with no inventory row as none on the shelf, not as unknown', async () => {
+      const shop = await freshShop();
+      const created = await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'No stock row',
+          base_price_pesewas: 1_000,
+          status: 'active',
+          // No `quantity_available`, so no `inventory` row is written at all.
+          variants: [{ sku: sku() }],
+        },
+        SYSTEM_ACTOR,
+      );
+
+      const variants = (await products.variantsForProducts([created.id])).get(created.id) ?? [];
+
+      expect(variants).toHaveLength(1);
+      expect(variants[0]?.quantity_available).toBe(0);
+      expect(variants[0]?.restock_threshold).toBe(0);
+    });
+
+    it('leaves a retired variant out of the card', async () => {
+      const shop = await freshShop();
+      const created = await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Retired size',
+          base_price_pesewas: 1_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), quantity_available: 5 },
+            { sku: sku(), quantity_available: 9 },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+      await db
+        .update(schema.product_variants)
+        .set({ is_active: false })
+        .where(eq(schema.product_variants.id, created.variants[0]!.id));
+
+      const variants = (await products.variantsForProducts([created.id])).get(created.id) ?? [];
+
+      expect(variants).toHaveLength(1);
+      expect(variants[0]?.id).toBe(created.variants[1]!.id);
+    });
+
+    it('keeps the sizes in the order the seller typed them', async () => {
+      const shop = await freshShop();
+      const created = await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Sized',
+          base_price_pesewas: 1_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), option_values: { size: 'S' } },
+            { sku: sku(), option_values: { size: 'M' } },
+            { sku: sku(), option_values: { size: 'L' } },
+            { sku: sku(), option_values: { size: 'XL' } },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+
+      // Every one of these shares `created_at` — they go in inside one
+      // transaction — so before 0021 the only stable ordering was the primary
+      // key, and a seller who typed S, M, L, XL got their chips back in
+      // whatever order four random uuids sorted in.
+      const listed = (await products.variantsForProducts([created.id])).get(created.id) ?? [];
+      expect(listed.map((v) => v.option_values)).toEqual([
+        { size: 'S' },
+        { size: 'M' },
+        { size: 'L' },
+        { size: 'XL' },
+      ]);
+
+      // The detail read and the shopper's storefront read the same order.
+      const detail = await products.getWithDetails(created.id);
+      expect(detail.variants.map((v) => v.option_values)).toEqual([
+        { size: 'S' },
+        { size: 'M' },
+        { size: 'L' },
+        { size: 'XL' },
+      ]);
+    });
+
+    it('puts a later variant after the ones already there, not on top of one', async () => {
+      const shop = await freshShop();
+      const created = await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Growing range',
+          base_price_pesewas: 1_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), option_values: { size: 'S' } },
+            { sku: sku(), option_values: { size: 'M' } },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+      await products.addVariant(
+        created.id,
+        { sku: sku(), option_values: { size: 'L' } },
+        SYSTEM_ACTOR,
+      );
+
+      const listed = (await products.variantsForProducts([created.id])).get(created.id) ?? [];
+      expect(listed.map((v) => v.option_values)).toEqual([
+        { size: 'S' },
+        { size: 'M' },
+        { size: 'L' },
+      ]);
+    });
+
+    it('orders a product’s variants the same way twice', async () => {
+      const shop = await freshShop();
+      const created = await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Four sizes',
+          base_price_pesewas: 1_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), option_values: { size: 'S' } },
+            { sku: sku(), option_values: { size: 'M' } },
+            { sku: sku(), option_values: { size: 'L' } },
+            { sku: sku(), option_values: { size: 'XL' } },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+
+      // One INSERT, so all four share `created_at` to the microsecond. Without
+      // the id tiebreak the size chips would reorder between reads.
+      const first = (await products.variantsForProducts([created.id])).get(created.id) ?? [];
+      const second = (await products.variantsForProducts([created.id])).get(created.id) ?? [];
+      expect(first.map((v) => v.id)).toEqual(second.map((v) => v.id));
+      expect(first).toHaveLength(4);
+    });
+
+    it('returns an empty map for no products', async () => {
+      expect((await products.variantsForProducts([])).size).toBe(0);
+    });
+
+    it('lists a product once when several of its sizes are empty', async () => {
+      const shop = await freshShop();
+      await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Two sizes gone',
+          base_price_pesewas: 1_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), quantity_available: 4 },
+            { sku: sku(), quantity_available: 0 },
+            { sku: sku(), quantity_available: 0 },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+      await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Fully stocked',
+          base_price_pesewas: 1_000,
+          status: 'active',
+          variants: [{ sku: sku(), quantity_available: 7 }],
+        },
+        SYSTEM_ACTOR,
+      );
+
+      const rows = await products.list({ merchant_id: shop.merchantId, needs_restock: true });
+
+      // Once, not twice: a join would have returned the product per empty size.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.title).toBe('Two sizes gone');
+    });
+
+    it('does not ask a seller to restock a variant they have retired', async () => {
+      const shop = await freshShop();
+      const created = await products.create(
+        {
+          store_id: shop.storeId,
+          title: 'Retired and empty',
+          base_price_pesewas: 1_000,
+          status: 'active',
+          variants: [
+            { sku: sku(), quantity_available: 0 },
+            { sku: sku(), quantity_available: 3 },
+          ],
+        },
+        SYSTEM_ACTOR,
+      );
+      await db
+        .update(schema.product_variants)
+        .set({ is_active: false })
+        .where(eq(schema.product_variants.id, created.variants[0]!.id));
+
+      expect(await products.list({ merchant_id: shop.merchantId, needs_restock: true })).toEqual(
+        [],
+      );
+    });
+  });
+
+  /**
    * The catalogue counts the seller app's home screen acts on.
    *
    * A fresh merchant per test, not the file's shared store: these are counts
