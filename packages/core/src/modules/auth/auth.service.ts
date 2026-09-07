@@ -6,7 +6,7 @@ import { UserNotFoundError } from '../users/errors';
 import { CustomersService } from '../customers/customers.service';
 import { MerchantsService } from '../merchants/merchants.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
-import { type MomoProviderCode } from '../../shared/validators/ghana';
+import { type GhanaRegion, type MomoProviderCode } from '../../shared/validators/ghana';
 import {
   loginSchema,
   otpStartSchema,
@@ -79,6 +79,8 @@ export interface AuthServiceDeps {
     merchantId: string;
     shopName: string;
     categorySlug?: string;
+    city?: string;
+    region?: GhanaRegion;
   }) => Promise<void>;
   /**
    * Refuses a shop category that does not exist, before anything is written.
@@ -385,6 +387,8 @@ export class AuthService {
         merchantId: merchant.id,
         shopName: input.business_name,
         categorySlug: input.primary_category_slug,
+        city: input.city,
+        region: input.region,
       });
     }
 

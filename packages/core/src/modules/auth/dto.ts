@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { ghPhoneNumber, momoProviderCode } from '../../shared/validators/ghana';
+import {
+  ghPhoneNumber,
+  ghanaCity,
+  ghanaRegion,
+  momoProviderCode,
+} from '../../shared/validators/ghana';
 
 export const loginSchema = z.object({
   email: z.string().email(),
@@ -115,6 +120,18 @@ export const merchantSignupCompleteSchema = z
      * be stopped at the door, and the store page lets them set it later.
      */
     primary_category_slug: z.string().trim().min(1).max(120).optional(),
+    /**
+     * Where the shop trades. Optional for the same reason the category is: a
+     * seller who does not want to say must not be stopped at the door, and the
+     * shop screen lets them set it afterwards.
+     *
+     * Worth asking here anyway, because it is the only thing on a storefront
+     * that tells a buyer in Kumasi whether this seller is down the road or
+     * across the country — and a field nobody is prompted for at signup is one
+     * most shops never fill in.
+     */
+    city: ghanaCity.optional(),
+    region: ghanaRegion.optional(),
     /**
      * Where payouts should go, as a MoMo wallet.
      *

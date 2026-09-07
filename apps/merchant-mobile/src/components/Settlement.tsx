@@ -11,6 +11,8 @@ export interface LineProps {
   /** Renders the value in red with a leading minus already in the string. */
   deduction?: boolean;
   strong?: boolean;
+  /** On a dark card — the settlement preview on "List a product". */
+  dark?: boolean;
 }
 
 /**
@@ -26,20 +28,31 @@ export function Line({
   value,
   deduction,
   strong,
+  dark,
 }: LineProps): React.ReactElement {
   return (
     <View style={styles.line}>
-      <Text variant={strong ? 'smallMedium' : 'small'} tone={strong ? 'ink' : 'soft'}>
+      <Text
+        variant={strong ? 'smallMedium' : 'small'}
+        tone={dark ? (strong ? 'onDark' : 'onDarkMuted') : strong ? 'ink' : 'soft'}
+      >
         {label}
       </Text>
       {qualifier ? (
-        <Text variant="tiny" tone="faint" style={styles.qualifier}>
+        <Text variant="tiny" tone={dark ? 'onDarkFaint' : 'faint'} style={styles.qualifier}>
           {qualifier}
         </Text>
       ) : null}
       <View style={styles.spacer} />
       <Text
-        style={[styles.value, strong && styles.valueStrong, deduction && { color: color.accent }]}
+        style={[
+          styles.value,
+          strong && styles.valueStrong,
+          dark && styles.valueDark,
+          // Crimson on the dark ground would sit at roughly 3:1 against
+          // #0E0D0B, so a deduction there is the warn amber instead.
+          deduction && { color: dark ? color.warn : color.accent },
+        ]}
       >
         {value}
       </Text>
@@ -51,22 +64,26 @@ export interface TotalProps {
   label: string;
   sub?: string;
   value: string;
+  /** On a dark card — the settlement preview on "List a product". */
+  dark?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
 /** The bold "Paid to you at approval" row that closes a breakdown. */
-export function Total({ label, sub, value, style }: TotalProps): React.ReactElement {
+export function Total({ label, sub, value, dark, style }: TotalProps): React.ReactElement {
   return (
-    <View style={[styles.total, style]}>
+    <View style={[styles.total, dark && styles.totalDark, style]}>
       <View style={styles.totalText}>
-        <Text variant="smallMedium">{label}</Text>
+        <Text variant="smallMedium" tone={dark ? 'onDark' : 'ink'}>
+          {label}
+        </Text>
         {sub ? (
-          <Text variant="tiny" tone="faint">
+          <Text variant="tiny" tone={dark ? 'onDarkFaint' : 'faint'}>
             {sub}
           </Text>
         ) : null}
       </View>
-      <Text style={styles.totalValue}>{value}</Text>
+      <Text style={[styles.totalValue, dark && styles.totalValueDark]}>{value}</Text>
     </View>
   );
 }
@@ -201,6 +218,7 @@ const styles = StyleSheet.create({
   spacer: { flex: 1 },
   value: { fontFamily: font.medium, fontSize: 13.5, color: color.inkSoft },
   valueStrong: { fontFamily: font.bold, fontSize: 15, color: color.ink },
+  valueDark: { color: color.onDark },
 
   total: {
     flexDirection: 'row',
@@ -211,8 +229,10 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.border,
   },
+  totalDark: { borderTopColor: color.darkBorder },
   totalText: { flex: 1 },
   totalValue: { fontFamily: font.extrabold, fontSize: 19, color: color.ink, letterSpacing: -0.5 },
+  totalValueDark: { color: color.onDark },
 
   step: { flexDirection: 'row', gap: space.md },
   rail: { alignItems: 'center', width: 14 },

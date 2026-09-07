@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { GhanaRegion } from '@installment/core';
 import type { StoreActor, StoresService } from './stores.service';
 
 /**
@@ -44,6 +45,9 @@ export interface ProvisionStoreInput {
   shopName: string;
   /** What the shop mainly sells, if they said. A top-level category slug. */
   categorySlug?: string;
+  /** Where the shop trades, if they said. `region` is one of `GHANA_REGIONS`. */
+  city?: string;
+  region?: GhanaRegion;
 }
 
 /**
@@ -72,6 +76,8 @@ export async function provisionStore(
           slug,
           display_name: input.shopName,
           ...(input.categorySlug ? { primary_category_slug: input.categorySlug } : {}),
+          ...(input.city ? { city: input.city } : {}),
+          ...(input.region ? { region: input.region } : {}),
         },
         actor,
       );

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Permission, UserType } from './enums';
+import { GHANA_REGIONS } from './stores';
 
 // --- Request schemas (reused for client-side form validation) ---------------
 
@@ -122,6 +123,14 @@ export const merchantSignupCompleteSchema = z
     registration_number: z.string().trim().min(1).max(60).optional(),
     /** A slug from `GET /storefront/categories`; top-level only. */
     primary_category_slug: z.string().trim().min(1).max(120).optional(),
+    /**
+     * Where the shop trades. Optional, like the category: a seller who does not
+     * want to say is not stopped at the door, and the shop screen sets it
+     * afterwards. Worth asking anyway — it is the only thing on a storefront
+     * that says whether this seller is down the road or across the country.
+     */
+    city: z.string().trim().min(1).max(120).optional(),
+    region: z.enum(GHANA_REGIONS).optional(),
     /**
      * Where payouts should go. Both or neither: a number without a network
      * cannot be resolved, and a network without a number is not a destination.

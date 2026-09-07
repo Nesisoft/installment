@@ -11,6 +11,34 @@ const slug = z
   .max(80)
   .regex(SLUG_RE, 'must be lowercase kebab-case (a-z, 0-9, hyphen-separated)');
 
+/**
+ * Ghana's sixteen administrative regions.
+ *
+ * A closed list because `delivery_zones.region` is matched against this same
+ * vocabulary when a shipping quote is priced. Mirrors `GHANA_REGIONS` in
+ * packages/core/src/shared/validators/ghana.ts — `api-types-mirror.spec.ts`
+ * fails if the two drift.
+ */
+export const GHANA_REGIONS = [
+  'Ahafo',
+  'Ashanti',
+  'Bono',
+  'Bono East',
+  'Central',
+  'Eastern',
+  'Greater Accra',
+  'North East',
+  'Northern',
+  'Oti',
+  'Savannah',
+  'Upper East',
+  'Upper West',
+  'Volta',
+  'Western',
+  'Western North',
+] as const;
+export type GhanaRegion = (typeof GHANA_REGIONS)[number];
+
 export const createStoreSchema = z.object({
   merchant_id: z.string().uuid(),
   slug,
@@ -20,6 +48,9 @@ export const createStoreSchema = z.object({
   banner_key: z.string().trim().min(1).max(500).optional(),
   support_email: z.string().email().optional(),
   support_phone: z.string().trim().min(7).max(20).optional(),
+  /** Where the shop trades. `null` clears it; `undefined` leaves it alone. */
+  city: z.string().trim().min(1).max(120).nullable().optional(),
+  region: z.enum(GHANA_REGIONS).nullable().optional(),
   /** What the shop mainly sells, as a slug from `GET /storefront/categories`. */
   primary_category_slug: z.string().trim().min(1).max(120).optional(),
   policies: z.record(z.unknown()).optional(),

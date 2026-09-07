@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { createTestDb } from '@installment/db';
-import { AuditLogger, SYSTEM_ACTORS, MerchantsService } from '@installment/core';
+import {
+  AuditLogger,
+  MerchantsService,
+  SYSTEM_ACTORS,
+  approveRequiredMerchantKyc,
+} from '@installment/core';
+import { MediaService } from '../catalog/media';
+import { StorefrontService } from '../catalog/storefront.service';
 import { StoresService } from './stores.service';
 import { StoreConflictError, StoreNotFoundError, StoreTransitionError } from './errors';
 
@@ -11,6 +18,7 @@ describe.skipIf(!RUN_DB)('StoresService (integration)', () => {
   const { db, pool } = createTestDb();
   const audit = new AuditLogger();
   const stores = new StoresService(db, audit);
+  const storefront = new StorefrontService(db, new MediaService('https://cdn.test'));
   const merchants = new MerchantsService(db, audit);
   const SYSTEM_ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 
@@ -132,5 +140,101 @@ describe.skipIf(!RUN_DB)('StoresService (integration)', () => {
     const updated = await stores.update(store.id, { display_name: 'New Name' }, SYSTEM_ACTOR);
     expect(updated.display_name).toBe('New Name');
     await expect(stores.get(randomUUID())).rejects.toBeInstanceOf(StoreNotFoundError);
+  });
+
+  /**
+   * Where the shop trades.
+   *
+   * `stores.city` and `stores.region` have been columns since the storefront
+   * shipped, and `StorefrontService.store()` has been reading them the whole
+   * time — but no schema accepted either, so every shop on the marketplace
+   * showed no location and the seller had no way to give one. These go through
+   * the real update path and out the public reader, because the bug was
+   * precisely that the two ends were never joined.
+   */
+  describe('city and region', () => {
+    /** A store a shopper can actually reach: both the shop and its merchant live. */
+    async function publicStore(): Promise<{ id: string; slug: string }> {
+      const merchantId = await freshMerchant();
+      const s = slug();
+      const store = await stores.create(
+        { merchant_id: merchantId, slug: s, display_name: 'Adepa Couture' },
+        SYSTEM_ACTOR,
+      );
+      await stores.transition(store.id, { event: 'activate' }, SYSTEM_ACTOR);
+      // `StorefrontService.store()` only answers for a live merchant, and a
+      // merchant's first activation needs approved KYC behind it. Neither is
+      // this spec's subject; both are what a shopper reaching the shop implies.
+      await approveRequiredMerchantKyc(db, merchantId, SYSTEM_ACTOR);
+      await merchants.transition(merchantId, { event: 'activate' }, SYSTEM_ACTOR);
+      return { id: store.id, slug: s };
+    }
+
+    it('carries a merchant-set market through to the storefront', async () => {
+      const store = await publicStore();
+
+      const patched = await stores.update(
+        store.id,
+        { city: 'Accra', region: 'Greater Accra' },
+        SYSTEM_ACTOR,
+        // Scoped exactly as the merchant route calls it, so this proves the
+        // seller's own door, not the admin one.
+        { merchantId: (await stores.get(store.id)).merchant_id },
+      );
+      expect(patched.city).toBe('Accra');
+      expect(patched.region).toBe('Greater Accra');
+
+      const shopper = await storefront.store(store.slug);
+      expect(shopper.city).toBe('Accra');
+      expect(shopper.region).toBe('Greater Accra');
+    });
+
+    it('lets a seller clear it again', async () => {
+      const store = await publicStore();
+      await stores.update(store.id, { city: 'Kumasi', region: 'Ashanti' }, SYSTEM_ACTOR);
+
+      const cleared = await stores.update(store.id, { city: null, region: null }, SYSTEM_ACTOR);
+
+      expect(cleared.city).toBeNull();
+      expect(cleared.region).toBeNull();
+      expect((await storefront.store(store.slug)).region).toBeNull();
+    });
+
+    it('leaves the market alone when the patch does not mention it', async () => {
+      // The distinction a partial schema has to keep: absent is not null. A
+      // seller editing their tagline must not silently lose their location.
+      const store = await publicStore();
+      await stores.update(store.id, { city: 'Takoradi', region: 'Western' }, SYSTEM_ACTOR);
+
+      const renamed = await stores.update(store.id, { display_name: 'Adepa' }, SYSTEM_ACTOR);
+
+      expect(renamed.city).toBe('Takoradi');
+      expect(renamed.region).toBe('Western');
+    });
+
+    it('refuses a region outside the sixteen', async () => {
+      const store = await publicStore();
+      // "Brong Ahafo" is the pre-2019 vocabulary — the one a seller of ten
+      // years' standing would type, and the one no delivery zone mentions.
+      await expect(
+        stores.update(store.id, { region: 'Brong Ahafo' }, SYSTEM_ACTOR),
+      ).rejects.toThrow();
+      expect((await stores.get(store.id)).region).toBeNull();
+    });
+
+    it('accepts a market at creation, which is where signup would set one', async () => {
+      const created = await stores.create(
+        {
+          merchant_id: await freshMerchant(),
+          slug: slug(),
+          display_name: 'Kejetia Fabrics',
+          city: 'Kumasi',
+          region: 'Ashanti',
+        },
+        SYSTEM_ACTOR,
+      );
+      expect(created.city).toBe('Kumasi');
+      expect(created.region).toBe('Ashanti');
+    });
   });
 });

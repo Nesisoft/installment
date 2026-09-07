@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth, apiErrorMessage } from '@installment/web-kit';
-import { merchantSignupCompleteSchema } from '@installment/api-types';
+import { GHANA_REGIONS, merchantSignupCompleteSchema } from '@installment/api-types';
 import {
   Button,
   Card,
@@ -48,6 +48,8 @@ export function SignupPage() {
   const [password, setPassword] = useState('');
   const [tin, setTin] = useState('');
   const [categorySlug, setCategorySlug] = useState('');
+  const [city, setCity] = useState('');
+  const [region, setRegion] = useState('');
   const [momoNumber, setMomoNumber] = useState('');
   const [momoProvider, setMomoProvider] = useState<'' | 'mtn' | 'tgo' | 'vod'>('');
   const categories = useShopCategories();
@@ -91,6 +93,8 @@ export function SignupPage() {
       password,
       ...(tin.trim() ? { tin: tin.trim() } : {}),
       ...(categorySlug ? { primary_category_slug: categorySlug } : {}),
+      ...(city.trim() ? { city: city.trim() } : {}),
+      ...(region ? { region } : {}),
       // Both or neither, which is what the schema refines on. A number typed
       // without a network picked is the one case worth catching here rather
       // than after a round trip.
@@ -276,6 +280,38 @@ export function SignupPage() {
                       Where buyers browsing shops will find you. You can change it later.
                     </p>
                   </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="city">Town or market (optional)</Label>
+                      <Input
+                        id="city"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        placeholder="Makola, Accra"
+                        maxLength={120}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="region">Region</Label>
+                      <select
+                        id="region"
+                        className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
+                        value={region}
+                        onChange={(e) => setRegion(e.target.value)}
+                      >
+                        <option value="">Not sure yet</option>
+                        {GHANA_REGIONS.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <p className="-mt-2 text-xs text-muted-foreground">
+                    Shown on your shopfront, so a buyer can see whether you are nearby. You can
+                    change it later.
+                  </p>
                   <div className="space-y-1.5">
                     <Label htmlFor="momo_number">MoMo number for payouts (optional)</Label>
                     <div className="flex gap-2">

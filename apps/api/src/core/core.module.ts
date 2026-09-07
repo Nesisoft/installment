@@ -788,10 +788,10 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
           // @installment/commerce, which depends on core, so core takes a
           // callback and never learns what a store is.
           assertShopCategory: (slug) => stores.assertCategory(slug),
-          provisionStore: ({ merchantId, shopName, categorySlug }) =>
+          provisionStore: ({ merchantId, shopName, categorySlug, city, region }) =>
             provisionStore(
               stores,
-              { merchantId, shopName, categorySlug },
+              { merchantId, shopName, categorySlug, city, region },
               {
                 actorId: SYSTEM_ACTORS.SYSTEM,
                 actorType: 'system',

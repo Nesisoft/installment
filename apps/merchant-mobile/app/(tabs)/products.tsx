@@ -1,8 +1,10 @@
 import React, { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
 import { apiErrorMessage } from '@installment/mobile-kit';
 import type { MerchantProductRow, ProductVariantStock } from '@installment/api-types';
 import {
+  Button,
   Card,
   EmptyState,
   ErrorState,
@@ -58,7 +60,18 @@ export default function ProductsScreen(): React.ReactElement {
 
   const header = (
     <View style={styles.top}>
-      <Header flush title="Products" />
+      <Header
+        flush
+        title="Products"
+        right={
+          <Button
+            label="List one"
+            compact
+            icon={<Icon name="plus" size={15} color={color.onDark} />}
+            onPress={() => router.push('/products/new')}
+          />
+        }
+      />
       <Segmented options={chips} value={filter} onChange={setFilter} style={styles.chips} />
     </View>
   );
@@ -95,6 +108,7 @@ export default function ProductsScreen(): React.ReactElement {
           icon={<Icon name="grid" size={30} color={color.mutedSoft} />}
           title={empty.title}
           body={empty.body}
+          action={<Button label="List a product" onPress={() => router.push('/products/new')} />}
         />
       ) : (
         <View style={styles.list}>
