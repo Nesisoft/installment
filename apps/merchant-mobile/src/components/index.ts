@@ -15,6 +15,8 @@ export {
   type MoneyRowProps,
   type StatTileProps,
 } from './Rows';
+export { Sheet, type SheetProps } from './Sheet';
+export { RestockSheet, variantLabel, type RestockSheetProps } from './RestockSheet';
 export { Sparkline, type SparklineBar, type SparklineProps } from './Sparkline';
 export {
   Field,

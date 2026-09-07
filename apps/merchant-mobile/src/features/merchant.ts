@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiErrorStatus, useApi } from '@installment/mobile-kit';
 import type {
+  AddVariantInput,
   CreateProductInput,
+  Inventory,
   Merchant,
   MerchantBalances,
   MerchantCatalogSummary,
@@ -18,6 +20,8 @@ import type {
   MerchantPlanCounts,
   MerchantPlanDetail,
   MerchantPlanPage,
+  MerchantProductDetails,
+  MerchantProductImage,
   MerchantProductRow,
   MerchantStats,
   MerchantStore,
@@ -27,11 +31,14 @@ import type {
   PayoutDestination,
   PlanTemplate,
   PresignedUpload,
+  Product,
   ProductDetails,
+  ProductVariant,
   ResolvedPayoutAccount,
   SetPayoutAccountInput,
   StorefrontCategory,
   UpdateMyStoreInput,
+  UpdateProductInput,
 } from '@installment/api-types';
 
 /**
@@ -555,5 +562,110 @@ export function useCreateProduct() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['merchant', 'catalog'] });
     },
+  });
+}
+
+// --- Editing a listing ----------------------------------------------------------
+
+/** One of the seller's own products, with its variants, photos and plan offers. */
+export function useProduct(productId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    enabled: Boolean(productId),
+    queryKey: ['merchant', 'product', productId],
+    queryFn: async () =>
+      (await api.get<MerchantProductDetails>(`/merchant/products/${productId}`)).data,
+  });
+}
+
+/**
+ * Invalidates everything a catalogue write can move.
+ *
+ * The product itself, the list page it appears on, and the summary behind the
+ * filter chips — a restock changes `outOfStockVariants`, and a chip still
+ * saying "3" after the seller fixed the third one is the kind of stale number
+ * that makes a seller stop trusting the screen.
+ */
+function useCatalogInvalidator(): (productId?: string) => void {
+  const queryClient = useQueryClient();
+  return (productId?: string) => {
+    void queryClient.invalidateQueries({ queryKey: ['merchant', 'catalog'] });
+    if (productId)
+      void queryClient.invalidateQueries({ queryKey: ['merchant', 'product', productId] });
+  };
+}
+
+export function useUpdateProduct(productId: string | undefined) {
+  const api = useApi();
+  const invalidate = useCatalogInvalidator();
+  return useMutation({
+    mutationFn: async (patch: UpdateProductInput) =>
+      (await api.patch<Product>(`/merchant/products/${productId}`, patch)).data,
+    onSuccess: () => invalidate(productId),
+  });
+}
+
+export function useAddVariant(productId: string | undefined) {
+  const api = useApi();
+  const invalidate = useCatalogInvalidator();
+  return useMutation({
+    mutationFn: async (input: AddVariantInput) =>
+      (await api.post<ProductVariant>(`/merchant/products/${productId}/variants`, input)).data,
+    onSuccess: () => invalidate(productId),
+  });
+}
+
+export function useAddProductImage(productId: string | undefined) {
+  const api = useApi();
+  const invalidate = useCatalogInvalidator();
+  const upload = useUploadImage();
+  return useMutation({
+    mutationFn: async (image: PickedImage) => {
+      const storage_key = await upload.mutateAsync({ image, purpose: 'product_image' });
+      return (
+        await api.post<MerchantProductImage>(`/merchant/products/${productId}/images`, {
+          storage_key,
+        })
+      ).data;
+    },
+    onSuccess: () => invalidate(productId),
+  });
+}
+
+export function useSetPlanOffers(productId: string | undefined) {
+  const api = useApi();
+  const invalidate = useCatalogInvalidator();
+  return useMutation({
+    mutationFn: async (planTemplateIds: string[]) =>
+      (
+        await api.put(`/merchant/products/${productId}/plan-offers`, {
+          plan_template_ids: planTemplateIds,
+        })
+      ).data,
+    onSuccess: () => invalidate(productId),
+  });
+}
+
+/**
+ * Sets what is on the shelf for one variant.
+ *
+ * `PUT`, not the `adjust` route: the restock sheet shows a count and saves that
+ * count. A delta would be wrong the moment two devices are open on the same
+ * shop, and it is not what the seller is looking at.
+ *
+ * `productId` is only for cache invalidation — the route is scoped by variant,
+ * and by merchant in the service's WHERE clause.
+ */
+export function useSetStock(productId?: string) {
+  const api = useApi();
+  const invalidate = useCatalogInvalidator();
+  return useMutation({
+    mutationFn: async (input: { variantId: string; quantity: number }) =>
+      (
+        await api.put<Inventory>(`/merchant/variants/${input.variantId}/inventory`, {
+          quantity_available: input.quantity,
+        })
+      ).data,
+    onSuccess: () => invalidate(productId),
   });
 }

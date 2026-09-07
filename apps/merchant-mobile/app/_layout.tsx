@@ -86,6 +86,7 @@ function Routes(): React.ReactElement | null {
         <Stack.Screen name="plans/index" />
         <Stack.Screen name="plans/[id]" />
         <Stack.Screen name="products/new" />
+        <Stack.Screen name="products/[id]" />
         <Stack.Screen name="performance" />
         <Stack.Screen name="onboarding" />
       </Stack.Protected>
