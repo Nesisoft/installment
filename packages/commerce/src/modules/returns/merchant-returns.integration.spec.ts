@@ -197,7 +197,10 @@ describe.skipIf(!RUN_DB)('MerchantReturnsService (integration)', () => {
 
     const { rows } = await merchantReturns.list(merchantId);
 
-    expect(rows[0]?.itemSummary).toBe('Ankara Wrap Dress + 2 more');
+    // Which title leads is the uuid tiebreak's choice, not the seller's cart
+    // order, so only the shape is assertable — the "+ 2 more" is the part that
+    // has to be right.
+    expect(rows[0]?.itemSummary).toMatch(/^(Ankara Wrap Dress|Kente Scarf|Beaded Bag) \+ 2 more$/);
   });
 
   it('puts what is waiting on the seller first, whatever its age', async () => {
@@ -285,7 +288,14 @@ describe.skipIf(!RUN_DB)('MerchantReturnsService (integration)', () => {
     const detail = await merchantReturns.detail(merchantId, request.id);
 
     expect(detail.items).toHaveLength(2);
-    expect(detail.items.map((i) => i.title)).toEqual(['Ankara Wrap Dress', 'Kente Scarf']);
+    // Sorted before comparing, because the query does NOT promise insertion
+    // order and asserting one would be asserting a coincidence. Every line of
+    // an order is inserted in the same statement and shares `created_at` to the
+    // microsecond, so the `id` tiebreak decides — and that is a random uuid.
+    // Stable across reads, arbitrary in sequence. See §6 of the merchant design
+    // doc: `order_items` needs a `position` column, exactly as
+    // `product_variants` did, and until it has one no screen may claim an order.
+    expect(detail.items.map((i) => i.title).sort()).toEqual(['Ankara Wrap Dress', 'Kente Scarf']);
     expect(detail.items.every((i) => i.quantity === 1)).toBe(true);
     expect(detail.orderTotalPesewas).toBe(order.total_pesewas);
     expect(detail.orderStatus).toBe('paid');

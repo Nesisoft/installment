@@ -370,6 +370,16 @@ return and asserts the promised figure equals what the ledger actually booked.
   edit screen adds and reorders nothing. A control that silently failed would be
   worse than its absence.
 - **Cancelling a return as the seller.** `cancelled` is the buyer's to set.
+- **A stable display order for `order_items`.** The same hole `product_variants`
+  had before `0021` (§2.5), and found the same way — by a test that asserted an
+  order and got a different one on a second machine. Every line of one order is
+  inserted in a single statement and shares `created_at` to the microsecond, so
+  the `id` tiebreak decides, and that is a random uuid: stable across reads,
+  arbitrary in sequence. It shows wherever lines are listed or summarised —
+  "Ankara Wrap Dress + 2 more" may name any of the three. The fix is the same
+  `position` column and backfill, and it belongs with a decision about what the
+  order *should* be (cart order, price, alphabetical) rather than being smuggled
+  into a screen. Until then no screen may claim a sequence.
 - **Per-shop delivery zones.** §3.5. Needs `delivery_zones.merchant_id` and a
   resolution order against the national card.
 - **Editing the slug.** It is the public URL. An admin can change one during
