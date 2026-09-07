@@ -8,6 +8,7 @@ export * from './customers';
 export * from './plan-templates';
 export * from './collections';
 export * from './plans';
+export * from './returns';
 export * from './stores';
 export * from './catalog';
 export * from './storefront';

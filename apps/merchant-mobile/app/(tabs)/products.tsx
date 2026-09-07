@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { apiErrorMessage } from '@installment/mobile-kit';
 import type { MerchantProductRow, ProductVariantStock } from '@installment/api-types';
@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   EmptyState,
+  RestockSheet,
   ErrorState,
   Header,
   Icon,
@@ -139,54 +140,84 @@ function stockOf(variants: ProductVariantStock[]): {
 function ProductCard({ row }: { row: MerchantProductRow }): React.ReactElement {
   const stock = stockOf(row.variants);
   const live = row.status === 'active';
+  const [restocking, setRestocking] = useState(false);
 
   return (
     <Card style={styles.card}>
-      <View style={styles.head}>
-        <View
-          style={[styles.thumb, { backgroundColor: tintFor(row.id) }]}
-          accessibilityElementsHidden
-        />
-        <View style={styles.headText}>
-          <Text variant="smallMedium" numberOfLines={2}>
-            {row.title}
-          </Text>
-          <Text variant="tiny" tone="faint">
-            {/* The canvas prints "or GHS 64.00/wk" here. A weekly figure is the
+      {/* The card opens the listing; Restock is a sibling of this Pressable,
+          never a child. A Pressable inside a Pressable fires both, which is how
+          the order card ended up confirming an order the seller only opened. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${row.title}. ${stock.label.toLowerCase()}. Open the listing.`}
+        onPress={() => router.push(`/products/${row.id}`)}
+        style={({ pressed }) => (pressed ? styles.pressed : null)}
+      >
+        <View style={styles.head}>
+          <View
+            style={[styles.thumb, { backgroundColor: tintFor(row.id) }]}
+            accessibilityElementsHidden
+          />
+          <View style={styles.headText}>
+            <Text variant="smallMedium" numberOfLines={2}>
+              {row.title}
+            </Text>
+            <Text variant="tiny" tone="faint">
+              {/* The canvas prints "or GHS 64.00/wk" here. A weekly figure is the
                 engine's to compute — it depends on the plan template offered on
                 this product — and there is no endpoint that quotes one for a
                 whole page. Printing the base price and leaving the instalment
                 terms to the product screen is the honest half. */}
-            {`GHS ${cedis(row.base_price_pesewas)}`}
-          </Text>
-        </View>
-        <View style={styles.pills}>
-          <Pill label={stock.label} tone={stock.tone} />
-          {live ? null : <Pill label={row.status.toUpperCase()} tone="neutral" />}
-        </View>
-      </View>
-
-      {row.variants.length > 0 ? (
-        <>
-          <Text variant="tiny" tone="faint" style={styles.summary}>
-            {stock.empty === 0
-              ? `${pluralise(stock.total, 'item')} across ${pluralise(row.variants.length, 'size')}`
-              : `${pluralise(stock.total, 'item')} left · ${stock.empty} of ${row.variants.length} sizes out of stock`}
-          </Text>
-          <View style={styles.chipsRow}>
-            {row.variants.map((v) => (
-              <VariantChip key={v.id} variant={v} />
-            ))}
+              {`GHS ${cedis(row.base_price_pesewas)}`}
+            </Text>
           </View>
-        </>
-      ) : (
-        <Text variant="tiny" tone="faint" style={styles.summary}>
-          {/* A product with no active variant cannot be added to a basket at
+          <View style={styles.pills}>
+            <Pill label={stock.label} tone={stock.tone} />
+            {live ? null : <Pill label={row.status.toUpperCase()} tone="neutral" />}
+          </View>
+        </View>
+
+        {row.variants.length > 0 ? (
+          <>
+            <Text variant="tiny" tone="faint" style={styles.summary}>
+              {stock.empty === 0
+                ? `${pluralise(stock.total, 'item')} across ${pluralise(row.variants.length, 'size')}`
+                : `${pluralise(stock.total, 'item')} left · ${stock.empty} of ${row.variants.length} sizes out of stock`}
+            </Text>
+            <View style={styles.chipsRow}>
+              {row.variants.map((v) => (
+                <VariantChip key={v.id} variant={v} />
+              ))}
+            </View>
+          </>
+        ) : (
+          <Text variant="tiny" tone="faint" style={styles.summary}>
+            {/* A product with no active variant cannot be added to a basket at
               all — there is nothing to put in one — so it is invisible to a
               customer however "live" its status says it is. */}
-          No sizes to sell. Customers cannot buy this until you add one.
-        </Text>
-      )}
+            No sizes to sell. Customers cannot buy this until you add one.
+          </Text>
+        )}
+      </Pressable>
+
+      {row.variants.length > 0 ? (
+        <View style={styles.actions}>
+          <Button
+            label={stock.empty > 0 ? `Restock ${stock.empty}` : 'Update stock'}
+            variant="outline"
+            compact
+            onPress={() => setRestocking(true)}
+          />
+        </View>
+      ) : null}
+
+      <RestockSheet
+        open={restocking}
+        onClose={() => setRestocking(false)}
+        productId={row.id}
+        productTitle={row.title}
+        variants={row.variants}
+      />
     </Card>
   );
 }
@@ -228,6 +259,14 @@ const styles = StyleSheet.create({
   },
   chips: { paddingHorizontal: space.lg },
 
+  pressed: { opacity: 0.75 },
+  actions: {
+    marginTop: space.md,
+    paddingTop: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.borderSoft,
+    alignItems: 'flex-start',
+  },
   list: { padding: space.lg, gap: space.md },
   card: { gap: space.md },
   head: { flexDirection: 'row', gap: space.md, alignItems: 'flex-start' },
