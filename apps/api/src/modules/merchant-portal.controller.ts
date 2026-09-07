@@ -18,7 +18,10 @@ import {
   MERCHANT_ORDER_BUCKETS,
   MerchantOrdersService,
   MERCHANT_PLAN_BUCKETS,
+  MERCHANT_RETURN_BUCKETS,
   MerchantPlansService,
+  MerchantReturnsService,
+  type MerchantReturnBucket,
   isMerchantOrderBucket,
   isMerchantPlanBucket,
   OrdersService,
@@ -92,6 +95,7 @@ export class MerchantPortalController {
     private readonly orders: OrdersService,
     private readonly merchantOrders: MerchantOrdersService,
     private readonly merchantPlans: MerchantPlansService,
+    private readonly merchantReturns: MerchantReturnsService,
     private readonly payoutAccount: PayoutAccountService,
     private readonly kyc: MerchantKycService,
     private readonly devices: DevicesService,
@@ -371,6 +375,43 @@ export class MerchantPortalController {
   @ApiOperation({ summary: 'Returns waiting on me, and the ones I have decided' })
   returns(@CurrentMerchantId() merchantId: string, @Query() q: Record<string, string>) {
     return this.orderReturns.list(q, { merchantId });
+  }
+
+  /**
+   * The same returns, projected for the seller's queue.
+   *
+   * Alongside `GET returns` rather than replacing it: that one answers with the
+   * `order_returns` rows and is what the web portal and the tests read. This
+   * one carries the sale, the buyer and what a decision costs — none of which
+   * is on the row, and all of which a card needs. Same split, same reason, as
+   * `/merchant/orders` and `/merchant/queue`.
+   */
+  @Get('return-list')
+  @ApiOperation({ summary: 'My returns queue, with the sale and what deciding costs' })
+  @ApiModel('MerchantReturnPage')
+  returnList(@CurrentMerchantId() merchantId: string, @Query() q: Record<string, string>) {
+    const bucket = MERCHANT_RETURN_BUCKETS.includes(q.bucket as MerchantReturnBucket)
+      ? (q.bucket as MerchantReturnBucket)
+      : undefined;
+    return this.merchantReturns.list(merchantId, {
+      bucket,
+      limit: numOrUndefined(q.limit),
+      offset: numOrUndefined(q.offset),
+    });
+  }
+
+  @Get('return-list/counts')
+  @ApiOperation({ summary: 'How many returns are in each bucket' })
+  @ApiModel('MerchantReturnCounts')
+  returnCounts(@CurrentMerchantId() merchantId: string) {
+    return this.merchantReturns.counts(merchantId);
+  }
+
+  @Get('return-list/:id')
+  @ApiOperation({ summary: 'One of my returns, in full' })
+  @ApiModel('MerchantReturnDetail')
+  returnListDetail(@Param('id') id: string, @CurrentMerchantId() merchantId: string) {
+    return this.merchantReturns.detail(merchantId, id);
   }
 
   @Get('returns/:id')

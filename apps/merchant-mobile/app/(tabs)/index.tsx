@@ -23,6 +23,7 @@ import {
   useMerchantProfile,
   useMerchantStats,
   useOrdersAwaitingConfirmation,
+  useReturnCounts,
 } from '../../src/features/merchant';
 import { cedis, ghs, initials, pluralise, signedPct } from '../../src/lib/format';
 import { lastDays, latestDay, shortDay, vsSameWeekday } from '../../src/lib/today';
@@ -40,6 +41,7 @@ export default function TodayScreen(): React.ReactElement {
   const balances = useMerchantBalances();
   const catalog = useCatalogSummary();
   const awaiting = useOrdersAwaitingConfirmation();
+  const returns = useReturnCounts();
 
   const refreshing =
     stats.isFetching || balances.isFetching || awaiting.isFetching || catalog.isFetching;
@@ -49,8 +51,9 @@ export default function TodayScreen(): React.ReactElement {
     void balances.refetch();
     void awaiting.refetch();
     void catalog.refetch();
+    void returns.refetch();
     void profile.refetch();
-  }, [stats, balances, awaiting, catalog, profile]);
+  }, [stats, balances, awaiting, catalog, returns, profile]);
 
   if (stats.isPending || balances.isPending) {
     return (
@@ -201,6 +204,15 @@ export default function TodayScreen(): React.ReactElement {
               onPress={() => router.push('/products')}
             />
           ) : null}
+          {(returns.data?.requested ?? 0) > 0 ? (
+            <ActionRow
+              count={returns.data!.requested}
+              title={`${returns.data!.requested === 1 ? 'Return' : 'Returns'} to decide`}
+              body="Nothing moves until you accept or refuse"
+              tone="warn"
+              onPress={() => router.push('/returns')}
+            />
+          ) : null}
           {balances.data.activePlans > 0 ? (
             <ActionRow
               count={balances.data.activePlans}
@@ -213,6 +225,7 @@ export default function TodayScreen(): React.ReactElement {
           {noActions(
             awaiting.data?.total,
             catalog.data?.outOfStockVariants,
+            returns.data?.requested,
             balances.data.activePlans,
           ) ? (
             <Card style={styles.clear}>

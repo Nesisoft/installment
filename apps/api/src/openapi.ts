@@ -538,6 +538,65 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     },
   } as SchemaObject;
 
+  const returnRowProps = {
+    id: { type: 'string', format: 'uuid' },
+    orderId: { type: 'string', format: 'uuid' },
+    orderNumber: { type: 'string' },
+    status: { type: 'string' },
+    reason: { type: 'string' },
+    refundPesewas: money,
+    requestedAt: { type: 'string', format: 'date-time' },
+    decidedAt: { type: 'string', format: 'date-time', nullable: true },
+    decisionNote: { type: 'string', nullable: true },
+    buyerName: { type: 'string', nullable: true },
+    buyerPhone: { type: 'string', nullable: true },
+    itemSummary: { type: 'string', nullable: true },
+    merchantLosesPesewas: money,
+    commissionReversedPesewas: money,
+  };
+
+  models.MerchantReturnRow = { type: 'object', properties: returnRowProps } as SchemaObject;
+
+  models.MerchantReturnPage = {
+    type: 'object',
+    properties: {
+      rows: { type: 'array', items: { $ref: '#/components/schemas/MerchantReturnRow' } },
+      total: { type: 'integer' },
+    },
+  } as SchemaObject;
+
+  models.MerchantReturnCounts = {
+    type: 'object',
+    properties: {
+      requested: { type: 'integer' },
+      approved: { type: 'integer' },
+      rejected: { type: 'integer' },
+      cancelled: { type: 'integer' },
+      all: { type: 'integer' },
+    },
+  } as SchemaObject;
+
+  models.MerchantReturnDetail = {
+    type: 'object',
+    properties: {
+      ...returnRowProps,
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            quantity: { type: 'integer' },
+            unitPricePesewas: money,
+          },
+        },
+      },
+      orderTotalPesewas: money,
+      orderStatus: { type: 'string' },
+      orderPlacedAt: { type: 'string', format: 'date-time', nullable: true },
+    },
+  } as SchemaObject;
+
   models.MerchantPlanCounts = {
     type: 'object',
     properties: {

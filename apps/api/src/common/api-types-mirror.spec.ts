@@ -5,13 +5,20 @@ import {
   LEDGER_ACCOUNT_TYPES,
   PERMISSIONS,
 } from '@installment/core';
-import { CATALOG_PERMISSIONS, MERCHANT_STATS_WINDOWS } from '@installment/commerce';
+import {
+  CATALOG_PERMISSIONS,
+  MERCHANT_RETURN_BUCKETS,
+  MERCHANT_STATS_WINDOWS,
+  RETURN_STATUSES,
+} from '@installment/commerce';
 import {
   PERMISSIONS as MIRRORED_PERMISSIONS,
   LEDGER_ACCOUNT_TYPES as MIRRORED_LEDGER_ACCOUNT_TYPES,
   MERCHANT_STATS_WINDOWS as MIRRORED_MERCHANT_STATS_WINDOWS,
   GHANA_CARD_STATUSES as MIRRORED_GHANA_CARD_STATUSES,
   GHANA_REGIONS as MIRRORED_GHANA_REGIONS,
+  MERCHANT_RETURN_BUCKETS as MIRRORED_MERCHANT_RETURN_BUCKETS,
+  RETURN_STATUSES as MIRRORED_RETURN_STATUSES,
 } from '@installment/api-types';
 
 /**
@@ -62,6 +69,14 @@ describe('api-types mirrors the backend contract', () => {
     // accepts. The order matters too: both lists are rendered as-is in a
     // picker, and a reordered mirror is a reordered picker.
     expect([...MIRRORED_GHANA_REGIONS]).toEqual([...GHANA_REGIONS]);
+  });
+
+  it('lists every state a return can be in', () => {
+    // The seller's queue chips are these values, and the CHECK constraint on
+    // `order_returns.status` is the same list. A mirror that gained one would
+    // give the app a filter the API refuses.
+    expect([...MIRRORED_RETURN_STATUSES]).toEqual([...RETURN_STATUSES]);
+    expect([...MIRRORED_MERCHANT_RETURN_BUCKETS]).toEqual([...MERCHANT_RETURN_BUCKETS]);
   });
 
   it('lists every analytics window the merchant stats endpoint will serve', () => {

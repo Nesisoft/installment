@@ -28,6 +28,7 @@ import {
   useMerchantStore,
   usePayoutAccount,
   usePlanCounts,
+  useReturnCounts,
   useUpdateMerchantStore,
 } from '../../src/features/merchant';
 import { compact, initials, pluralise } from '../../src/lib/format';
@@ -362,6 +363,7 @@ function Settings(): React.ReactElement {
   const kyc = useKycStatus();
   const payout = usePayoutAccount();
   const plans = usePlanCounts();
+  const returns = useReturnCounts();
   const profile = useMerchantProfile();
 
   const draft = store.data?.status !== 'active';
@@ -401,19 +403,30 @@ function Settings(): React.ReactElement {
           tone={kyc.data && !kyc.data.complete && !kyc.data.exempt ? 'warn' : undefined}
           onPress={() => router.push('/onboarding')}
         />
+        <Row
+          label="Returns"
+          hint={returns.data ? waitingHint(returns.data.requested) : 'Decided one by one'}
+          tone={returns.data && returns.data.requested > 0 ? 'warn' : undefined}
+          onPress={() => router.push('/returns')}
+        />
         <Row label="Delivery fees" hint="Set by Ejua" />
-        <Row label="Returns" hint="Decided one by one" />
       </Card>
 
-      <Note eyebrow="Two of these are not yours to set">
-        {/* Both are real limits of the platform today, and a settings row that
-            opened an editor for either would be a control over nothing. */}
-        {`Delivery is priced from one national rate card, the same for every shop — there is no per-shop table to edit. Returns are not a policy either: each request comes to you to approve or refuse, and your payout is only reversed if you approve it.${
+      <Note eyebrow="One of these is not yours to set">
+        {/* A real limit of the platform today: `delivery_zones` has no
+            merchant_id, so a settings row that opened an editor would be a
+            control over nothing. */}
+        {`Delivery is priced from one national rate card, the same for every shop — there is no per-shop table to edit. Returns are not a policy either: each request comes to you to accept or refuse, one at a time.${
           profile.data ? ` Ejua's fee on your sales is ${profile.data.default_mdr_bps / 100}%.` : ''
         }`}
       </Note>
     </View>
   );
+}
+
+/** "2 waiting on you" is a call to action; "None waiting" is reassurance. */
+function waitingHint(waiting: number): string {
+  return waiting === 0 ? 'None waiting' : `${waiting} waiting on you`;
 }
 
 function Row({

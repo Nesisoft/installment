@@ -49,6 +49,14 @@ export {
 } from './modules/returns/returns.service';
 export * from './modules/returns/dto';
 export * from './modules/returns/errors';
+export {
+  MerchantReturnsService,
+  MERCHANT_RETURN_BUCKETS,
+  type MerchantReturnBucket,
+  type MerchantReturnCounts,
+  type MerchantReturnDetail,
+  type MerchantReturnRow,
+} from './modules/returns/merchant-returns.service';
 
 // Analytics: the merchant's own trading figures
 export {

@@ -44,12 +44,16 @@ public because the taxonomy is.
 | 08  | List a product            | `/products/new`           | `GET /storefront/categories`, `/merchant/plan-templates`, `/merchant/me`                                                           | `POST /merchant/uploads` → `POST /merchant/products`                                                                  |
 | 09  | Payouts + reserve         | `/(tabs)/payouts`         | `GET /merchant/balances`, `/merchant/payouts`, `/merchant/reserves`, `/merchant/payout-account`, `/merchant/me`                    | —                                                                                                                     |
 | 10  | Performance               | `/performance`            | `GET /merchant/stats`                                                                                                              | —                                                                                                                     |
-| 11  | Storefront + settings     | `/(tabs)/shop`            | `GET /merchant/store`, `/merchant/kyc`, `/merchant/payout-account`, `/merchant/catalog/summary`, `/merchant/stats`, `/merchant/plan-list/counts`, `/merchant/me` | `PATCH /merchant/store`                                                                                               |
+| 11  | Storefront + settings     | `/(tabs)/shop`            | `GET /merchant/store`, `/merchant/kyc`, `/merchant/payout-account`, `/merchant/catalog/summary`, `/merchant/stats`, `/merchant/plan-list/counts`, `/merchant/return-list/counts`, `/merchant/me` | `PATCH /merchant/store`                                                                                               |
 | —   | Sign in                   | `/sign-in`                | —                                                                                                                                  | `POST /auth/login`                                                                                                    |
 
-Two surfaces the engine serves that no screen reaches yet — see §5:
-`GET/POST /merchant/returns/*` and `PATCH /merchant/products/:id` +
-`PUT /merchant/variants/:id/inventory`.
+And the three screens the canvas never drew, specified in §5 and built after it:
+
+| #   | Screen                    | Route                     | Reads                                                                     | Writes                                                                                                |
+| --- | ------------------------- | ------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 5.1 | Restock (sheet)           | on `/(tabs)/products` and `/products/[id]` | —                                                        | `PUT /merchant/variants/:id/inventory`                                                                   |
+| 5.2 | Returns queue + decision  | `/returns`, `/returns/[id]` | `GET /merchant/return-list`, `/return-list/counts`, `/return-list/:id`   | `POST /merchant/returns/:id/approve` · `/reject`                                                         |
+| 5.3 | Edit a listing            | `/products/[id]`          | `GET /merchant/products/:id`, `/storefront/categories`                     | `PATCH /merchant/products/:id`; `POST products/:id/variants`; `POST /merchant/uploads` → `POST products/:id/images` |
 
 ---
 
@@ -262,9 +266,9 @@ already serves have no design behind them at all. Specified here, in the
 canvas's own vocabulary, so they can be built without inventing a visual
 language.
 
-### 5.1 Restock (sheet) — *on the canvas, not yet built*
+### 5.1 Restock (sheet) — *on the canvas; built*
 
-The one canvas element still unbuilt. Drawn at the foot of screen 07: variant
+The one canvas element that was drawn and not built. Drawn at the foot of screen 07: variant
 tabs carrying each size and its count, a large centred stepper, `+5 / +10 / +25
 / +50` quick-add chips, a note that changes at zero ("At zero this size is
 hidden from customers — the rest of the listing stays live"), and a CTA that
@@ -275,10 +279,14 @@ absolute rather than a delta — the sheet shows a count and saves that count, a
 `adjust` exists for callers that genuinely have a delta. Both are scoped by
 merchant in the WHERE clause.
 
-The catalogue tab already has a "Sizes to restock" filter, so today it surfaces
-a problem the app gives no way to fix.
+Until it was built the catalogue tab had a "Sizes to restock" filter that
+surfaced a problem the app gave no way to fix.
 
-### 5.2 Returns — *no design*
+Saved one variant at a time, and the sheet stays open after each: batching them
+would mean a partial failure the seller cannot see the shape of, and counting
+stock size by size is what a seller is physically doing.
+
+### 5.2 Returns — *no design; built to this spec*
 
 Structurally the order queue and order sheet again: a filtered list of things
 needing a decision, then a detail with a sticky action footer. Follow those two
@@ -309,7 +317,7 @@ is shown to the buyer; the field's copy should say so.
 
 A decided return is read-only, with the decision and its note.
 
-### 5.3 Edit a listing — *no design*
+### 5.3 Edit a listing — *no design; built to this spec*
 
 Screen 08 in reverse, and it is the mirror image that makes it specifiable: the
 same fields, pre-filled, over `PATCH /merchant/products/:id` (`title`,
@@ -329,14 +337,25 @@ Note what `updateProductSchema` does **not** accept: `store_id`. A product
 cannot be moved between shops, which is correct — the settlement history is
 attached to the merchant.
 
-### 5.4 What these need from the backend
+### 5.4 What these needed from the backend
 
-`GET /merchant/returns` returns bare `order_returns` rows: no order number, no
-buyer, no item summary, and no commission figure. That is the same gap
-`MerchantOrdersService` was written to close for the order queue (§2.1), and it
-wants the same answer — a merchant-facing projection (`MerchantReturnRow` /
-`MerchantReturnDetail`) plus a counts endpoint for the chips, declared in
-`api-types`, which today carries **no return types at all**.
+`GET /merchant/returns` answers with bare `order_returns` rows: no order number,
+no buyer, no item summary, and no commission figure. The same gap
+`MerchantOrdersService` closed for the order queue (§2.1), closed the same way —
+`MerchantReturnsService` projecting `MerchantReturnRow` / `MerchantReturnDetail`
+over `/merchant/return-list`, plus a counts endpoint for the chips. The bare
+route stays: it is what the web portal and the returns spec read.
+
+`api-types` carried **no return types at all** — not even `ReturnStatus` — so
+`packages/api-types/src/returns.ts` is new.
+
+The figure that mattered most is `merchantLosesPesewas`: `total − commission` at
+the ORDER's own `commission_bps`, which is what `approve` debits from
+`merchant_payable`. A client recomputing it from the merchant's *current*
+default rate would be wrong for every order placed before the last rate change,
+and the screen would be lying about money. It is computed through the same
+`Money.multiplyBps` the reversal uses, and pinned by a test that approves a
+return and asserts the promised figure equals what the ledger actually booked.
 
 ---
 
@@ -347,6 +366,10 @@ wants the same answer — a merchant-facing projection (`MerchantReturnRow` /
   `orders.status = 'returned'` while one shirt of three went back. Per-item
   state first, then the feature.
 - **Messaging.** §3.1. A real slice, not a screen.
+- **Removing a product photo.** There is no DELETE on `product_images`, so the
+  edit screen adds and reorders nothing. A control that silently failed would be
+  worse than its absence.
+- **Cancelling a return as the seller.** `cancelled` is the buyer's to set.
 - **Per-shop delivery zones.** §3.5. Needs `delivery_zones.merchant_id` and a
   resolution order against the national card.
 - **Editing the slug.** It is the public URL. An admin can change one during
@@ -361,8 +384,8 @@ wants the same answer — a merchant-facing projection (`MerchantReturnRow` /
 ## 7. Verified, and not
 
 Every backend change above is covered by the integration suites — real Postgres,
-real services, per-worker databases cloned from the migrations. As of #81 that
-is **391 core and 261 commerce** integration tests.
+real services, per-worker databases cloned from the migrations. As of the
+returns slice that is **391 core and 272 commerce** integration tests.
 
 The screens themselves are covered by `typecheck` and `lint` only. **No screen in
 this app has been run on a handset.** The Expo app has been started against a

@@ -23,9 +23,14 @@ import type {
   MerchantProductDetails,
   MerchantProductImage,
   MerchantProductRow,
+  MerchantReturnBucket,
+  MerchantReturnCounts,
+  MerchantReturnDetail,
+  MerchantReturnPage,
   MerchantStats,
   MerchantStore,
   Order,
+  OrderReturn,
   OrderWithItems,
   PayoutAccountView,
   PayoutDestination,
@@ -667,5 +672,82 @@ export function useSetStock(productId?: string) {
         })
       ).data,
     onSuccess: () => invalidate(productId),
+  });
+}
+
+// --- Returns ---------------------------------------------------------------------
+
+/**
+ * The returns queue.
+ *
+ * `/merchant/return-list`, not `/merchant/returns`. The latter answers with the
+ * bare `order_returns` rows — an order id, a customer id and two amounts — and
+ * a seller deciding on a return is deciding about a sale. This one carries the
+ * order number, the buyer, what is coming back and what approving costs.
+ */
+export function useReturns(bucket: MerchantReturnBucket) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'return-list', bucket],
+    queryFn: async () =>
+      (
+        await api.get<MerchantReturnPage>('/merchant/return-list', {
+          params: { bucket, limit: 200 },
+        })
+      ).data,
+  });
+}
+
+export function useReturnCounts() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'return-list', 'counts'],
+    queryFn: async () => (await api.get<MerchantReturnCounts>('/merchant/return-list/counts')).data,
+  });
+}
+
+export function useReturn(returnId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    enabled: Boolean(returnId),
+    queryKey: ['merchant', 'return', returnId],
+    queryFn: async () =>
+      (await api.get<MerchantReturnDetail>(`/merchant/return-list/${returnId}`)).data,
+  });
+}
+
+/**
+ * Deciding a return.
+ *
+ * Approving is not a status change: it reverses the sale in the ledger,
+ * restocks the goods and raises the buyer's refund, all in one transaction. So
+ * everything the seller's money screens show is stale afterwards — the balance,
+ * the payouts, the order and the catalogue counts all move — and all of them
+ * are invalidated rather than just the return.
+ *
+ * Irreversible either way: a second decision is `ReturnAlreadyDecidedError`.
+ */
+export function useDecideReturn(returnId: string | undefined) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (decision: { approve: true } | { approve: false; note: string }) => {
+      const path = `/merchant/returns/${returnId}/${decision.approve ? 'approve' : 'reject'}`;
+      const body = decision.approve ? {} : { decision_note: decision.note };
+      return (await api.post<OrderReturn>(path, body)).data;
+    },
+    onSuccess: () => {
+      for (const key of [
+        ['merchant', 'return-list'],
+        ['merchant', 'return', returnId],
+        ['merchant', 'balances'],
+        ['merchant', 'payouts'],
+        ['merchant', 'queue'],
+        ['merchant', 'catalog'],
+        ['merchant', 'stats'],
+      ]) {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
+    },
   });
 }
