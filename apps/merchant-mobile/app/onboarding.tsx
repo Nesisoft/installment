@@ -344,10 +344,17 @@ function Documents(): React.ReactElement {
         return;
       }
     }
-    const options: ImagePicker.ImagePickerOptions = { quality: 0.8, allowsEditing: false };
+    const options: ImagePicker.ImagePickerOptions = {
+      mediaTypes: ['images'],
+      // Cropping is worth it here and not on a product photo: a reviewer has to
+      // read the card number, and the quality cap keeps a 12MP original off a
+      // Ghanaian mobile connection for no extra legibility.
+      allowsEditing: true,
+      quality: 0.7,
+    };
     const picked = useCamera
       ? await ImagePicker.launchCameraAsync(options)
-      : await ImagePicker.launchImageLibraryAsync({ ...options, mediaTypes: ['images'] });
+      : await ImagePicker.launchImageLibraryAsync(options);
     if (picked.canceled || !picked.assets[0]) return;
     const asset = picked.assets[0];
     const image: PickedImage = {
