@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { GHANA_CARD_STATUSES, LEDGER_ACCOUNT_TYPES, PERMISSIONS } from '@installment/core';
+import {
+  GHANA_CARD_STATUSES,
+  GHANA_REGIONS,
+  LEDGER_ACCOUNT_TYPES,
+  PERMISSIONS,
+} from '@installment/core';
 import { CATALOG_PERMISSIONS, MERCHANT_STATS_WINDOWS } from '@installment/commerce';
 import {
   PERMISSIONS as MIRRORED_PERMISSIONS,
   LEDGER_ACCOUNT_TYPES as MIRRORED_LEDGER_ACCOUNT_TYPES,
   MERCHANT_STATS_WINDOWS as MIRRORED_MERCHANT_STATS_WINDOWS,
   GHANA_CARD_STATUSES as MIRRORED_GHANA_CARD_STATUSES,
+  GHANA_REGIONS as MIRRORED_GHANA_REGIONS,
 } from '@installment/api-types';
 
 /**
@@ -48,6 +54,14 @@ describe('api-types mirrors the backend contract', () => {
     // say "we are checking", or show the reviewer's reason — so a mirror that
     // drifted would leave a real state with no screen behind it.
     expect([...MIRRORED_GHANA_CARD_STATUSES]).toEqual([...GHANA_CARD_STATUSES]);
+  });
+
+  it('lists the regions a shop may say it trades in', () => {
+    // `region` is a zod enum on both sides, so a mirror that gained or lost one
+    // would let a client offer a region the API refuses — or refuse one it
+    // accepts. The order matters too: both lists are rendered as-is in a
+    // picker, and a reordered mirror is a reordered picker.
+    expect([...MIRRORED_GHANA_REGIONS]).toEqual([...GHANA_REGIONS]);
   });
 
   it('lists every analytics window the merchant stats endpoint will serve', () => {

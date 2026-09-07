@@ -838,6 +838,13 @@ export interface Store {
   banner_key: string | null;
   support_email: string | null;
   support_phone: string | null;
+  /**
+   * Where the shop trades. Read by the storefront long before anything could
+   * write them — no schema accepted either field until the seller app needed
+   * to ask for them at shop setup.
+   */
+  city: string | null;
+  region: string | null;
   /** What the shop mainly sells: a top-level `categories` row, or null. */
   primary_category_id: string | null;
   status: StoreStatus;

@@ -168,8 +168,7 @@ describe.skipIf(!RUN_DB)('merchant signup fields (integration)', () => {
       sms,
       merchants,
       assertShopCategory: (slug) => stores.assertCategory(slug),
-      provisionStore: ({ merchantId, shopName, categorySlug }) =>
-        provisionStore(stores, { merchantId, shopName, categorySlug }, SYSTEM_ACTOR),
+      provisionStore: (input) => provisionStore(stores, input, SYSTEM_ACTOR),
       setMobileMoneyPayout: async ({ merchantId, momoNumber, momoProvider }) => {
         await payoutAccount.setMobileMoney(
           merchantId,
@@ -187,6 +186,8 @@ describe.skipIf(!RUN_DB)('merchant signup fields (integration)', () => {
     auth: AuthService,
     over: Partial<{
       primary_category_slug: string;
+      city: string;
+      region: string;
       momo_number: string;
       momo_provider: 'mtn' | 'tgo' | 'vod';
     }> = {},
@@ -254,6 +255,47 @@ describe.skipIf(!RUN_DB)('merchant signup fields (integration)', () => {
     const store = await stores.getByMerchant(merchant.id);
     expect(store).toBeTruthy();
     expect(store?.primary_category_id).toBeNull();
+  });
+
+  // ------------------------------------------------------------- the market
+
+  it('carries the market a seller gave at signup onto the shopfront', async () => {
+    const { auth } = stack(stubPaystack().client);
+    const result = await signUp(auth, { city: 'Kumasi', region: 'Ashanti' });
+    const merchant = await merchantOf(result.userId);
+    const store = await stores.getByMerchant(merchant.id);
+
+    expect(store?.city).toBe('Kumasi');
+    expect(store?.region).toBe('Ashanti');
+
+    await approveRequiredMerchantKyc(db, merchant.id, SYSTEM_ACTOR);
+    await merchants.transition(merchant.id, { event: 'activate' }, SYSTEM_ACTOR);
+    await stores.transition(store!.id, { event: 'activate' }, SYSTEM_ACTOR);
+
+    // The point of asking at all: `StorefrontService` has been reading these two
+    // columns since it shipped, and until now nothing could write them, so every
+    // shop on the marketplace showed no location at all.
+    const view = await storefront.store(store!.slug);
+    expect(view.city).toBe('Kumasi');
+    expect(view.region).toBe('Ashanti');
+  });
+
+  it('leaves the market empty rather than guessing when nobody said', async () => {
+    const { auth } = stack(stubPaystack().client);
+    const result = await signUp(auth);
+    const store = await stores.getByMerchant((await merchantOf(result.userId)).id);
+
+    // Not defaulted to Greater Accra. A wrong location on a storefront is worse
+    // than none: a buyer in Tamale reading "Accra" decides on delivery time.
+    expect(store?.city).toBeNull();
+    expect(store?.region).toBeNull();
+  });
+
+  it('refuses a region outside the sixteen before it writes anything', async () => {
+    const { auth } = stack(stubPaystack().client);
+    // The pre-2019 vocabulary, which is what a seller of ten years' standing
+    // would type — and which no delivery zone rule mentions.
+    await expect(signUp(auth, { region: 'Brong Ahafo' })).rejects.toThrow();
   });
 
   it('refuses a category that does not exist before it writes anything', async () => {

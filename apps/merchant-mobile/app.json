@@ -29,6 +29,13 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Ejua Sell uses your photos to put pictures of your stock on your listings.",
+          "cameraPermission": "Ejua Sell uses your camera to photograph your stock and your shop."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#0E0D0B",

@@ -10,6 +10,7 @@ import {
   StatusBadge,
 } from '@installment/ui';
 import { apiErrorMessage } from '@installment/web-kit';
+import { GHANA_REGIONS, type GhanaRegion } from '@installment/api-types';
 import { ImagePlus, Store as StoreIcon } from 'lucide-react';
 import {
   useMerchantStore,
@@ -51,6 +52,8 @@ function StoreForm() {
   const [about, setAbout] = useState(s.about ?? '');
   const [supportEmail, setSupportEmail] = useState(s.support_email ?? '');
   const [supportPhone, setSupportPhone] = useState(s.support_phone ?? '');
+  const [city, setCity] = useState(s.city ?? '');
+  const [region, setRegion] = useState(s.region ?? '');
   const categories = useShopCategories();
   // The store row carries the foreign key; the form and the API both speak
   // slugs, so the current value is looked up rather than stored twice.
@@ -64,7 +67,9 @@ function StoreForm() {
     setAbout(s.about ?? '');
     setSupportEmail(s.support_email ?? '');
     setSupportPhone(s.support_phone ?? '');
-  }, [s.display_name, s.about, s.support_email, s.support_phone]);
+    setCity(s.city ?? '');
+    setRegion(s.region ?? '');
+  }, [s.display_name, s.about, s.support_email, s.support_phone, s.city, s.region]);
 
   // Separately, because it also has to wait for the category list to arrive.
   useEffect(() => {
@@ -76,6 +81,8 @@ function StoreForm() {
     about !== (s.about ?? '') ||
     supportEmail !== (s.support_email ?? '') ||
     supportPhone !== (s.support_phone ?? '') ||
+    city !== (s.city ?? '') ||
+    region !== (s.region ?? '') ||
     categorySlug !== currentCategorySlug;
 
   async function pickArtwork(file: File | undefined, purpose: 'store_logo' | 'store_banner') {
@@ -99,6 +106,11 @@ function StoreForm() {
       about: about.trim() || undefined,
       support_email: supportEmail.trim() || undefined,
       support_phone: supportPhone.trim() || undefined,
+      // These two are nullable on the wire, so an emptied field is `null` and
+      // actually clears the column — `undefined` would leave the old value
+      // standing and the form would silently disagree with the shopfront.
+      city: city.trim() || null,
+      region: region ? (region as GhanaRegion) : null,
       ...(categorySlug ? { primary_category_slug: categorySlug } : {}),
     });
   }
@@ -228,6 +240,39 @@ function StoreForm() {
               />
             </div>
           </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="city">Town or market</Label>
+              <Input
+                id="city"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="Makola, Accra"
+                maxLength={120}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="region">Region</Label>
+              <select
+                id="region"
+                className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+              >
+                <option value="">Not set</option>
+                {GHANA_REGIONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Shown on your shopfront. It is the only thing telling a buyer in Kumasi whether you are
+            down the road or across the country.
+          </p>
 
           <div className="space-y-1.5">
             <Label htmlFor="primary_category">What you mainly sell</Label>

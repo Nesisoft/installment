@@ -88,3 +88,49 @@ export const MOMO_PROVIDER_CODES = ['mtn', 'tgo', 'vod'] as const;
 export type MomoProviderCode = (typeof MOMO_PROVIDER_CODES)[number];
 
 export const momoProviderCode = z.enum(MOMO_PROVIDER_CODES);
+
+// ---------------------------------------------------------------------------
+// Administrative regions
+// ---------------------------------------------------------------------------
+
+/**
+ * Ghana's sixteen regions, as the Local Government Service names them.
+ *
+ * A closed list because two separate things match against this vocabulary: a
+ * store says which region it trades in, and `delivery_zones.region` prices a
+ * shipping quote by comparing region names case-insensitively. A shop that
+ * saved "Gt. Accra" or the pre-2019 "Brong Ahafo" would read as a region no
+ * zone rule mentions, and the fallback national rate would quietly apply.
+ *
+ * Here rather than in commerce because merchant signup lives in core and asks
+ * for the same field, and core is the package commerce is allowed to import —
+ * never the other way round. Mirrored in `@installment/api-types`;
+ * `api-types-mirror.spec.ts` fails if the two drift.
+ *
+ * Cities are deliberately not a list: a seller trades at Makola, Kejetia or
+ * Asafo, and there is no enumeration of those worth maintaining.
+ */
+export const GHANA_REGIONS = [
+  'Ahafo',
+  'Ashanti',
+  'Bono',
+  'Bono East',
+  'Central',
+  'Eastern',
+  'Greater Accra',
+  'North East',
+  'Northern',
+  'Oti',
+  'Savannah',
+  'Upper East',
+  'Upper West',
+  'Volta',
+  'Western',
+  'Western North',
+] as const;
+export type GhanaRegion = (typeof GHANA_REGIONS)[number];
+
+export const ghanaRegion = z.enum(GHANA_REGIONS);
+
+/** Free text, but a real place name: what a seller calls their market or town. */
+export const ghanaCity = z.string().trim().min(1).max(120);

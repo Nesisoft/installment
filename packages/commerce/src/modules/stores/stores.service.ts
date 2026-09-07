@@ -82,6 +82,8 @@ export class StoresService {
             banner_key: input.banner_key,
             support_email: input.support_email,
             support_phone: input.support_phone,
+            city: input.city,
+            region: input.region,
             primary_category_id: categoryId,
             policies: input.policies ?? {},
             metadata: input.metadata ?? {},

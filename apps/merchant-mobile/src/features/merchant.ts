@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApi } from '@installment/mobile-kit';
+import { apiErrorStatus, useApi } from '@installment/mobile-kit';
 import type {
+  CreateProductInput,
   Merchant,
   MerchantBalances,
   MerchantCatalogSummary,
@@ -9,6 +10,9 @@ import type {
   MerchantOrderDetail,
   MerchantOrderPage,
   MerchantHeldReserveRow,
+  MerchantKycDocType,
+  MerchantKycDocument,
+  MerchantKycStatus,
   MerchantPayoutsPage,
   MerchantPlanBucket,
   MerchantPlanCounts,
@@ -16,9 +20,18 @@ import type {
   MerchantPlanPage,
   MerchantProductRow,
   MerchantStats,
+  MerchantStore,
   Order,
   OrderWithItems,
   PayoutAccountView,
+  PayoutDestination,
+  PlanTemplate,
+  PresignedUpload,
+  ProductDetails,
+  ResolvedPayoutAccount,
+  SetPayoutAccountInput,
+  StorefrontCategory,
+  UpdateMyStoreInput,
 } from '@installment/api-types';
 
 /**
@@ -321,5 +334,226 @@ export function usePlan(planId: string | undefined) {
     enabled: Boolean(planId),
     queryKey: ['merchant', 'plan', planId],
     queryFn: async () => (await api.get<MerchantPlanDetail>(`/merchant/plan-list/${planId}`)).data,
+  });
+}
+
+// --- The shopfront -----------------------------------------------------------
+
+/**
+ * The seller's own store.
+ *
+ * `retry: false` because the interesting failure is a 404: one merchant has at
+ * most one store (`stores_merchant_id_key`), and a merchant who signed up
+ * before the store could be provisioned has none. Shop setup branches on that,
+ * so retrying it three times only delays the screen that handles it.
+ */
+export function useMerchantStore() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'store'],
+    queryFn: async () => (await api.get<MerchantStore>('/merchant/store')).data,
+    retry: false,
+  });
+}
+
+/** True when the failure was "this merchant has no store", not a broken call. */
+export function isNoStoreYet(error: unknown): boolean {
+  return apiErrorStatus(error) === 404;
+}
+
+export function useUpdateMerchantStore() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: UpdateMyStoreInput) =>
+      (await api.patch<MerchantStore>('/merchant/store', patch)).data,
+    onSuccess: (store) => {
+      // Written straight into the cache rather than invalidated: the shop
+      // screen is a form bound to this object, and a refetch would blank the
+      // fields for a frame while the seller is still looking at them.
+      queryClient.setQueryData(['merchant', 'store'], store);
+    },
+  });
+}
+
+/**
+ * The taxonomy a shop and its products are filed under.
+ *
+ * Top-level only. `stores.primary_category_id` has a foreign key that cannot
+ * see `parent_id`, and the service refuses a child slug outright — a shop
+ * listed under "Laptops" would be invisible to anyone browsing "Electronics".
+ * Public, so this is the one call in the app that is not under `/merchant`.
+ */
+export function useShopCategories() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['storefront', 'categories'],
+    queryFn: async () =>
+      (await api.get<StorefrontCategory[]>('/storefront/categories')).data.filter(
+        (c) => c.parent_id === null,
+      ),
+    staleTime: 60 * 60_000,
+  });
+}
+
+// --- Verification and payout --------------------------------------------------
+
+export function useKycStatus() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'kyc'],
+    queryFn: async () => (await api.get<MerchantKycStatus>('/merchant/kyc')).data,
+  });
+}
+
+/** Banks and mobile-money wallets settlements can be sent to. */
+export function usePayoutDestinations() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'payout-destinations'],
+    queryFn: async () =>
+      (await api.get<PayoutDestination[]>('/merchant/payout-account/destinations')).data,
+    staleTime: 60 * 60_000,
+  });
+}
+
+/**
+ * Who the bank says owns an account, saving nothing.
+ *
+ * A separate step from setting it because the name is never sent by the client
+ * — it is read back from the bank — and a seller should see "Kofi Mensah"
+ * before they commit their payouts to a number they typed on a phone.
+ */
+export function useResolvePayoutAccount() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (input: SetPayoutAccountInput) =>
+      (await api.post<ResolvedPayoutAccount>('/merchant/payout-account/resolve', input)).data,
+  });
+}
+
+export function useSetPayoutAccount() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: SetPayoutAccountInput) =>
+      (await api.post<Merchant>('/merchant/payout-account', input)).data,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['merchant', 'payout-account'] });
+      void queryClient.invalidateQueries({ queryKey: ['merchant', 'me'] });
+    },
+  });
+}
+
+// --- Photographs ---------------------------------------------------------------
+
+/** What the phone knows about a picked image before it is uploaded. */
+export interface PickedImage {
+  uri: string;
+  mimeType?: string | null;
+  fileSize?: number | null;
+}
+
+/**
+ * Puts an image in the bucket and hands back the key.
+ *
+ * Three steps, in this order and no other: the server mints a key it chose
+ * (namespaced by the caller's own merchant id, so the route cannot be pointed
+ * at another shop's folder), the phone PUTs the bytes straight to storage, and
+ * the caller then attaches the key wherever it belongs. Image bytes never pass
+ * through the API — and every endpoint that takes a key back checks it was
+ * issued to this merchant, because a public product photo pointed at a
+ * competitor's would render perfectly.
+ */
+export function useUploadImage() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (input: {
+      image: PickedImage;
+      purpose: 'product_image' | 'store_logo' | 'store_banner' | 'merchant_kyc_document';
+    }): Promise<string> => {
+      const contentType = input.image.mimeType ?? 'image/jpeg';
+      const blob = await (await fetch(input.image.uri)).blob();
+
+      const { data: presigned } = await api.post<PresignedUpload>('/merchant/uploads', {
+        purpose: input.purpose,
+        content_type: contentType,
+        content_length: input.image.fileSize ?? blob.size,
+      });
+
+      const put = await fetch(presigned.url, {
+        method: presigned.method,
+        headers: presigned.headers,
+        body: blob,
+      });
+      if (!put.ok) throw new Error(`The photo could not be uploaded (${put.status}).`);
+      return presigned.key;
+    },
+  });
+}
+
+/** Sends a KYC document: the bytes first, then the key with what it is. */
+export function useSubmitKycDocument() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const upload = useUploadImage();
+  return useMutation({
+    mutationFn: async (input: { image: PickedImage; docType: MerchantKycDocType }) => {
+      const storage_key = await upload.mutateAsync({
+        image: input.image,
+        purpose: 'merchant_kyc_document',
+      });
+      return (
+        await api.post<MerchantKycDocument>('/merchant/kyc/documents', {
+          doc_type: input.docType,
+          storage_key,
+        })
+      ).data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['merchant', 'kyc'] });
+    },
+  });
+}
+
+// --- Listing a product ----------------------------------------------------------
+
+/**
+ * The instalment plans a product may be sold on.
+ *
+ * The merchant's copy of the list, not the storefront's: this one is already
+ * filtered to `is_active`, and it is the same set `PUT products/:id/plan-offers`
+ * will accept. Every eligibility rule (`min_amount_pesewas`, category
+ * exclusions) is the platform's, not the seller's, so the screen shows which
+ * plans a price actually reaches rather than letting one be chosen and refused.
+ */
+export function usePlanTemplates() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'plan-templates'],
+    queryFn: async () => (await api.get<PlanTemplate[]>('/merchant/plan-templates')).data,
+    staleTime: 60 * 60_000,
+  });
+}
+
+/**
+ * Lists a product into the seller's own shop.
+ *
+ * One request, not four. `createProductSchema` takes the variants, the photo
+ * keys and the plan offers with the product, and the service writes all of them
+ * in a single transaction — so a listing cannot end up half-created with stock
+ * but no photographs on a connection that dropped between calls.
+ *
+ * `store_id` is not sent: the controller fills it from the caller's own store.
+ */
+export function useCreateProduct() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Omit<CreateProductInput, 'store_id'>) =>
+      (await api.post<ProductDetails>('/merchant/products', input)).data,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['merchant', 'catalog'] });
+    },
   });
 }

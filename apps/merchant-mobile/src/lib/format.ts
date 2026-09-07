@@ -73,3 +73,22 @@ export function initials(name: string): string {
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return `${parts[0]![0]}${parts[parts.length - 1]![0]}`.toUpperCase();
 }
+
+/**
+ * Cedis typed by a seller → integer pesewas.
+ *
+ * Deliberately not `ghsToPesewas` from `@installment/api-types`: that one takes
+ * a `number` and multiplies a float, so `320.15` arrives as `32014.999…` and
+ * rounds back by luck. This parses the digits either side of the point, which
+ * cannot drift — and it has to be exact, because the number it produces is what
+ * a customer is charged and what the seller is paid.
+ *
+ * `null` for anything that is not a plain amount, so the screen can say so
+ * rather than post a NaN the API refuses.
+ */
+export function parseGhsToPesewas(input: string): number | null {
+  const trimmed = input.trim().replace(/,/g, '');
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
+  const [cedis = '0', pesewas = ''] = trimmed.split('.');
+  return Number(cedis) * 100 + Number(pesewas.padEnd(2, '0'));
+}

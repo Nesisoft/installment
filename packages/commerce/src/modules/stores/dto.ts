@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { slugSchema } from '@installment/core';
+import { ghanaCity, ghanaRegion, slugSchema } from '@installment/core';
 
 export const STORE_STATUSES = ['draft', 'active', 'suspended'] as const;
 
@@ -12,6 +12,17 @@ export const createStoreSchema = z.object({
   banner_key: z.string().trim().min(1).max(500).optional(),
   support_email: z.string().email().optional(),
   support_phone: z.string().trim().min(7).max(20).optional(),
+  /**
+   * Where the shop trades. Shown on the storefront under the shop name, and the
+   * only thing that tells a buyer in Kumasi whether this seller is down the
+   * road or across the country.
+   *
+   * Nullable as well as optional, so a seller who moves online can clear it —
+   * `undefined` leaves the column alone, `null` empties it. Without that a city
+   * could be set once and never removed.
+   */
+  city: ghanaCity.nullable().optional(),
+  region: ghanaRegion.nullable().optional(),
   /**
    * What the shop mainly sells, as a category slug.
    *
