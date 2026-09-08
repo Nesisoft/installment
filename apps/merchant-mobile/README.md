@@ -64,6 +64,48 @@ only to override that — see `.env.example`, and `src/lib/api-url.ts` for the p
 
 ---
 
+### Push notifications need an EAS project first
+
+Both apps register the handset with `POST /merchant/devices` on launch and take the token off
+the list on sign-out. Neither can do it yet on a clean checkout, and the reason is worth knowing
+before you go looking for a bug:
+
+`Notifications.getExpoPushTokenAsync()` mints a token against an **EAS project**, and it throws
+rather than returning null when there is no project id to mint against. `app.json` carries no
+`extra.eas.projectId`, so `registerForPush` takes a `no-project-id` skip on every launch and
+`push_devices` stays empty. Nothing is logged as an error, because nothing has gone wrong: the app
+has no push credentials, so there is no address to store.
+
+To turn it on:
+
+```bash
+cd apps/merchant-mobile
+npx eas init            # writes extra.eas.projectId into app.json
+npx eas credentials     # FCM (Android) / APNs (iOS) keys, per platform
+npx expo run:android    # a development build — Expo Go cannot hold your push credentials
+```
+
+Then sign in and watch the row appear:
+
+```bash
+psql "$DATABASE_URL" -c \
+  "select platform, device_name, is_active from push_devices where merchant_id is not null;"
+```
+
+Expo Go is the trap here. It can display a notification, but the token it hands you belongs to the
+Expo Go app, not to yours — so a send that looks fine in Expo Go proves nothing about a real build.
+
+Two more things that make a send silently reach nobody, both of which the client refuses to
+participate in:
+
+- **A raw FCM/APNs token instead of an Expo one.** That is what `getExpoPushTokenAsync` returns when
+  the project's credentials are wrong. The server's regex would 400 it; `registerForPush` checks the
+  same regex (mirrored in `@installment/api-types`) and skips rather than posting, because a stored
+  bad token is an address every send fails against with nobody watching.
+- **A simulator.** No token is ever issued for one. `registerForPush` skips before it asks.
+
+---
+
 ## Traps
 
 Most of these are the shopper app's traps too; they are repeated because they bite per-app.
@@ -90,6 +132,11 @@ Most of these are the shopper app's traps too; they are repeated because they bi
   debit. Nothing on the Today screen moves money; Orders will.
 - **The session key is not the shopper app's.** A handset with both installed often has two
   different people's sessions on it.
+- **One handset is one push token, whichever app registered it.** `push_devices.expo_token` is
+  unique across the whole table, so a shopkeeper signing in here on the phone they shop with _moves_
+  the row from their customer id to their merchant id. That is deliberate — two rows for one handset
+  would deliver somebody else's notifications to it — and it is why `deregisterThisHandset` runs
+  before `signOut`, while the session can still authenticate the call.
 
 ---
 

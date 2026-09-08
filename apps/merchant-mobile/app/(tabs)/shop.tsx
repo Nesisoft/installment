@@ -32,6 +32,7 @@ import {
   useUpdateMerchantStore,
 } from '../../src/features/merchant';
 import { compact, initials, pluralise } from '../../src/lib/format';
+import { deregisterThisHandset } from '../../src/lib/push';
 import { color, font, radius, space } from '../../src/theme/tokens';
 
 const STATUS: Record<StoreStatus, { label: string; tone: PillTone }> = {
@@ -60,7 +61,7 @@ const STATUS: Record<StoreStatus, { label: string; tone: PillTone }> = {
  * market editor this slice's schema change unlocked.
  */
 export default function ShopTab(): React.ReactElement {
-  const { signOut } = useAuth();
+  const { signOut, api } = useAuth();
   const queryClient = useQueryClient();
   const store = useMerchantStore();
   const profile = useMerchantProfile();
@@ -72,7 +73,11 @@ export default function ShopTab(): React.ReactElement {
 
   // Signing out clears the cache with the session: every screen in this app is
   // one shop's money, and the next account on this handset must not see it.
+  //
+  // Push comes off first, while the session can still authenticate the call —
+  // otherwise this handset keeps buzzing for a shop nobody is signed into.
   async function handleSignOut(): Promise<void> {
+    await deregisterThisHandset(api);
     await signOut();
     queryClient.clear();
   }

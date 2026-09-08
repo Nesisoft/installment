@@ -114,6 +114,46 @@ Two side effects of `prebuild`, which `run:android` calls for you: it generates 
 `ios` scripts in `package.json` to `expo run:*`. That second one is a tracked file, so check it before
 committing.
 
+### Push notifications need an EAS project first
+
+Both apps register the handset with `POST /me/devices` on launch and take the token off
+the list on sign-out. Neither can do it yet on a clean checkout, and the reason is worth knowing
+before you go looking for a bug:
+
+`Notifications.getExpoPushTokenAsync()` mints a token against an **EAS project**, and it throws
+rather than returning null when there is no project id to mint against. `app.json` carries no
+`extra.eas.projectId`, so `registerForPush` takes a `no-project-id` skip on every launch and
+`push_devices` stays empty. Nothing is logged as an error, because nothing has gone wrong: the app
+has no push credentials, so there is no address to store.
+
+To turn it on:
+
+```bash
+cd apps/customer-mobile
+npx eas init            # writes extra.eas.projectId into app.json
+npx eas credentials     # FCM (Android) / APNs (iOS) keys, per platform
+npx expo run:android    # a development build — Expo Go cannot hold your push credentials
+```
+
+Then sign in and watch the row appear:
+
+```bash
+psql "$DATABASE_URL" -c \
+  "select platform, device_name, is_active from push_devices order by created_at desc limit 5;"
+```
+
+Expo Go is the trap here. It can display a notification, but the token it hands you belongs to the
+Expo Go app, not to yours — so a send that looks fine in Expo Go proves nothing about a real build.
+
+Two more things that make a send silently reach nobody, both of which the client refuses to
+participate in:
+
+- **A raw FCM/APNs token instead of an Expo one.** That is what `getExpoPushTokenAsync` returns when
+  the project's credentials are wrong. The server's regex would 400 it; `registerForPush` checks the
+  same regex (mirrored in `@installment/api-types`) and skips rather than posting, because a stored
+  bad token is an address every send fails against with nobody watching.
+- **A simulator.** No token is ever issued for one. `registerForPush` skips before it asks.
+
 ### Expo Go crashing on launch: check its version first
 
 Expo Go is a **prebuilt host**. Its native libraries are compiled into the APK from the Play Store,
