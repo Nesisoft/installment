@@ -12,6 +12,7 @@ export * from './shared/event-bus/event-bus';
 export * from './shared/event-bus/transaction';
 export * from './shared/idempotency/idempotency.service';
 export * from './shared/idempotency/drizzle-store';
+export * from './shared/validators/date-of-birth';
 export * from './shared/validators/ghana';
 export * from './modules/scoring/types';
 export * from './modules/scoring/ruleset';

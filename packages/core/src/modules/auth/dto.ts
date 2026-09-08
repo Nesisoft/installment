@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { adultDateOfBirth } from '../../shared/validators/date-of-birth';
 import {
   ghPhoneNumber,
   ghanaCity,
@@ -59,6 +60,13 @@ export const signupCompleteSchema = z.object({
   first_name: z.string().trim().min(1).max(80),
   last_name: z.string().trim().min(1).max(80),
   email: z.string().email().optional(),
+  /**
+   * Required, and the reason is a hard gate: `gate.age_range` declines an
+   * application whose age it does not know, and `customers.date_of_birth` is
+   * the only thing that age is derived from. An account opened without one
+   * cannot be approved for instalments at all — which is what this product is.
+   */
+  date_of_birth: adultDateOfBirth,
   consents: z.object({
     data_processing: z.literal(true, {
       errorMap: () => ({ message: 'Consent to data processing is required to open an account' }),
@@ -157,6 +165,8 @@ export const signupVerifySchema = z.object({
   first_name: z.string().trim().min(1).max(80),
   last_name: z.string().trim().min(1).max(80),
   email: z.string().email().optional(),
+  /** Same hard gate, same reason — see `signupCompleteSchema`. */
+  date_of_birth: adultDateOfBirth,
   consents: z.object({
     data_processing: z.literal(true, {
       errorMap: () => ({ message: 'Consent to data processing is required to open an account' }),

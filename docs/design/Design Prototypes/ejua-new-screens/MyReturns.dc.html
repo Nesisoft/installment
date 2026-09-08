@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <style>
+    /* Lifted from apps/customer-mobile/src/theme/tokens.ts — not approximated. */
+    :root {
+      --ink:#0E0D0B; --ink-soft:#3C362F; --muted:#7A736B; --muted-soft:#9A928A;
+      --canvas:#F5F2ED; --surface:#FFFFFF; --surface-warm:#FAF7F2; --surface-sunk:#F2EEE7;
+      --border:#E4DED4; --border-soft:#EFEAE1; --border-strong:#E0DAD1;
+      --accent:#D6165A; --accent-dark:#A80F44; --accent-tint:#FDF1F5; --accent-tint-soft:#FFF7FA;
+      --success:#0F8B5E; --success-tint:#E6F3EE; --success-line:#CFE4DA;
+      --warn:#8A6A00; --warn-tint:#FFF6E3;
+      --dark:#0E0D0B; --on-dark:#FFFDF9; --on-dark-muted:#A79E94; --on-dark-faint:#6E655C;
+      --scrim:rgba(14,13,11,0.55);
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Outfit,system-ui,sans-serif; background:var(--canvas); color:var(--ink); }
+    a { color:var(--accent); } a:hover { color:var(--accent-dark); }
+    .screen { width:390px; height:844px; display:flex; flex-direction:column; background:var(--canvas); overflow:hidden; }
+    .bar { flex:none; display:flex; align-items:center; gap:12px; padding:52px 16px 12px;
+           background:var(--surface); border-bottom:1px solid var(--border); }
+    .bar h1 { margin:0; font-size:17px; font-weight:600; letter-spacing:-0.3px; flex:1; }
+    .bar .sub { font-size:11.5px; font-weight:500; color:var(--muted-soft); margin-top:1px; }
+    .body { flex:1; overflow:hidden; padding:16px; display:flex; flex-direction:column; gap:16px; }
+    .card { background:var(--surface); border:1px solid var(--border-soft); border-radius:16px; padding:16px; }
+    .eyebrow { font-size:9.5px; font-weight:700; letter-spacing:1.5px; color:var(--muted-soft); }
+    .h2 { font-size:22px; font-weight:700; letter-spacing:-0.6px; }
+    .small { font-size:13px; line-height:18px; color:var(--muted); }
+    .tiny { font-size:11.5px; font-weight:500; color:var(--muted-soft); }
+    .chiprow { display:flex; gap:8px; flex-wrap:wrap; }
+    .chip { font-size:13px; font-weight:500; padding:7px 12px; border-radius:999px;
+            border:1px solid var(--border); background:var(--surface); color:var(--ink-soft); cursor:pointer; }
+    .chip.on { background:var(--ink); border-color:var(--ink); color:var(--on-dark); }
+    .cta { flex:none; padding:12px 16px 28px; background:var(--surface); border-top:1px solid var(--border); }
+    .btn { height:52px; border-radius:14px; background:var(--accent); color:#fff; display:flex;
+           flex-direction:column; align-items:center; justify-content:center; cursor:pointer; }
+    .btn .l { font-size:16px; font-weight:700; letter-spacing:-0.2px; }
+    .btn .s { font-size:11px; color:rgba(255,255,255,0.85); }
+    .btn.ghost { background:transparent; border:1px solid var(--border-strong); color:var(--ink); height:46px; }
+    .btn.ghost .l { color:var(--ink); font-weight:600; font-size:14.5px; }
+    .note { background:var(--surface-sunk); border-radius:14px; padding:14px; }
+    .note .b { font-size:11.5px; line-height:17px; color:var(--ink-soft); margin-top:6px; }
+    .pill { font-size:9.5px; font-weight:700; letter-spacing:1.2px; padding:4px 8px; border-radius:999px; }
+    .row { display:flex; align-items:center; gap:12px; }
+    .thumb { width:52px; height:52px; border-radius:12px; flex:none; }
+  </style>
+</helmet>
+<div class="screen">
+  <div class="bar">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="#0E0D0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <h1>My returns</h1>
+  </div>
+  <div style="flex:none; background:var(--surface); padding:0 16px 12px; border-bottom:1px solid var(--border)">
+    <div class="chiprow">
+      <div class="chip on">All <span style="font-weight:700; opacity:0.7">3</span></div>
+      <div class="chip">Waiting <span style="font-weight:700; color:var(--muted-soft)">1</span></div>
+      <div class="chip">Agreed <span style="font-weight:700; color:var(--muted-soft)">1</span></div>
+      <div class="chip">Refused</div>
+    </div>
+  </div>
+
+  <div class="body">
+    <sc-for list="{{returns}}" as="r" hint-placeholder-count="3">
+      <div class="card" style="display:flex; flex-direction:column; gap:12px">
+        <div class="row">
+          <div class="eyebrow" style="flex:1; font-size:11px; letter-spacing:1.3px">{{r.order}}</div>
+          <div class="pill" style="background: {{r.pillBg}}; color: {{r.pillFg}}">{{r.pillLabel}}</div>
+        </div>
+        <div class="row">
+          <div class="thumb" style="background: {{r.tint}}"></div>
+          <div style="flex:1">
+            <div style="font-size:13px; font-weight:500">{{r.item}}</div>
+            <div class="tiny" style="margin-top:2px">{{r.when}}</div>
+          </div>
+          <div style="font-size:16px; font-weight:700; letter-spacing:-0.4px">{{r.amount}}</div>
+        </div>
+        <div style="background:var(--surface-sunk); border-radius:10px; padding:9px 12px">
+          <div style="font-size:13px; line-height:18px; color:var(--ink-soft)">{{r.reason}}</div>
+        </div>
+        <sc-if value="{{r.hasNote}}" hint-placeholder-val="{{ false }}">
+          <div style="background:var(--warn-tint); border-radius:10px; padding:10px 12px">
+            <div class="eyebrow" style="color:var(--warn)">THE SELLER SAID</div>
+            <div style="font-size:12.5px; line-height:17px; color:var(--ink-soft); margin-top:4px">{{r.note}}</div>
+          </div>
+        </sc-if>
+        <div class="tiny">{{r.footer}}</div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      returns: [
+        { order: 'EJ-2026-0418', item: 'Ankara Wrap Dress + 1 more', when: 'Asked 5 Sep',
+          amount: 'GHS 289.90', reason: '“Wrong size — the M is cut small.”',
+          pillLabel: 'WAITING ON THE SELLER', pillBg: '#FFF6E3', pillFg: '#8A6A00',
+          tint: '#EFE0E4', hasNote: false,
+          footer: 'Nothing has changed on your order yet.' },
+        { order: 'EJ-2026-0371', item: 'Bluetooth Speaker', when: 'Agreed 28 Aug',
+          amount: 'GHS 410.00', reason: '“Arrived with the grille cracked.”',
+          pillLabel: 'AGREED', pillBg: '#E6F3EE', pillFg: '#0F8B5E',
+          tint: '#DDE3E6', hasNote: false,
+          footer: 'GHS 410.00 is on its way back to your MoMo.' },
+        { order: 'EJ-2026-0290', item: 'Beaded Bag', when: 'Refused 12 Aug',
+          amount: 'GHS 150.00', reason: '“Changed my mind.”',
+          pillLabel: 'REFUSED', pillBg: '#F2EEE7', pillFg: '#7A736B',
+          tint: '#E4E0EA', hasNote: true,
+          note: 'Worn, and outside the seven days on the listing.',
+          footer: 'The order stands. Nothing was charged or refunded.' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

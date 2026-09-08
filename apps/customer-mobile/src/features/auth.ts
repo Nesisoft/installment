@@ -85,6 +85,8 @@ export interface CompleteSignupInput {
   first_name: string;
   last_name: string;
   email?: string;
+  /** `YYYY-MM-DD`. Required: an account with no birthday cannot be credit-scored. */
+  date_of_birth: string;
   /** Processing and credit scoring are required for a BNPL account; marketing is not. */
   marketing: boolean;
 }

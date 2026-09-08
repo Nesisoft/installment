@@ -1,0 +1,4 @@
+# The seeded canvas is a build artifact: ~2.5 MB, almost all of it the design
+# editor's own bundled code. The `.dc.html` artboards and canvas.json beside
+# this file are the source; see README.md for how to rebuild it.
+ejua-missing-screens.html

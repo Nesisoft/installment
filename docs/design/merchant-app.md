@@ -387,7 +387,28 @@ return and asserts the promised figure equals what the ledger actually booked.
 - **Deleting a product.** `archived` covers the need without orphaning order
   history.
 - **Push for anything but new orders.** `push_devices` carries merchant handsets
-  since 0017; only the order notification is wired.
+  since 0017; only the order notification is wired server-side.
+
+  **Correction.** An earlier version of this line said push was "wired", which
+  was wrong in the way that matters. The server sends; no handset listens.
+  `expo-notifications` is a declared dependency of this app and is imported
+  nowhere in it, and there is no call to `POST /merchant/devices` anywhere — so
+  `push_devices` is always empty for merchants, `listActive` returns `[]`, and
+  the new-order alert this app's own stack comment calls "a promise the app
+  could not keep" still cannot be kept. The customer app has the same hole from
+  the other end: its `useRegisterDevice` hook exists and has zero callers. See
+  [`customer-app.md`](./customer-app.md) §6.2.
+
+- **A withdraw control for the buyer.** The returns queue ships copy for
+  `order_returns.status = 'cancelled'` — "Nothing withdrawn. A buyer can
+  withdraw a request before you decide on it" — and nothing in this system sets
+  that status. Either the buyer gets a withdraw control or the status and the
+  copy both go. Written down rather than quietly deleted, because the seller's
+  screen currently tells them something untrue.
+
+- **A buyer-side return journey.** `POST /me/orders/:id/return` has no client,
+  so the queue in §5.2 can only ever read empty in production. The seller's half
+  shipped first; the shopper's half is the next slice.
 
 ---
 

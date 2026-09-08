@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <style>
+    /* Lifted from apps/customer-mobile/src/theme/tokens.ts — not approximated. */
+    :root {
+      --ink:#0E0D0B; --ink-soft:#3C362F; --muted:#7A736B; --muted-soft:#9A928A;
+      --canvas:#F5F2ED; --surface:#FFFFFF; --surface-warm:#FAF7F2; --surface-sunk:#F2EEE7;
+      --border:#E4DED4; --border-soft:#EFEAE1; --border-strong:#E0DAD1;
+      --accent:#D6165A; --accent-dark:#A80F44; --accent-tint:#FDF1F5; --accent-tint-soft:#FFF7FA;
+      --success:#0F8B5E; --success-tint:#E6F3EE; --success-line:#CFE4DA;
+      --warn:#8A6A00; --warn-tint:#FFF6E3;
+      --dark:#0E0D0B; --on-dark:#FFFDF9; --on-dark-muted:#A79E94; --on-dark-faint:#6E655C;
+      --scrim:rgba(14,13,11,0.55);
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Outfit,system-ui,sans-serif; background:var(--canvas); color:var(--ink); }
+    a { color:var(--accent); } a:hover { color:var(--accent-dark); }
+    .screen { width:390px; height:844px; display:flex; flex-direction:column; background:var(--canvas); overflow:hidden; }
+    .bar { flex:none; display:flex; align-items:center; gap:12px; padding:52px 16px 12px;
+           background:var(--surface); border-bottom:1px solid var(--border); }
+    .bar h1 { margin:0; font-size:17px; font-weight:600; letter-spacing:-0.3px; flex:1; }
+    .bar .sub { font-size:11.5px; font-weight:500; color:var(--muted-soft); margin-top:1px; }
+    .body { flex:1; overflow:hidden; padding:16px; display:flex; flex-direction:column; gap:16px; }
+    .card { background:var(--surface); border:1px solid var(--border-soft); border-radius:16px; padding:16px; }
+    .eyebrow { font-size:9.5px; font-weight:700; letter-spacing:1.5px; color:var(--muted-soft); }
+    .h2 { font-size:22px; font-weight:700; letter-spacing:-0.6px; }
+    .small { font-size:13px; line-height:18px; color:var(--muted); }
+    .tiny { font-size:11.5px; font-weight:500; color:var(--muted-soft); }
+    .chiprow { display:flex; gap:8px; flex-wrap:wrap; }
+    .chip { font-size:13px; font-weight:500; padding:7px 12px; border-radius:999px;
+            border:1px solid var(--border); background:var(--surface); color:var(--ink-soft); cursor:pointer; }
+    .chip.on { background:var(--ink); border-color:var(--ink); color:var(--on-dark); }
+    .cta { flex:none; padding:12px 16px 28px; background:var(--surface); border-top:1px solid var(--border); }
+    .btn { height:52px; border-radius:14px; background:var(--accent); color:#fff; display:flex;
+           flex-direction:column; align-items:center; justify-content:center; cursor:pointer; }
+    .btn .l { font-size:16px; font-weight:700; letter-spacing:-0.2px; }
+    .btn .s { font-size:11px; color:rgba(255,255,255,0.85); }
+    .btn.ghost { background:transparent; border:1px solid var(--border-strong); color:var(--ink); height:46px; }
+    .btn.ghost .l { color:var(--ink); font-weight:600; font-size:14.5px; }
+    .note { background:var(--surface-sunk); border-radius:14px; padding:14px; }
+    .note .b { font-size:11.5px; line-height:17px; color:var(--ink-soft); margin-top:6px; }
+    .pill { font-size:9.5px; font-weight:700; letter-spacing:1.2px; padding:4px 8px; border-radius:999px; }
+    .row { display:flex; align-items:center; gap:12px; }
+    .thumb { width:52px; height:52px; border-radius:12px; flex:none; }
+  </style>
+</helmet>
+<div class="screen">
+  <div class="bar">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="#0E0D0B" stroke-width="2" stroke-linecap="round"/></svg>
+    <h1>Rate this</h1>
+  </div>
+
+  <div class="body">
+    <div class="card" style="display:flex; flex-direction:column; gap:14px; align-items:center; padding:20px 16px">
+      <div class="thumb" style="width:76px; height:76px; border-radius:18px; background:#EFE0E4"></div>
+      <div style="text-align:center">
+        <div style="font-size:15px; font-weight:500">Ankara Wrap Dress · Adinkra print</div>
+        <div class="tiny" style="margin-top:3px">Adepa Couture · delivered 3 Sep</div>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:2px">
+        <sc-for list="{{stars}}" as="s" hint-placeholder-count="5">
+          <div onClick="{{s.pick}}" style="cursor:pointer">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="{{s.fill}}"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.8l6.5-.9z" stroke="{{s.stroke}}" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-size:13px; font-weight:500; color: {{ratingColour}}">{{ratingWord}}</div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:8px">
+      <div class="eyebrow">A HEADLINE, IF YOU LIKE</div>
+      <div class="card" style="padding:13px 14px">
+        <div style="font-size:15px; font-weight:500; color:var(--muted-soft)">Beautiful, runs small</div>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:8px">
+      <div class="eyebrow">WHAT SHOULD THE NEXT BUYER KNOW?</div>
+      <div class="card" style="padding:13px 14px; min-height:104px">
+        <div style="font-size:15px; line-height:22px; color:var(--muted-soft)">
+          The fabric and the sewing are lovely. Size up if you are between sizes.
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <div class="eyebrow">HOW THIS APPEARS</div>
+      <div class="b">
+        Publicly, as <strong style="color:var(--ink)">Ama B.</strong> — your first
+        name and one initial, never your full name or number. You can only rate
+        something you actually received.
+      </div>
+    </div>
+  </div>
+
+  <div class="cta">
+    <div class="btn" style="background: {{ctaBg}}"><div class="l">{{ctaLabel}}</div></div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { rating: 4 }; }
+  renderVals() {
+    const r = this.state.rating;
+    const words = ['', 'Poor', 'Not great', 'Fine', 'Good', 'Excellent'];
+    return {
+      stars: [1, 2, 3, 4, 5].map((n) => ({
+        fill: n <= r ? '#D6165A' : 'none',
+        stroke: n <= r ? '#D6165A' : '#D8D2C8',
+        pick: () => this.setState({ rating: n }),
+      })),
+      ratingWord: r ? words[r] : 'Tap a star',
+      ratingColour: r ? '#0E0D0B' : '#9A928A',
+      ctaLabel: r ? 'Post my review' : 'Choose a rating first',
+      ctaBg: r ? '#D6165A' : '#E0DAD1',
+    };
+  }
+}
+</script>
+</body>
+</html>
