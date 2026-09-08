@@ -248,14 +248,26 @@ renders the order's real number instead of a hard-coded 7.
 
 ## 4. Deliberately deferred
 
+> **Audited and corrected.** Three rows of the original table had shipped and
+> the table still called them deferred, which is how the list stopped being
+> read. What follows is what is actually outstanding; §4.1 records what was
+> already done, and §6 the holes the audit found.
+
 | Deferred | Why | Seam left behind |
 |---|---|---|
-| Stored-value wallet balance, top-up, withdraw | e-money licensing (§3.6) | `customer_float` ledger account; `GET /me/activity` |
-| Ghana Card capture in-app | KYC tier 2 is not required for the seeded limits; capture needs object storage + a review queue | `customers.ghana_card_image_key`, admin verify endpoint |
-| Push *delivery* (registration ships) | `NotificationService` is SMS-only; adding a push transport is its own slice | `push_devices`, `POST /me/devices` |
+| Stored-value wallet balance, top-up, withdraw | e-money licensing (§3.6) | `customer_float` ledger account. **Note:** the original table named `GET /me/activity` as the seam. That route does not exist and never did. |
 | Live courier position ("4 stops away") | needs a courier integration; `shipments` carries status and ETA only | `shipments.tracking_code`, `courier_phone` |
-| Returns/disputes flow | refunds exist engine-side; the customer-initiated return journey does not | `refunds`, `orders.return_window_ends_at` |
-| Merchant app | Phase 15 | `packages/mobile-kit` is app-agnostic |
+| Per-item returns | `order_items` has no status column, so returning one shirt of three would leave `orders.status = 'returned'` lying about the order | `order_returns` is whole-order by design |
+| Disputes | separate from returns: a return is the seller's to decide, a dispute is Ejua's | — |
+
+### 4.1 Done, and the table said otherwise
+
+| Was listed deferred | Actually shipped |
+|---|---|
+| Ghana Card capture in-app | `apps/customer-mobile/app/ghana-card.tsx` (#75) — camera or library, presigned upload, `POST /me/ghana-card` |
+| Push *delivery* (registration ships) | `PushNotifier` and the whole transport (#69, #74). **But see §7.2 — no handset registers, so nothing arrives.** |
+| Returns/disputes flow | `ReturnsService`, `POST /me/orders/:id/return`, and the seller's queue and decision screens (#76, #82). **But see §7.3 — the buyer has no screen to start one.** |
+| Merchant app | `apps/merchant-mobile`, Phases 15 complete — see [`merchant-app.md`](./merchant-app.md) |
 
 ---
 
@@ -292,3 +304,112 @@ nothing else in the app calls `new Date()` on an API string.
 *logical attempt* and reused verbatim on retry. Approving a MoMo prompt means
 leaving the app, so a customer returning to a spinner and tapping again is the
 normal case, not the edge case — a fresh key there would be a second debit.
+
+---
+
+## 6. What the audit found
+
+Recorded here because each is the same shape as the bugs in §2 and §3 — a
+field, route or rule that cannot do what the app implies it does — and because
+the last five slices were spent building screens over the top of them.
+
+Everything in §6.1–§6.8 was verified by reading the code. §7.9 was reported by
+a single pass whose adversarial verification never ran, and is listed as
+unconfirmed on purpose.
+
+### 6.1 A shopper could not be approved for instalments — *fixed*
+
+`gate.age_range` is a hard gate that declines an age it does not know ("Age out
+of range or unknown"), `IdentityCollector` derives that age from
+`customers.date_of_birth` alone, and `date_of_birth` was on the admin schemas
+only. A self-signed-up customer carried a NULL birthday for good.
+
+It did not bite at signup, which is what made it survive: `gate.age_range` is
+the **last** of six gates, so a new account is turned away by
+`gate.ghana_card_verified` long before its age is read. It bit the shopper who
+did everything asked of them — signed up, sent their card, had it approved,
+waited out the SIM-age rule — and was then declined on a birthday nobody asked
+for.
+
+Three things hid it: `dev-fixtures.sql` sets a birthday, so demo data always
+passed; the orders integration specs approve by hand
+(`recordDecision({outcome:'approved'})`) so no test put a real signup in front
+of a real scoring run; and the gate ordering means the obvious manual check —
+"can a new account borrow?" — answers no either way, for an expected reason.
+
+Fixed by `adultDateOfBirth` (`core/src/shared/validators/date-of-birth.ts`) on
+both signup schemas and on the shopper's own profile patch, with
+`auth/signup-age.integration.spec.ts` closing the gap: a real signup on one
+side, `ScoringEngine` on the other, nothing stubbed between.
+
+### 6.2 Push notifications reach nobody, on either app
+
+`expo-notifications` is a declared dependency of `customer-mobile` **and**
+`merchant-mobile` and is imported in neither. `useRegisterDevice`
+(`customer-mobile/src/features/account.ts:223`) has zero callers;
+`merchant-mobile` has no device registration at all. `push_devices` is
+therefore always empty, `listActive` always returns `[]`, and every send is a
+no-op — including the merchant's new-order alert, which the app's own stack
+comment calls a promise it could not otherwise keep.
+
+Two merged slices (#69, #74) built the entire server-side transport. Nothing on
+a handset ever asks for a token.
+
+### 6.3 A buyer cannot start a return
+
+`POST /me/orders/:id/return` and `GET /me/returns` have no caller in any
+client. The Account menu row is labelled "Orders & returns" and pushes
+`/orders`; the order screen prints "Free returns until &lt;date&gt;" as static
+text. The seller's queue (#82) can only ever read empty in production.
+
+### 6.4 Reviews are read on four surfaces and writable from nowhere
+
+`POST /me/reviews` and `GET /me/reviews/pending` have no caller anywhere in the
+monorepo, while `rating_avg` / `rating_count` render on the product screen,
+every product card and the vendor header — and the product screen *fetches* the
+review list (`storefront.ts:121`). So the list is permanently empty and every
+rating permanently null.
+
+### 6.5 Browse and Search show one page of a total they print
+
+`useBrowse` sends `limit: 30`, `useSearch` sends `limit: 40`, and neither ever
+sends `offset` — while the Browse header and its filter-sheet CTA print the
+real `total` ("Show 218 items"). In any category with more than thirty
+listings the shopper can reach thirty of them. The API has supported `offset`
+since Phase 11. The store screen hits the same wall and is honest about it
+("Showing the first 48 of N"), which shows the omission was known.
+
+### 6.6 Deal prices exist only in the seed
+
+`products.compare_at_price_pesewas` and `deal_ends_at` are read on four
+surfaces and are absent from every write dto. The strikethrough "was" price and
+the deal countdown can only ever come from `marketplace-demo.sql`.
+
+### 6.7 `addresses.ghanapost_gps` is read by the seller and written by nobody
+
+The checkout address sheet hard-codes it `null` and offers no input; the
+seller's order screen renders it when present. GhanaPostGPS is how a Ghanaian
+address is actually found, so every delivery routes off free text.
+
+### 6.8 `order_returns.status = 'cancelled'` is set by nothing
+
+The CHECK permits it, `RETURN_STATUSES` declares it, and no service writes it.
+The seller's queue ships copy for it — "Nothing withdrawn. A buyer can withdraw
+a request before you decide on it" — which is not true. Either give the buyer a
+withdraw control or drop the status and the copy.
+
+### 6.9 Reported once, not verified
+
+An audit pass raised these and its verification stage never ran. Treat each as
+a lead, not a finding: no address book (four address routes unreached); no
+saved-items screen (`GET /me/wishlist` unconsumed, both "Saved" controls open
+Browse); a notification bell opening a tab with no notifications; "LIMIT LEFT
+GHS 0.00" shown to a customer with no limit; "Deliver to Accra" hard-coded in
+three places and also pricing the delivery quote; no pay-early, receipt or
+statement on Instalments; profile and consents read-only for the life of the
+account; `pickup_hubs` with no write route; `search_queries.customer_id`
+written NULL on every row; three of seven `shipments` statuses unreachable;
+and six dead customer routes.
+
+Four surfaces — the merchant apps, the engine and money paths, the web apps,
+and tests/ops — were never audited at all.
