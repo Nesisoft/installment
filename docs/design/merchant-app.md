@@ -389,15 +389,28 @@ return and asserts the promised figure equals what the ledger actually booked.
 - **Push for anything but new orders.** `push_devices` carries merchant handsets
   since 0017; only the order notification is wired server-side.
 
-  **Correction.** An earlier version of this line said push was "wired", which
-  was wrong in the way that matters. The server sends; no handset listens.
-  `expo-notifications` is a declared dependency of this app and is imported
-  nowhere in it, and there is no call to `POST /merchant/devices` anywhere — so
-  `push_devices` is always empty for merchants, `listActive` returns `[]`, and
-  the new-order alert this app's own stack comment calls "a promise the app
-  could not keep" still cannot be kept. The customer app has the same hole from
-  the other end: its `useRegisterDevice` hook exists and has zero callers. See
-  [`customer-app.md`](./customer-app.md) §6.2.
+  **Correction, and then the fix.** An earlier version of this line said push
+  was "wired", which was wrong in the way that matters: the server sent, and no
+  handset listened. `expo-notifications` was a declared dependency of this app
+  and imported nowhere in it, there was no call to `POST /merchant/devices`
+  anywhere, so `push_devices` was always empty for merchants, `listActive`
+  returned `[]`, and the new-order alert this app's own stack comment calls "a
+  promise the app could not keep" could not be kept.
+
+  `src/lib/push.ts` closes it. The handset registers from the root layout once
+  per launch and deregisters on sign-out — before the session is cleared, since
+  the route is authenticated — and a tapped notification opens
+  `/orders/:orderId` from `PushNotifier`'s own `data`. The channel is
+  `AndroidImportance.MAX` rather than HIGH: this is the notification the
+  24-hour confirmation window runs against.
+
+  The deferral above still stands as written — the only merchant push the
+  server sends is `merchant.order_placed`. Payout, return and low-stock
+  notifications remain unwritten on the server side.
+
+  **Not verified on a handset.** Both apps take a `no-project-id` skip until
+  someone runs `eas init`; see [`customer-app.md`](./customer-app.md) §6.2 for
+  what is and is not proven.
 
 - **A withdraw control for the buyer.** The returns queue ships copy for
   `order_returns.status = 'cancelled'` — "Nothing withdrawn. A buyer can

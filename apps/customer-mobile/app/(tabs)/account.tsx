@@ -17,6 +17,7 @@ import {
 import { useProfile } from '../../src/features/account';
 import { useAddresses, useOrders } from '../../src/features/shop';
 import { initials, phoneDisplay, pluralise } from '../../src/lib/format';
+import { deregisterThisHandset } from '../../src/lib/push';
 import { color, radius, space } from '../../src/theme/tokens';
 
 /** The engine's telco codes, and what a Ghanaian shopper calls them. */
@@ -28,7 +29,7 @@ const NETWORK_LABEL: Record<string, string> = {
 
 export default function AccountScreen(): React.ReactElement {
   const insets = useSafeAreaInsets();
-  const { signedIn, signOut } = useAuth();
+  const { signedIn, signOut, api } = useAuth();
   const profile = useProfile(signedIn);
   const orders = useOrders(signedIn);
   const addresses = useAddresses(signedIn);
@@ -86,10 +87,18 @@ export default function AccountScreen(): React.ReactElement {
   const defaultAddress = addresses.data?.find((a) => a.is_default) ?? addresses.data?.[0];
   const network = me.momo_provider ? NETWORK_LABEL[me.momo_provider] : null;
 
+  // Deregistering has to happen BEFORE the session is cleared: the route is
+  // authenticated. It never throws, so a bad connection cannot strand somebody
+  // in a half-signed-out state.
+  async function handleSignOut(): Promise<void> {
+    await deregisterThisHandset(api);
+    await signOut();
+  }
+
   function confirmSignOut(): void {
     Alert.alert('Sign out?', 'You will need your phone number and a code to sign back in.', [
       { text: 'Stay signed in', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
+      { text: 'Sign out', style: 'destructive', onPress: () => void handleSignOut() },
     ]);
   }
 

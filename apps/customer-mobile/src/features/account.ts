@@ -218,20 +218,6 @@ export function useToggleWishlist() {
   });
 }
 
-// --- Devices --------------------------------------------------------------------
-
-export function useRegisterDevice() {
-  const api = useApi();
-  return useMutation({
-    mutationFn: async (input: {
-      expo_token: string;
-      platform: 'android' | 'ios' | 'web';
-      app_version?: string;
-      device_name?: string;
-    }) => (await api.post('/me/devices', input)).data,
-  });
-}
-
 // --- Ghana Card ---------------------------------------------------------------
 
 export function useGhanaCard(enabled = true): UseQueryResult<GhanaCardStatusView> {

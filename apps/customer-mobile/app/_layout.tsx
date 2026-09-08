@@ -11,6 +11,7 @@ import { fontMap } from '../src/theme/fonts';
 import { color } from '../src/theme/tokens';
 import { API_BASE_URL } from '../src/lib/config';
 import { sessionStore } from '../src/lib/session-store';
+import { usePushRegistration } from '../src/lib/push';
 
 // The splash stays up until fonts are loaded and the session has been read off
 // the keystore, so the first frame is the right screen rather than a flash of
@@ -62,6 +63,10 @@ const PROTECTED = ['cart', 'checkout', 'orders', 'plans', 'wallet', 'account', '
 function Routes(): React.ReactElement | null {
   const { ready, signedIn } = useAuth();
   const segments = useSegments();
+
+  // Inside the provider, so it has the authenticated client, and once for the
+  // whole app rather than per screen.
+  usePushRegistration();
 
   useEffect(() => {
     if (!ready) return;

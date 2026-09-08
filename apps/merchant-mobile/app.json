@@ -29,6 +29,13 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-notifications",
+        {
+          "color": "#0F8B5E",
+          "defaultChannel": "orders"
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Ejua Sell uses your photos to put pictures of your stock on your listings.",

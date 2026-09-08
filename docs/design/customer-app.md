@@ -265,7 +265,7 @@ renders the order's real number instead of a hard-coded 7.
 | Was listed deferred | Actually shipped |
 |---|---|
 | Ghana Card capture in-app | `apps/customer-mobile/app/ghana-card.tsx` (#75) — camera or library, presigned upload, `POST /me/ghana-card` |
-| Push *delivery* (registration ships) | `PushNotifier` and the whole transport (#69, #74). **But see §7.2 — no handset registers, so nothing arrives.** |
+| Push *delivery* (registration ships) | `PushNotifier` and the whole transport (#69, #74), and — since this slice — the handset half that makes them arrive. See §6.2. |
 | Returns/disputes flow | `ReturnsService`, `POST /me/orders/:id/return`, and the seller's queue and decision screens (#76, #82). **But see §7.3 — the buyer has no screen to start one.** |
 | Merchant app | `apps/merchant-mobile`, Phases 15 complete — see [`merchant-app.md`](./merchant-app.md) |
 
@@ -342,18 +342,58 @@ both signup schemas and on the shopper's own profile patch, with
 `auth/signup-age.integration.spec.ts` closing the gap: a real signup on one
 side, `ScoringEngine` on the other, nothing stubbed between.
 
-### 6.2 Push notifications reach nobody, on either app
+### 6.2 Push notifications reach nobody, on either app — fixed
 
-`expo-notifications` is a declared dependency of `customer-mobile` **and**
-`merchant-mobile` and is imported in neither. `useRegisterDevice`
-(`customer-mobile/src/features/account.ts:223`) has zero callers;
-`merchant-mobile` has no device registration at all. `push_devices` is
-therefore always empty, `listActive` always returns `[]`, and every send is a
-no-op — including the merchant's new-order alert, which the app's own stack
-comment calls a promise it could not otherwise keep.
+**The finding.** `expo-notifications` was a declared dependency of
+`customer-mobile` **and** `merchant-mobile` and was imported in neither.
+`useRegisterDevice` (`customer-mobile/src/features/account.ts`) had zero
+callers; `merchant-mobile` had no device registration at all. `push_devices`
+was therefore always empty, `listActive` always returned `[]`, and every send
+was a no-op — including the merchant's new-order alert, which the app's own
+stack comment calls a promise it could not otherwise keep.
 
 Two merged slices (#69, #74) built the entire server-side transport. Nothing on
-a handset ever asks for a token.
+a handset ever asked for a token. The shape of it is the recurring one in this
+codebase: `PushNotifier.send` takes a `noDevices` early return and reports
+success, so a channel reaching nobody looked exactly like one that worked.
+
+**The fix.** Both apps now register on launch and deregister on sign-out:
+
+- `mobile-kit/src/push-registration.ts` — `registerForPush`, the decision as a
+  pure function over injected ports. Split from the Expo binding for the same
+  reason `api-url.ts` is split from `config.ts`: a node test cannot load a
+  React Native module, and the part worth testing is the sequence of choices.
+  Ten unit tests, including the four skips.
+- `<app>/src/lib/push.ts` — the binding, per app: which Expo module supplies
+  which fact, the Android channel, the foreground handler, and where a tapped
+  notification goes (`data.orderId` → `/orders/:id`, set by `PushNotifier`).
+- `api-types/src/devices.ts` — the contract had **no** mirror at all, so both
+  apps typed the body by hand. It now carries `registerDeviceSchema`,
+  `DEVICE_PLATFORMS` and `EXPO_PUSH_TOKEN_RE`, gated in
+  `api-types-mirror.spec.ts` by running eleven inputs through the mirrored and
+  the enforced schema and comparing verdicts.
+- `useRegisterDevice` is deleted. Two ways to register would drift, and one of
+  them had never been called.
+
+**Four ways registration deliberately does nothing**, because each of them is a
+throw in a root-layout effect otherwise — that is, a blank screen for a feature
+the app works perfectly well without:
+
+| Skip | Why |
+|---|---|
+| `simulator` | Expo will not mint a token for one, and `getExpoPushTokenAsync` throws rather than returning null |
+| `no-project-id` | the same call throws without `extra.eas.projectId`, and **neither app has one yet** — see below |
+| `permission-denied` | iOS shows the system prompt once per install; asking again is a round trip that cannot succeed |
+| `not-an-expo-token` | a raw FCM/APNs token comes back when push credentials are wrong. Storing it means an address every send fails against, silently — the same class of bug as the one being fixed |
+
+**Not verified end-to-end, and cannot be here.** No notification has been
+delivered to a handset. `getExpoPushTokenAsync` needs an EAS project
+(`eas init`, which writes `extra.eas.projectId` into `app.json`) and push
+credentials for each platform; until someone runs it, both apps take the
+`no-project-id` skip on every launch and `push_devices` stays empty. What is
+verified is the decision logic (unit), the contract (drift gate, watched to
+fail), and the server side (`PushNotifier`, already covered by integration
+suites in core and commerce).
 
 ### 6.3 A buyer cannot start a return
 

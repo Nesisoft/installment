@@ -29,6 +29,13 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-notifications",
+        {
+          "color": "#D6165A",
+          "defaultChannel": "orders"
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#0E0D0B",
