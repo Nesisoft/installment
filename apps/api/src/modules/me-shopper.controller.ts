@@ -49,6 +49,13 @@ export const updateProfileSchema = updateCustomerSchema.pick({
   first_name: true,
   last_name: true,
   email: true,
+  /**
+   * Included so an account opened before signup asked for one can supply it.
+   * Without a birthday `gate.age_range` declines every instalment application,
+   * and a customer with no route to fix that is a customer who can never buy
+   * on credit — the whole product.
+   */
+  date_of_birth: true,
 });
 
 export const setAutopaySchema = z.object({ enabled: z.boolean() });
@@ -213,7 +220,7 @@ export class MeShopperController {
   }
 
   @Patch('profile')
-  @ApiOperation({ summary: 'Update my name or email' })
+  @ApiOperation({ summary: 'Update my name, email or date of birth' })
   @ApiZodBody(updateProfileSchema)
   @ApiModel('Customer')
   async updateProfile(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {

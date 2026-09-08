@@ -31,6 +31,12 @@ export default function OnboardingScreen(): React.ReactElement {
   const [code, setCode] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  // Three boxes rather than a picker: `@react-native-community/datetimepicker`
+  // is not a dependency here, and a spinner scrolled back forty years is worse
+  // on a low-end handset than typing a year you know by heart.
+  const [day, setDay] = useState('');
+  const [month, setMonth] = useState('');
+  const [year, setYear] = useState('');
   const [marketing, setMarketing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const signupToken = useRef<string | null>(null);
@@ -76,14 +82,29 @@ export default function OnboardingScreen(): React.ReactElement {
     }
   }
 
+  /**
+   * The three boxes as `YYYY-MM-DD`, or `null` while they cannot make one.
+   *
+   * Zero-padded here rather than trusting what was typed: `4` and `04` are the
+   * same April to a person and different strings to the API, which takes the
+   * ISO shape only.
+   */
+  const dateOfBirth =
+    day && month && year.length === 4
+      ? `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+      : null;
+
   async function submitProfile(): Promise<void> {
     setError(null);
-    if (!signupToken.current) return;
+    // Both guards, not one: the CTA is disabled without a date, but a narrowed
+    // type is what lets the request be built at all.
+    if (!signupToken.current || !dateOfBirth) return;
     try {
       await complete.mutateAsync({
         signupToken: signupToken.current,
         first_name: firstName.trim(),
         last_name: lastName.trim(),
+        date_of_birth: dateOfBirth,
         marketing,
       });
       router.replace('/');
@@ -219,6 +240,49 @@ export default function OnboardingScreen(): React.ReactElement {
               style={styles.textInput}
               accessibilityLabel="Last name"
             />
+            <View>
+              <Text variant="eyebrow" tone="onDarkFaint" style={styles.dobLabel}>
+                DATE OF BIRTH
+              </Text>
+              <View style={styles.dobRow}>
+                <TextInput
+                  value={day}
+                  onChangeText={(v) => setDay(v.replace(/\D/g, '').slice(0, 2))}
+                  placeholder="DD"
+                  placeholderTextColor={color.onDarkFaint}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                  style={[styles.textInput, styles.dobBox]}
+                  accessibilityLabel="Day you were born"
+                />
+                <TextInput
+                  value={month}
+                  onChangeText={(v) => setMonth(v.replace(/\D/g, '').slice(0, 2))}
+                  placeholder="MM"
+                  placeholderTextColor={color.onDarkFaint}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                  style={[styles.textInput, styles.dobBox]}
+                  accessibilityLabel="Month you were born"
+                />
+                <TextInput
+                  value={year}
+                  onChangeText={(v) => setYear(v.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="YYYY"
+                  placeholderTextColor={color.onDarkFaint}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                  style={[styles.textInput, styles.dobYear]}
+                  accessibilityLabel="Year you were born"
+                />
+              </View>
+              <Text variant="small" tone="onDarkFaint" style={styles.dobHint}>
+                {/* Said plainly, because asking for a birthday with no reason
+                    reads as data collection. Ejua cannot lend to somebody whose
+                    age it does not know — `gate.age_range` declines it. */}
+                Ejua lends money, so we have to know you are 18 or over.
+              </Text>
+            </View>
             <Pressable
               accessibilityRole="checkbox"
               accessibilityState={{ checked: marketing }}
@@ -249,7 +313,7 @@ export default function OnboardingScreen(): React.ReactElement {
           disabled={
             (step === 'phone' && phone.replace(/\D/g, '').length < 9) ||
             (step === 'code' && code.length < 6) ||
-            (step === 'profile' && (!firstName.trim() || !lastName.trim()))
+            (step === 'profile' && (!firstName.trim() || !lastName.trim() || !dateOfBirth))
           }
           onPress={() => {
             if (step === 'phone') void submitPhone();
@@ -342,6 +406,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: 'Outfit_600SemiBold',
   },
+  dobLabel: { marginBottom: space.sm },
+  dobRow: { flexDirection: 'row', gap: space.sm },
+  dobBox: { flex: 1, textAlign: 'center' },
+  dobYear: { flex: 1.4, textAlign: 'center' },
+  dobHint: { marginTop: space.sm, lineHeight: 18 },
   profileFields: { gap: space.md },
   textInput: {
     backgroundColor: color.darkRaised,

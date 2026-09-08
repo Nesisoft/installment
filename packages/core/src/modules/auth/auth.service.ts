@@ -246,6 +246,7 @@ export class AuthService {
       first_name: input.first_name,
       last_name: input.last_name,
       ...(input.email ? { email: input.email } : {}),
+      date_of_birth: input.date_of_birth,
       consents: input.consents,
     });
   }
@@ -425,6 +426,11 @@ export class AuthService {
     first_name: string;
     last_name: string;
     email?: string;
+    /**
+     * Required on the way in, because `gate.age_range` is a hard gate that
+     * declines an unknown age and this column is the only thing it reads.
+     */
+    date_of_birth: string;
     consents: { marketing?: boolean };
   }): Promise<AuthResult> {
     const customers = this.deps.customers;
@@ -444,6 +450,7 @@ export class AuthService {
               last_name: input.last_name,
               email: input.email ?? `${input.phone}@customer.installment.local`,
               phone: input.phone,
+              date_of_birth: input.date_of_birth,
             },
             systemActor,
           );

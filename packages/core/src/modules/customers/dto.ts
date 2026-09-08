@@ -1,7 +1,7 @@
 import { z } from 'zod';
+import { isoDate } from '../../shared/validators/date-of-birth';
 import { ghPhoneNumber, ghanaCardNumber, momoProviderCode } from '../../shared/validators/ghana';
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
 const consentFlags = z
   .object({
     data_processing: z.boolean().optional(),

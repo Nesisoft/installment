@@ -37,6 +37,40 @@ export type SignupStartInput = z.infer<typeof signupStartSchema>;
  * required — a BNPL account cannot exist without them — while marketing is
  * genuinely optional and must be opted into rather than out of.
  */
+
+/**
+ * A date of birth that can open an account. Mirrors `adultDateOfBirth` in
+ * packages/core/src/shared/validators/date-of-birth.ts.
+ *
+ * Required, and the reason is a hard gate: `gate.age_range` declines an
+ * application whose age it does not know, and `customers.date_of_birth` is the
+ * only thing that age is derived from. An account without one can never be
+ * approved for instalments — which is the product.
+ */
+export const dateOfBirthSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter your date of birth as YYYY-MM-DD')
+  .superRefine((value, ctx) => {
+    const born = new Date(`${value}T00:00:00Z`);
+    // The second test rejects 2026-02-30, which the regex accepts and Date
+    // rolls forward into March — a rolled date registers a different birthday.
+    if (Number.isNaN(born.getTime()) || born.toISOString().slice(0, 10) !== value) {
+      ctx.addIssue({ code: 'custom', message: 'That is not a real date' });
+      return;
+    }
+    const now = new Date();
+    let age = now.getUTCFullYear() - born.getUTCFullYear();
+    const months = now.getUTCMonth() - born.getUTCMonth();
+    if (months < 0 || (months === 0 && now.getUTCDate() < born.getUTCDate())) age -= 1;
+    if (age < 0) {
+      ctx.addIssue({ code: 'custom', message: 'A date of birth cannot be in the future' });
+    } else if (age < 18) {
+      ctx.addIssue({ code: 'custom', message: 'You must be at least 18 to open an Ejua account' });
+    } else if (age > 120) {
+      ctx.addIssue({ code: 'custom', message: 'Check the year — that date is too far back' });
+    }
+  });
+
 export const signupVerifySchema = z.object({
   phone: phoneSchema,
   code: z
@@ -46,6 +80,7 @@ export const signupVerifySchema = z.object({
   first_name: z.string().trim().min(1, 'Enter your first name').max(80),
   last_name: z.string().trim().min(1, 'Enter your last name').max(80),
   email: z.string().email('Enter a valid email').optional(),
+  date_of_birth: dateOfBirthSchema,
   consents: z.object({
     data_processing: z.literal(true, {
       errorMap: () => ({ message: 'Please agree to how we use your data' }),
@@ -77,6 +112,7 @@ export const signupCompleteSchema = z.object({
   first_name: z.string().trim().min(1, 'Enter your first name').max(80),
   last_name: z.string().trim().min(1, 'Enter your last name').max(80),
   email: z.string().email('Enter a valid email').optional(),
+  date_of_birth: dateOfBirthSchema,
   consents: z.object({
     data_processing: z.literal(true, {
       errorMap: () => ({ message: 'Please agree to how we use your data' }),
