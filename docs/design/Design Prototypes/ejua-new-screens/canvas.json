@@ -1,0 +1,39 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Shopper — no design yet" },
+    { "id": "page-2", "name": "Seller — built, no design" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html",          "title": "Request a return",  "page": "page-1", "x": 0,    "y": 0,    "w": 390, "h": 844 },
+    { "file": "MyReturns.dc.html",     "title": "My returns",        "page": "page-1", "x": 470,  "y": 0,    "w": 390, "h": 844 },
+    { "file": "WriteReview.dc.html",   "title": "Write a review",    "page": "page-1", "x": 940,  "y": 0,    "w": 390, "h": 844 },
+    { "file": "ReviewPrompts.dc.html", "title": "Rate what you bought", "page": "page-1", "x": 0,  "y": 964,  "w": 390, "h": 844 },
+    { "file": "AddressBook.dc.html",   "title": "Delivery addresses", "page": "page-1", "x": 470, "y": 964,  "w": 390, "h": 844 },
+    { "file": "SavedItems.dc.html",    "title": "Saved",             "page": "page-1", "x": 940,  "y": 964,  "w": 390, "h": 844 },
+
+    { "file": "ReturnsQueue.dc.html",   "title": "Returns queue",    "page": "page-2", "x": 0,    "y": 0,    "w": 390, "h": 844 },
+    { "file": "ReturnDecision.dc.html", "title": "Return decision",  "page": "page-2", "x": 470,  "y": 0,    "w": 390, "h": 844 },
+    { "file": "RestockSheet.dc.html",   "title": "Restock sheet",    "page": "page-2", "x": 940,  "y": 0,    "w": 390, "h": 844 },
+    { "file": "EditListing.dc.html",    "title": "Edit a listing",   "page": "page-2", "x": 0,    "y": 964,  "w": 390, "h": 844 },
+    { "file": "ShopSetup.dc.html",      "title": "Shop setup",       "page": "page-2", "x": 470,  "y": 964,  "w": 390, "h": 844 }
+  ],
+  "annotations": [
+    {
+      "id": "shopper-brief",
+      "page": "page-1",
+      "x": 1410,
+      "y": 0,
+      "w": 320,
+      "text": "SHOPPER — six screens with no design of record.\n\nEvery one is backed by a route that already exists and has no client:\n\n· Request a return → POST /me/orders/:id/return\n· My returns → GET /me/returns\n· Write a review → POST /me/reviews\n· Rate what you bought → GET /me/reviews/pending\n· Delivery addresses → /me/addresses (+ set default)\n· Saved → GET /me/wishlist\n\nThe two that matter most: nothing in the system can create a review today, so every rating on the marketplace is null and the product screen's review list is permanently empty. And the seller's returns queue can only read empty until a buyer can start one.\n\nAddress book carries GhanaPostGPS, a column the seller's order screen already renders and nobody writes."
+    },
+    {
+      "id": "seller-brief",
+      "page": "page-2",
+      "x": 1410,
+      "y": 0,
+      "w": 320,
+      "text": "SELLER — five screens that are already BUILT and shipped without a design.\n\nThese are the design of record after the fact, drawn from what the code does, so the canvas and the app agree. Change anything here and it is a change request, not a new build.\n\n· Returns queue and decision — PR #82\n· Restock sheet — the one Ejua Sell canvas element that was drawn and never built, now built\n· Edit a listing — screen 08 in reverse\n· Shop setup — PR #81\n\nOne known lie to settle: the queue ships copy for a 'withdrawn' return and nothing in the system can set that status. Either the buyer gets a withdraw control on 'My returns' (page 1) or the copy goes."
+    }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

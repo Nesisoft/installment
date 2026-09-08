@@ -1,0 +1,170 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <style>
+    /* Lifted from apps/merchant-mobile/src/theme/tokens.ts — not approximated. */
+    :root {
+      --ink:#0E0D0B; --ink-soft:#3C362F; --muted:#7A736B; --muted-soft:#9A928A;
+      --canvas:#F5F2ED; --surface:#FFFFFF; --surface-warm:#FAF7F2; --surface-sunk:#F2EEE7;
+      --border:#E4DED4; --border-soft:#EFEAE1; --border-strong:#E0DAD1;
+      --accent:#0F8B5E; --accent-dark:#0B6B48; --accent-tint:#E6F3EE; --accent-tint-soft:#FFF7FA;
+      --success:#0F8B5E; --success-tint:#E6F3EE; --success-line:#CFE4DA;
+      --warn:#E8B21A; --warn-deep:#8A6A00; --warn-tint:#FFF6E3;
+      --crimson:#D6165A; --crimson-tint:#FDF1F5; --info:#2A52C7; --info-tint:#EEF4FF;
+      --dark-raised:#1D1A17; --dark-line:#2E2A26; --dark-border:#302C28;
+      --dark:#0E0D0B; --on-dark:#FFFDF9; --on-dark-muted:#A79E94; --on-dark-faint:#6E655C;
+      --scrim:rgba(14,13,11,0.55);
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Outfit,system-ui,sans-serif; background:var(--canvas); color:var(--ink); }
+    a { color:var(--accent); } a:hover { color:var(--accent-dark); }
+    .screen { width:390px; height:844px; display:flex; flex-direction:column; background:var(--canvas); overflow:hidden; }
+    .bar { flex:none; display:flex; align-items:center; gap:12px; padding:52px 16px 12px;
+           background:var(--surface); border-bottom:1px solid var(--border); }
+    .bar h1 { margin:0; font-size:17px; font-weight:600; letter-spacing:-0.3px; flex:1; }
+    .bar .sub { font-size:11.5px; font-weight:500; color:var(--muted-soft); margin-top:1px; }
+    .body { flex:1; overflow:hidden; padding:16px; display:flex; flex-direction:column; gap:16px; }
+    .card { background:var(--surface); border:1px solid var(--border-soft); border-radius:16px; padding:16px; }
+    .eyebrow { font-size:9.5px; font-weight:700; letter-spacing:1.5px; color:var(--muted-soft); }
+    .h2 { font-size:21px; font-weight:700; letter-spacing:-0.6px; }
+    .small { font-size:13px; line-height:18px; color:var(--muted); }
+    .tiny { font-size:11.5px; font-weight:500; color:var(--muted-soft); }
+    .chiprow { display:flex; gap:8px; flex-wrap:wrap; }
+    .chip { font-size:13px; font-weight:500; padding:7px 12px; border-radius:999px;
+            border:1px solid var(--border); background:var(--surface); color:var(--ink-soft); cursor:pointer; }
+    .chip.on { background:var(--ink); border-color:var(--ink); color:var(--on-dark); }
+    .cta { flex:none; padding:12px 16px 28px; background:var(--surface); border-top:1px solid var(--border); }
+    .btn { height:52px; border-radius:14px; background:var(--accent); color:#fff; display:flex;
+           flex-direction:column; align-items:center; justify-content:center; cursor:pointer; }
+    .btn .l { font-size:16px; font-weight:700; letter-spacing:-0.2px; }
+    .btn .s { font-size:11px; color:rgba(255,255,255,0.85); }
+    .btn.ghost { background:transparent; border:1px solid var(--border-strong); color:var(--ink); height:46px; }
+    .btn.ghost .l { color:var(--ink); font-weight:600; font-size:14.5px; }
+    .note { background:var(--surface-sunk); border-radius:14px; padding:14px; }
+    .note .b { font-size:11.5px; line-height:17px; color:var(--ink-soft); margin-top:6px; }
+    .pill { font-size:9.5px; font-weight:700; letter-spacing:1.2px; padding:4px 8px; border-radius:999px; }
+    .row { display:flex; align-items:center; gap:12px; }
+    .thumb { width:52px; height:52px; border-radius:12px; flex:none; }
+  </style>
+</helmet>
+<div class="screen">
+  <div class="bar">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="#0E0D0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div style="flex:1">
+      <h1 style="margin:0">Ankara Wrap Dress</h1>
+      <div class="sub">GHS 220.00 · 16 in stock</div>
+    </div>
+    <div class="pill" style="background:var(--accent-tint); color:var(--accent)">ON SALE</div>
+  </div>
+
+  <div class="body" style="gap:18px">
+    <div>
+      <div class="eyebrow" style="margin-bottom:10px">PHOTOS · 3</div>
+      <div style="display:flex; gap:8px">
+        <div style="width:84px; height:84px; border-radius:12px; background:#EFE0E4; position:relative; overflow:hidden">
+          <div style="position:absolute; left:0; right:0; bottom:0; background:var(--scrim); text-align:center; padding:3px">
+            <span style="font-size:11.5px; font-weight:500; color:var(--on-dark)">Cover</span>
+          </div>
+        </div>
+        <div style="width:84px; height:84px; border-radius:12px; background:#E9E1D6"></div>
+        <div style="width:84px; height:84px; border-radius:12px; background:#E4E0EA"></div>
+        <div style="width:84px; height:84px; border-radius:12px; border:1.5px dashed var(--border-strong);
+                    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 6v12M6 12h12" stroke="#9A928A" stroke-width="2" stroke-linecap="round"/></svg>
+          <span class="tiny">Add</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="display:flex; flex-direction:column; gap:14px">
+      <div>
+        <div class="eyebrow" style="margin-bottom:6px">TITLE</div>
+        <div style="font-size:16px; font-weight:500">Ankara Wrap Dress · Adinkra print</div>
+      </div>
+      <div style="border-top:1px solid var(--border-soft); padding-top:12px">
+        <div class="eyebrow" style="margin-bottom:6px">PRICE (GHS)</div>
+        <div style="font-size:16px; font-weight:500">220.00</div>
+        <div class="tiny" style="margin-top:4px; line-height:16px">
+          A price change does not affect orders already placed.
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="eyebrow" style="margin-bottom:10px">ON SALE?</div>
+      <div class="card" style="padding:0 16px">
+        <sc-for list="{{statuses}}" as="s" hint-placeholder-count="3">
+          <div class="row" onClick="{{s.pick}}" style="padding:13px 0; border-top: {{s.border}}; cursor:pointer">
+            <div style="width:20px; height:20px; border-radius:999px; border:1.5px solid {{s.ring}};
+                        display:flex; align-items:center; justify-content:center; flex:none">
+              <sc-if value="{{s.on}}" hint-placeholder-val="{{ true }}">
+                <div style="width:10px; height:10px; border-radius:999px; background:var(--accent)"></div>
+              </sc-if>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:13px; font-weight:500">{{s.label}}</div>
+              <div class="tiny" style="margin-top:1px">{{s.note}}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div>
+      <div class="eyebrow" style="margin-bottom:10px">SIZES AND STOCK · 4 SIZES</div>
+      <div class="card" style="display:flex; flex-direction:column; gap:12px">
+        <div class="chiprow">
+          <div class="chip" style="background:var(--surface-sunk); border-color:transparent">S <span style="color:var(--muted-soft); margin-left:5px">3</span></div>
+          <div class="chip" style="background:var(--surface-sunk); border-color:transparent">M <span style="color:var(--muted-soft); margin-left:5px">8</span></div>
+          <div class="chip" style="background:var(--crimson-tint); border-color:transparent; color:var(--crimson)">L <span style="margin-left:5px">out</span></div>
+          <div class="chip" style="background:var(--surface-sunk); border-color:transparent">XL <span style="color:var(--muted-soft); margin-left:5px">5</span></div>
+        </div>
+        <div class="tiny" style="color:var(--crimson)">1 of 4 hidden from buyers until restocked.</div>
+        <div style="display:flex; gap:8px">
+          <div class="btn ghost" style="flex:1; height:38px"><div class="l" style="font-size:13px">Update stock</div></div>
+          <div class="btn ghost" style="flex:1; height:38px"><div class="l" style="font-size:13px">Add a size</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <div class="eyebrow">WHAT CANNOT CHANGE HERE</div>
+      <div class="b">
+        A listing cannot be moved to another shop — its settlement history is
+        attached to this one — and it cannot be deleted. Retiring it is what
+        takes it away for good without breaking past orders.
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { status: 'active' }; }
+  renderVals() {
+    const rows = [
+      { id: 'active', label: 'On sale', note: 'Buyers can find and buy this.' },
+      { id: 'draft', label: 'Off sale', note: 'Hidden from the marketplace. Nothing is lost.' },
+      { id: 'archived', label: 'Retired', note: 'Put away for good. Past orders are unaffected.' },
+    ];
+    return {
+      statuses: rows.map((r, i) => ({
+        ...r,
+        on: r.id === this.state.status,
+        ring: r.id === this.state.status ? '#0F8B5E' : '#E0DAD1',
+        border: i === 0 ? 'none' : '1px solid #EFEAE1',
+        pick: () => this.setState({ status: r.id }),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

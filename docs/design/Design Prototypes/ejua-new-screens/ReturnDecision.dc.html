@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <style>
+    /* Lifted from apps/merchant-mobile/src/theme/tokens.ts — not approximated. */
+    :root {
+      --ink:#0E0D0B; --ink-soft:#3C362F; --muted:#7A736B; --muted-soft:#9A928A;
+      --canvas:#F5F2ED; --surface:#FFFFFF; --surface-warm:#FAF7F2; --surface-sunk:#F2EEE7;
+      --border:#E4DED4; --border-soft:#EFEAE1; --border-strong:#E0DAD1;
+      --accent:#0F8B5E; --accent-dark:#0B6B48; --accent-tint:#E6F3EE; --accent-tint-soft:#FFF7FA;
+      --success:#0F8B5E; --success-tint:#E6F3EE; --success-line:#CFE4DA;
+      --warn:#E8B21A; --warn-deep:#8A6A00; --warn-tint:#FFF6E3;
+      --crimson:#D6165A; --crimson-tint:#FDF1F5; --info:#2A52C7; --info-tint:#EEF4FF;
+      --dark-raised:#1D1A17; --dark-line:#2E2A26; --dark-border:#302C28;
+      --dark:#0E0D0B; --on-dark:#FFFDF9; --on-dark-muted:#A79E94; --on-dark-faint:#6E655C;
+      --scrim:rgba(14,13,11,0.55);
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Outfit,system-ui,sans-serif; background:var(--canvas); color:var(--ink); }
+    a { color:var(--accent); } a:hover { color:var(--accent-dark); }
+    .screen { width:390px; height:844px; display:flex; flex-direction:column; background:var(--canvas); overflow:hidden; }
+    .bar { flex:none; display:flex; align-items:center; gap:12px; padding:52px 16px 12px;
+           background:var(--surface); border-bottom:1px solid var(--border); }
+    .bar h1 { margin:0; font-size:17px; font-weight:600; letter-spacing:-0.3px; flex:1; }
+    .bar .sub { font-size:11.5px; font-weight:500; color:var(--muted-soft); margin-top:1px; }
+    .body { flex:1; overflow:hidden; padding:16px; display:flex; flex-direction:column; gap:16px; }
+    .card { background:var(--surface); border:1px solid var(--border-soft); border-radius:16px; padding:16px; }
+    .eyebrow { font-size:9.5px; font-weight:700; letter-spacing:1.5px; color:var(--muted-soft); }
+    .h2 { font-size:21px; font-weight:700; letter-spacing:-0.6px; }
+    .small { font-size:13px; line-height:18px; color:var(--muted); }
+    .tiny { font-size:11.5px; font-weight:500; color:var(--muted-soft); }
+    .chiprow { display:flex; gap:8px; flex-wrap:wrap; }
+    .chip { font-size:13px; font-weight:500; padding:7px 12px; border-radius:999px;
+            border:1px solid var(--border); background:var(--surface); color:var(--ink-soft); cursor:pointer; }
+    .chip.on { background:var(--ink); border-color:var(--ink); color:var(--on-dark); }
+    .cta { flex:none; padding:12px 16px 28px; background:var(--surface); border-top:1px solid var(--border); }
+    .btn { height:52px; border-radius:14px; background:var(--accent); color:#fff; display:flex;
+           flex-direction:column; align-items:center; justify-content:center; cursor:pointer; }
+    .btn .l { font-size:16px; font-weight:700; letter-spacing:-0.2px; }
+    .btn .s { font-size:11px; color:rgba(255,255,255,0.85); }
+    .btn.ghost { background:transparent; border:1px solid var(--border-strong); color:var(--ink); height:46px; }
+    .btn.ghost .l { color:var(--ink); font-weight:600; font-size:14.5px; }
+    .note { background:var(--surface-sunk); border-radius:14px; padding:14px; }
+    .note .b { font-size:11.5px; line-height:17px; color:var(--ink-soft); margin-top:6px; }
+    .pill { font-size:9.5px; font-weight:700; letter-spacing:1.2px; padding:4px 8px; border-radius:999px; }
+    .row { display:flex; align-items:center; gap:12px; }
+    .thumb { width:52px; height:52px; border-radius:12px; flex:none; }
+  </style>
+</helmet>
+<div class="screen">
+  <div class="bar">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="#0E0D0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div style="flex:1">
+      <h1 style="margin:0">EJ-2026-0418</h1>
+      <div class="sub">Kofi Mensah · Ankara Wrap Dress + 1 more</div>
+    </div>
+    <div class="pill" style="background:var(--warn-tint); color:var(--warn-deep)">WAITING</div>
+  </div>
+
+  <div class="body" style="gap:16px">
+    <div class="card" style="display:flex; flex-direction:column; gap:6px">
+      <div class="eyebrow">ASKED FOR 5 SEP</div>
+      <div style="font-size:15px; line-height:22px">“Wrong size — the M is cut small. Happy to send it back.”</div>
+      <div class="tiny" style="margin-top:2px">Kofi Mensah · 024 551 3388</div>
+    </div>
+
+    <div>
+      <div class="eyebrow" style="margin-bottom:12px">WHAT ACCEPTING COSTS</div>
+      <div class="card" style="display:flex; flex-direction:column; gap:1px">
+        <div class="row" style="padding:5px 0"><div class="small" style="flex:1; color:var(--ink-soft)">Order</div><div style="font-size:13.5px; font-weight:500; color:var(--ink-soft)">GHS 289.90</div></div>
+        <div class="row" style="padding:5px 0"><div class="small" style="flex:1; color:var(--ink-soft)">Ejua fee reversed</div><div style="font-size:13.5px; font-weight:500; color:var(--ink-soft)">+GHS 11.60</div></div>
+        <div class="row" style="padding:5px 0"><div class="small" style="flex:1; color:var(--ink-soft)">Taken off your balance</div><div style="font-size:13.5px; font-weight:500; color:var(--crimson)">−GHS 278.30</div></div>
+        <div class="row" style="border-top:1px solid var(--border); margin-top:8px; padding-top:12px">
+          <div style="flex:1">
+            <div style="font-size:13px; font-weight:500">Refunded to the buyer</div>
+            <div class="tiny" style="margin-top:1px">Ejua pays this; it is not taken from your MoMo.</div>
+          </div>
+          <div style="font-size:19px; font-weight:800; letter-spacing:-0.5px">GHS 289.90</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="eyebrow" style="margin-bottom:12px">WHAT IS COMING BACK · 2 LINES</div>
+      <div class="card" style="padding:0 16px">
+        <sc-for list="{{lines}}" as="l" hint-placeholder-count="2">
+          <div class="row" style="padding:12px 0; border-top: {{l.border}}">
+            <div style="flex:1">
+              <div style="font-size:13px; font-weight:500">{{l.title}}</div>
+              <div class="tiny" style="margin-top:2px">{{l.meta}}</div>
+            </div>
+            <div style="font-size:13px; font-weight:500">{{l.amount}}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div class="note">
+      <div class="eyebrow">BEFORE YOU DECIDE</div>
+      <div class="b">
+        A decision cannot be undone, so take the time. Accepting refunds the
+        buyer through Ejua — no money leaves your MoMo — and instead reduces
+        what Ejua owes you on the next payout run.
+      </div>
+    </div>
+  </div>
+
+  <div class="cta" style="padding-bottom:22px">
+    <div class="btn"><div class="l">Accept the return</div><div class="s">Refund GHS 289.90 · GHS 278.30 off your balance</div></div>
+    <div class="btn ghost" style="margin-top:8px; height:42px"><div class="l">Refuse it</div></div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      lines: [
+        { title: 'Ankara Wrap Dress · Adinkra print', meta: '1 × GHS 220.00', amount: 'GHS 220.00', border: 'none' },
+        { title: 'Kente Scarf', meta: '1 × GHS 69.90', amount: 'GHS 69.90', border: '1px solid #EFEAE1' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

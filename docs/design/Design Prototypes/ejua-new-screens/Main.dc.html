@@ -1,0 +1,142 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <style>
+    /* Lifted from apps/customer-mobile/src/theme/tokens.ts — not approximated. */
+    :root {
+      --ink:#0E0D0B; --ink-soft:#3C362F; --muted:#7A736B; --muted-soft:#9A928A;
+      --canvas:#F5F2ED; --surface:#FFFFFF; --surface-warm:#FAF7F2; --surface-sunk:#F2EEE7;
+      --border:#E4DED4; --border-soft:#EFEAE1; --border-strong:#E0DAD1;
+      --accent:#D6165A; --accent-dark:#A80F44; --accent-tint:#FDF1F5; --accent-tint-soft:#FFF7FA;
+      --success:#0F8B5E; --success-tint:#E6F3EE; --success-line:#CFE4DA;
+      --warn:#8A6A00; --warn-tint:#FFF6E3;
+      --dark:#0E0D0B; --on-dark:#FFFDF9; --on-dark-muted:#A79E94; --on-dark-faint:#6E655C;
+      --scrim:rgba(14,13,11,0.55);
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Outfit,system-ui,sans-serif; background:var(--canvas); color:var(--ink); }
+    a { color:var(--accent); } a:hover { color:var(--accent-dark); }
+    .screen { width:390px; height:844px; display:flex; flex-direction:column; background:var(--canvas); overflow:hidden; }
+    .bar { flex:none; display:flex; align-items:center; gap:12px; padding:52px 16px 12px;
+           background:var(--surface); border-bottom:1px solid var(--border); }
+    .bar h1 { margin:0; font-size:17px; font-weight:600; letter-spacing:-0.3px; flex:1; }
+    .bar .sub { font-size:11.5px; font-weight:500; color:var(--muted-soft); margin-top:1px; }
+    .body { flex:1; overflow:hidden; padding:16px; display:flex; flex-direction:column; gap:16px; }
+    .card { background:var(--surface); border:1px solid var(--border-soft); border-radius:16px; padding:16px; }
+    .eyebrow { font-size:9.5px; font-weight:700; letter-spacing:1.5px; color:var(--muted-soft); }
+    .h2 { font-size:22px; font-weight:700; letter-spacing:-0.6px; }
+    .small { font-size:13px; line-height:18px; color:var(--muted); }
+    .tiny { font-size:11.5px; font-weight:500; color:var(--muted-soft); }
+    .chiprow { display:flex; gap:8px; flex-wrap:wrap; }
+    .chip { font-size:13px; font-weight:500; padding:7px 12px; border-radius:999px;
+            border:1px solid var(--border); background:var(--surface); color:var(--ink-soft); cursor:pointer; }
+    .chip.on { background:var(--ink); border-color:var(--ink); color:var(--on-dark); }
+    .cta { flex:none; padding:12px 16px 28px; background:var(--surface); border-top:1px solid var(--border); }
+    .btn { height:52px; border-radius:14px; background:var(--accent); color:#fff; display:flex;
+           flex-direction:column; align-items:center; justify-content:center; cursor:pointer; }
+    .btn .l { font-size:16px; font-weight:700; letter-spacing:-0.2px; }
+    .btn .s { font-size:11px; color:rgba(255,255,255,0.85); }
+    .btn.ghost { background:transparent; border:1px solid var(--border-strong); color:var(--ink); height:46px; }
+    .btn.ghost .l { color:var(--ink); font-weight:600; font-size:14.5px; }
+    .note { background:var(--surface-sunk); border-radius:14px; padding:14px; }
+    .note .b { font-size:11.5px; line-height:17px; color:var(--ink-soft); margin-top:6px; }
+    .pill { font-size:9.5px; font-weight:700; letter-spacing:1.2px; padding:4px 8px; border-radius:999px; }
+    .row { display:flex; align-items:center; gap:12px; }
+    .thumb { width:52px; height:52px; border-radius:12px; flex:none; }
+  </style>
+</helmet>
+<div class="screen">
+  <div class="bar">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="#0E0D0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div style="flex:1">
+      <h1 style="margin:0">Send it back</h1>
+      <div class="sub">EJ-2026-0418 · delivered 3 Sep</div>
+    </div>
+  </div>
+
+  <div class="body">
+    <div class="card" style="display:flex; flex-direction:column; gap:12px">
+      <div class="eyebrow">WHAT GOES BACK</div>
+      <sc-for list="{{lines}}" as="l" hint-placeholder-count="2">
+        <div class="row">
+          <div class="thumb" style="background: {{l.tint}}"></div>
+          <div style="flex:1">
+            <div style="font-size:13px; font-weight:500">{{l.title}}</div>
+            <div class="tiny" style="margin-top:2px">{{l.meta}}</div>
+          </div>
+          <div style="font-size:13px; font-weight:500">{{l.amount}}</div>
+        </div>
+      </sc-for>
+      <div style="border-top:1px solid var(--border-soft); padding-top:12px; display:flex; align-items:baseline">
+        <div style="flex:1; font-size:13px; font-weight:500">Back to you if the seller agrees</div>
+        <div style="font-size:19px; font-weight:700; letter-spacing:-0.5px">GHS 289.90</div>
+      </div>
+      <div class="tiny" style="line-height:16px">
+        The whole order, not one item — Ejua returns an order at a time, so the
+        two pieces travel together.
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:8px">
+      <div class="eyebrow">WHY</div>
+      <div class="chiprow">
+        <sc-for list="{{reasons}}" as="r" hint-placeholder-count="4">
+          <div class="chip" onClick="{{r.pick}}" style="{{r.style}}">{{r.label}}</div>
+        </sc-for>
+      </div>
+      <div class="card" style="padding:12px 14px; min-height:88px; background:var(--surface)">
+        <div style="font-size:15px; line-height:22px; color: {{reasonColour}}; white-space:pre-line">{{reasonText}}</div>
+      </div>
+      <div class="tiny" style="line-height:16px">
+        In your own words. The seller reads this and decides — "wrong size" and
+        "arrived with the screen cracked" are different decisions, which is why
+        there is no dropdown.
+      </div>
+    </div>
+
+    <div class="note">
+      <div class="eyebrow">WHAT HAPPENS NEXT</div>
+      <div class="b">
+        Asking changes nothing yet. The seller has your request and decides; if
+        they agree, Ejua refunds you the GHS 289.90 above — the amount is fixed
+        now, so it cannot move while they think about it.
+      </div>
+    </div>
+  </div>
+
+  <div class="cta">
+    <div class="btn"><div class="l">Ask to send it back</div><div class="s">The seller usually answers within a day</div></div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#D6165A","options":["#D6165A","#0F8B5E","#8A6A00","#2A52C7"],"section":"Theme"}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { picked: null, typed: '' }; }
+  renderVals() {
+    const quick = ['Wrong size', 'Not as described', 'Arrived damaged', 'Changed my mind'];
+    const typed = this.state.typed;
+    return {
+      lines: [
+        { title: 'Ankara Wrap Dress · Adinkra print', meta: 'Size M · 1', amount: 'GHS 220.00', tint: '#EFE0E4' },
+        { title: 'Kente Scarf', meta: '1', amount: 'GHS 69.90', tint: '#E9E1D6' },
+      ],
+      reasons: quick.map((label) => ({
+        label,
+        style: this.state.picked === label ? 'background:#0E0D0B;border-color:#0E0D0B;color:#FFFDF9' : '',
+        pick: () => this.setState({ picked: label, typed: label }),
+      })),
+      reasonText: typed || 'Tell the seller what went wrong…',
+      reasonColour: typed ? '#0E0D0B' : '#9A928A',
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap">
+  <style>
+    /* Lifted from apps/merchant-mobile/src/theme/tokens.ts — not approximated. */
+    :root {
+      --ink:#0E0D0B; --ink-soft:#3C362F; --muted:#7A736B; --muted-soft:#9A928A;
+      --canvas:#F5F2ED; --surface:#FFFFFF; --surface-warm:#FAF7F2; --surface-sunk:#F2EEE7;
+      --border:#E4DED4; --border-soft:#EFEAE1; --border-strong:#E0DAD1;
+      --accent:#0F8B5E; --accent-dark:#0B6B48; --accent-tint:#E6F3EE; --accent-tint-soft:#FFF7FA;
+      --success:#0F8B5E; --success-tint:#E6F3EE; --success-line:#CFE4DA;
+      --warn:#E8B21A; --warn-deep:#8A6A00; --warn-tint:#FFF6E3;
+      --crimson:#D6165A; --crimson-tint:#FDF1F5; --info:#2A52C7; --info-tint:#EEF4FF;
+      --dark-raised:#1D1A17; --dark-line:#2E2A26; --dark-border:#302C28;
+      --dark:#0E0D0B; --on-dark:#FFFDF9; --on-dark-muted:#A79E94; --on-dark-faint:#6E655C;
+      --scrim:rgba(14,13,11,0.55);
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Outfit,system-ui,sans-serif; background:var(--canvas); color:var(--ink); }
+    a { color:var(--accent); } a:hover { color:var(--accent-dark); }
+    .screen { width:390px; height:844px; display:flex; flex-direction:column; background:var(--canvas); overflow:hidden; }
+    .bar { flex:none; display:flex; align-items:center; gap:12px; padding:52px 16px 12px;
+           background:var(--surface); border-bottom:1px solid var(--border); }
+    .bar h1 { margin:0; font-size:17px; font-weight:600; letter-spacing:-0.3px; flex:1; }
+    .bar .sub { font-size:11.5px; font-weight:500; color:var(--muted-soft); margin-top:1px; }
+    .body { flex:1; overflow:hidden; padding:16px; display:flex; flex-direction:column; gap:16px; }
+    .card { background:var(--surface); border:1px solid var(--border-soft); border-radius:16px; padding:16px; }
+    .eyebrow { font-size:9.5px; font-weight:700; letter-spacing:1.5px; color:var(--muted-soft); }
+    .h2 { font-size:21px; font-weight:700; letter-spacing:-0.6px; }
+    .small { font-size:13px; line-height:18px; color:var(--muted); }
+    .tiny { font-size:11.5px; font-weight:500; color:var(--muted-soft); }
+    .chiprow { display:flex; gap:8px; flex-wrap:wrap; }
+    .chip { font-size:13px; font-weight:500; padding:7px 12px; border-radius:999px;
+            border:1px solid var(--border); background:var(--surface); color:var(--ink-soft); cursor:pointer; }
+    .chip.on { background:var(--ink); border-color:var(--ink); color:var(--on-dark); }
+    .cta { flex:none; padding:12px 16px 28px; background:var(--surface); border-top:1px solid var(--border); }
+    .btn { height:52px; border-radius:14px; background:var(--accent); color:#fff; display:flex;
+           flex-direction:column; align-items:center; justify-content:center; cursor:pointer; }
+    .btn .l { font-size:16px; font-weight:700; letter-spacing:-0.2px; }
+    .btn .s { font-size:11px; color:rgba(255,255,255,0.85); }
+    .btn.ghost { background:transparent; border:1px solid var(--border-strong); color:var(--ink); height:46px; }
+    .btn.ghost .l { color:var(--ink); font-weight:600; font-size:14.5px; }
+    .note { background:var(--surface-sunk); border-radius:14px; padding:14px; }
+    .note .b { font-size:11.5px; line-height:17px; color:var(--ink-soft); margin-top:6px; }
+    .pill { font-size:9.5px; font-weight:700; letter-spacing:1.2px; padding:4px 8px; border-radius:999px; }
+    .row { display:flex; align-items:center; gap:12px; }
+    .thumb { width:52px; height:52px; border-radius:12px; flex:none; }
+  </style>
+</helmet>
+<div class="screen" style="position:relative; background:var(--canvas)">
+  <div style="position:absolute; inset:0; padding:52px 16px 0; opacity:0.5">
+    <div style="font-size:21px; font-weight:700; letter-spacing:-0.6px">Products</div>
+    <div class="chiprow" style="margin-top:14px">
+      <div class="chip on">All <span style="opacity:0.75; font-weight:700">12</span></div>
+      <div class="chip">Live <span style="color:var(--muted-soft); font-weight:700">9</span></div>
+      <div class="chip">Sizes to restock <span style="color:var(--muted-soft); font-weight:700">3</span></div>
+    </div>
+    <div class="card" style="margin-top:14px; height:120px"></div>
+    <div class="card" style="margin-top:12px; height:120px"></div>
+  </div>
+  <div style="position:absolute; inset:0; background:var(--scrim)"></div>
+
+  <div style="position:absolute; left:0; right:0; bottom:0; background:var(--surface);
+              border-radius:26px 26px 0 0; padding:16px 20px 28px; display:flex; flex-direction:column; gap:12px">
+    <div style="width:40px; height:4px; border-radius:2px; background:var(--border); align-self:center; margin-bottom:4px"></div>
+    <div>
+      <div class="h2">Update stock</div>
+      <div class="small" style="margin-top:4px">Ankara Wrap Dress · Adinkra print</div>
+    </div>
+
+    <div class="chiprow" style="margin-top:4px">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="4">
+        <div class="chip" onClick="{{t.pick}}" style="{{t.style}}">
+          <span style="font-weight:700">{{t.label}}</span>
+          <span style="font-weight:600; opacity:0.7; margin-left:5px">{{t.qty}}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="background:var(--surface-sunk); border-radius:16px; padding:16px; display:flex; align-items:center; gap:16px">
+      <div onClick="{{dec}}" style="width:48px; height:48px; border-radius:12px; background:var(--surface);
+                  border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M6 12h12" stroke="#0E0D0B" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>
+      <div style="flex:1; text-align:center">
+        <div style="font-size:34px; font-weight:800; letter-spacing:-1.4px; line-height:1">{{qty}}</div>
+        <div class="eyebrow" style="margin-top:4px">{{unit}}</div>
+      </div>
+      <div onClick="{{inc}}" style="width:48px; height:48px; border-radius:12px; background:var(--surface);
+                  border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 6v12M6 12h12" stroke="#0E0D0B" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:8px">
+      <sc-for list="{{quick}}" as="q" hint-placeholder-count="4">
+        <div onClick="{{q.add}}" style="flex:1; text-align:center; font-size:13px; font-weight:700;
+             padding:11px 0; border-radius:12px; background:var(--surface-sunk); color:var(--ink-soft); cursor:pointer">{{q.label}}</div>
+      </sc-for>
+    </div>
+
+    <div style="font-size:12px; line-height:18px; color: {{noteFg}}">{{note}}</div>
+
+    <div class="btn" style="height:54px; margin-top:2px"><div class="l">{{cta}}</div></div>
+    <div class="tiny" style="text-align:center; padding-top:6px; font-weight:500; color:var(--muted)">Done</div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { size: 'M', qty: 8 }; }
+  renderVals() {
+    const stock = { S: 3, M: 8, L: 0, XL: 5 };
+    const size = this.state.size;
+    const qty = this.state.qty;
+    return {
+      tabs: Object.keys(stock).map((label) => {
+        const on = label === size;
+        const out = stock[label] === 0;
+        return {
+          label, qty: stock[label],
+          style: on
+            ? 'background:#0E0D0B;border-color:#0E0D0B;color:#FFFDF9'
+            : out ? 'background:#FDF1F5;border-color:transparent;color:#D6165A' : 'background:#F2EEE7;border-color:transparent',
+          pick: () => this.setState({ size: label, qty: stock[label] }),
+        };
+      }),
+      qty, unit: size.toUpperCase(),
+      inc: () => this.setState({ qty: qty + 1 }),
+      dec: () => this.setState({ qty: Math.max(0, qty - 1) }),
+      quick: [5, 10, 25, 50].map((n) => ({ label: `+${n}`, add: () => this.setState({ qty: qty + n }) })),
+      note: qty === 0
+        ? `At zero, ${size} is hidden from buyers — the rest of the listing stays live.`
+        : `Buyers see this straight away. Ejua warns you again when ${size} drops to 3.`,
+      noteFg: qty === 0 ? '#D6165A' : '#7A736B',
+      cta: qty === 0 ? `Save · hide ${size}` : `Save · ${qty} × ${size}`,
+    };
+  }
+}
+</script>
+</body>
+</html>
