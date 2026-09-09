@@ -12,10 +12,12 @@ export {
   EmptyState,
   ErrorState,
   Header,
+  ListFooter,
   Loading,
   Screen,
   SectionLabel,
   StickyFooter,
+  type ListFooterProps,
 } from './Screen';
 export { Sheet } from './Sheet';
 export { StarRating, type StarRatingProps } from './StarRating';

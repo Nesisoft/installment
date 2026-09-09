@@ -10,6 +10,7 @@ import {
   EmptyState,
   ErrorState,
   Icon,
+  ListFooter,
   Loading,
   QuotedProductCard,
   Screen,
@@ -37,6 +38,17 @@ export default function SearchScreen(): React.ReactElement {
   const { recent, remember } = useRecentSearches();
 
   const results = useSearch(term);
+
+  /**
+   * The next page of results.
+   *
+   * Search sent `limit: 40` and never an offset, so the fortieth match was the
+   * last one that existed as far as the shopper was concerned — over a count
+   * that told them how many there really were.
+   */
+  function loadMore(): void {
+    if (results.hasNextPage && !results.isFetchingNextPage) void results.fetchNextPage();
+  }
   const trending = useTrending();
   const wishlist = useWishlistIds(signedIn);
   const toggleSave = useToggleWishlist();
@@ -114,7 +126,7 @@ export default function SearchScreen(): React.ReactElement {
         </View>
       </View>
 
-      <Screen>
+      <Screen onEndReached={loadMore}>
         {searching ? (
           <View style={styles.body}>
             {results.isPending ? <Loading /> : null}
@@ -167,6 +179,15 @@ export default function SearchScreen(): React.ReactElement {
                     ))}
                   </View>
                 )}
+
+                <ListFooter
+                  shown={results.data.rows.length}
+                  total={results.isPlaceholderData ? null : results.data.total}
+                  hasMore={Boolean(results.hasNextPage)}
+                  loading={results.isFetchingNextPage}
+                  onLoadMore={loadMore}
+                  noun="result"
+                />
               </View>
             ) : null}
           </View>

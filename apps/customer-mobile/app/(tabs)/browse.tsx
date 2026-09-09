@@ -10,6 +10,7 @@ import {
   GRID_WIDTH,
   Header,
   Icon,
+  ListFooter,
   Loading,
   QuotedProductCard,
   Screen,
@@ -119,11 +120,27 @@ export default function BrowseScreen(): React.ReactElement {
   // scoped to a store names itself from the rows it got back.
   const storeName = filters.store_id ? (rows[0]?.store_display_name ?? null) : null;
 
+  /**
+   * The next thirty.
+   *
+   * Guarded here rather than in `Screen`: the scroll trigger fires on every
+   * approach to the bottom, including the one the reader makes while a page is
+   * already in flight and the one they make after the last page has landed.
+   */
+  function loadMore(): void {
+    if (browse.hasNextPage && !browse.isFetchingNextPage) void browse.fetchNextPage();
+  }
+
   const saved = new Set(wishlist.data ?? []);
   const update = (patch: Partial<Filters>): void => setFilters((prev) => ({ ...prev, ...patch }));
 
   return (
-    <Screen tabBar refreshing={browse.isRefetching} onRefresh={() => void browse.refetch()}>
+    <Screen
+      tabBar
+      refreshing={browse.isRefetching}
+      onRefresh={() => void browse.refetch()}
+      onEndReached={loadMore}
+    >
       <Header
         title={categoryName ?? (filters.deals_only ? 'Deals' : 'Browse')}
         subtitle={storeName ?? (filters.deals_only && categoryName ? 'Live deals only' : undefined)}
@@ -221,6 +238,17 @@ export default function BrowseScreen(): React.ReactElement {
           ))}
         </View>
       ) : null}
+
+      {/* The header has always printed the real total. Until now the grid held
+          thirty of it with no way to reach the rest — a category of 218 showed
+          "218 items" over 30. */}
+      <ListFooter
+        shown={rows.length}
+        total={total}
+        hasMore={Boolean(browse.hasNextPage)}
+        loading={browse.isFetchingNextPage}
+        onLoadMore={loadMore}
+      />
 
       <Sheet visible={sheetOpen} onClose={() => setSheetOpen(false)}>
         <View style={styles.sheetHead}>

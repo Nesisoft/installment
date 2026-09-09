@@ -540,17 +540,36 @@ export class StorefrontService {
     )`;
   }
 
+  /**
+   * The catalogue's sort order, and the tiebreak that makes it a TOTAL one.
+   *
+   * Every branch ends at `desc(p.id)`, and that last term is load-bearing
+   * rather than tidy. `LIMIT`/`OFFSET` paging is only coherent over a total
+   * order: where rows tie, Postgres is free to return them in a different
+   * sequence for each query, so page 2 can repeat a product from page 1 and
+   * silently omit another one that never appears on any page.
+   *
+   * These sorts all used to end at `created_at`, which is not unique and is
+   * not close to unique. `products.created_at` defaults to `NOW()`, and
+   * `NOW()` is transaction-start time — constant for a whole transaction — so
+   * every product from one seed run, one bulk import or one batch upload
+   * shares a timestamp to the microsecond. On the dev catalogue that is eight
+   * of ten products on a single value.
+   *
+   * The id is a random uuid, so it sorts arbitrarily. That is fine and is the
+   * whole requirement: a tiebreak has to be STABLE, not meaningful.
+   */
   private orderFor(sort: ProductSort, term?: string): SQL[] {
     switch (sort) {
       case 'price_asc':
-        return [asc(p.base_price_pesewas), desc(p.created_at)];
+        return [asc(p.base_price_pesewas), desc(p.created_at), desc(p.id)];
       case 'price_desc':
-        return [desc(p.base_price_pesewas), desc(p.created_at)];
+        return [desc(p.base_price_pesewas), desc(p.created_at), desc(p.id)];
       case 'rating':
         // NULLS LAST so an unrated product does not outrank a five-star one.
-        return [sql`${this.ratingAvgExpr()} DESC NULLS LAST`, desc(p.created_at)];
+        return [sql`${this.ratingAvgExpr()} DESC NULLS LAST`, desc(p.created_at), desc(p.id)];
       case 'newest':
-        return [desc(p.created_at)];
+        return [desc(p.created_at), desc(p.id)];
       case 'popular':
       default:
         // With a search term, relevance leads and popularity breaks ties;
@@ -560,8 +579,9 @@ export class StorefrontService {
               sql`ts_rank(products.search_tsv, plainto_tsquery('english', ${term.trim()})) DESC`,
               sql`${this.soldCountExpr()} DESC`,
               desc(p.created_at),
+              desc(p.id),
             ]
-          : [sql`${this.soldCountExpr()} DESC`, desc(p.created_at)];
+          : [sql`${this.soldCountExpr()} DESC`, desc(p.created_at), desc(p.id)];
     }
   }
 
