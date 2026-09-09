@@ -403,6 +403,71 @@ export class ReturnsService {
     return decided.row;
   }
 
+  // ------------------------------------------------------------------ withdraw
+
+  /**
+   * The buyer changes their mind before anybody has decided.
+   *
+   * `order_returns.status` has permitted `'cancelled'` since 0020 and nothing
+   * in this system has ever written it — while the seller's queue ships copy
+   * that promises the opposite ("A buyer can withdraw a request before you
+   * decide on it") and offers a `cancelled` filter chip that could only ever
+   * read empty. A status no code path can reach looks exactly like a working
+   * one, which is why this is a fix and not a feature.
+   *
+   * Deliberately not a decision. `decided_at` and `decided_by` stay null, and
+   * `order_returns_decided_together` is written to require exactly that —
+   * `(status IN ('requested', 'cancelled')) = (decided_at IS NULL)`. A
+   * withdrawal is the request going away, not the seller answering it.
+   *
+   * Nothing to unwind. `request` moves no money and touches no stock — only
+   * `approve` does — so this is a status change, an audit row and a line on the
+   * buyer's timeline. If that ever stops being true, this method has to grow
+   * the reversal with it.
+   *
+   * The order becomes returnable again, which is intentional and is enforced by
+   * the schema rather than by this method: `order_returns_one_open_idx` is
+   * partial on `status = 'requested'`, so a withdrawn request stops blocking a
+   * second one exactly the way a rejected one does.
+   */
+  async withdraw(
+    customerId: string,
+    returnId: string,
+    now: Date = new Date(),
+  ): Promise<OrderReturn> {
+    return runInTransaction(this.db, async (tx) => {
+      const row = await this.lockOpenReturn(tx, returnId, { customerId });
+      const order = await this.lockOrder(tx, row.order_id, { customerId });
+
+      const updated = await tx
+        .update(ret)
+        .set({ status: 'cancelled' })
+        // Re-asserted in the WHERE as well as checked above: the row is locked,
+        // but writing the precondition into the statement is what makes a
+        // concurrent approval lose rather than interleave.
+        .where(and(eq(ret.id, row.id), eq(ret.status, 'requested')))
+        .returning();
+
+      await this.audit.append(tx, {
+        entityType: 'order',
+        entityId: order.id,
+        eventType: 'order.return_cancelled',
+        actorId: customerId,
+        actorType: 'customer',
+        metadata: { order_return_id: row.id },
+      });
+
+      await this.recordEvent(tx, order.id, {
+        eventType: 'order.return_cancelled',
+        label: 'Return withdrawn',
+        detail: 'You withdrew the request. You can ask again while the window is open.',
+        occurredAt: now,
+      });
+
+      return updated[0]!;
+    });
+  }
+
   // -------------------------------------------------------------------- reads
 
   async listForCustomer(customerId: string, rawInput: unknown = {}): Promise<OrderReturn[]> {
@@ -479,11 +544,31 @@ export class ReturnsService {
     return row;
   }
 
+  /**
+   * The open return, locked.
+   *
+   * `scope.customerId` narrows BEFORE the status is looked at, and the order
+   * matters: without it a buyer probing a stranger's return id would be told
+   * "already approved" instead of "not found" — a 409 that confirms the row
+   * exists. The decision paths pass no customer scope because a seller reaches
+   * their own queue through `lockOrder`, one line down, on the merchant id.
+   */
   private async lockOpenReturn(
     tx: Parameters<Parameters<typeof runInTransaction>[1]>[0],
     returnId: string,
+    scope: ReturnScope = {},
   ): Promise<OrderReturn> {
-    const rows = await tx.select().from(ret).where(eq(ret.id, returnId)).for('update').limit(1);
+    const rows = await tx
+      .select()
+      .from(ret)
+      .where(
+        and(
+          eq(ret.id, returnId),
+          ...(scope.customerId ? [eq(ret.customer_id, scope.customerId)] : []),
+        ),
+      )
+      .for('update')
+      .limit(1);
     const row = rows[0];
     if (!row) throw new ReturnNotFoundError(returnId);
     if (row.status !== 'requested') throw new ReturnAlreadyDecidedError(returnId, row.status);

@@ -8,9 +8,13 @@ import {
 } from '@installment/core';
 import {
   CATALOG_PERMISSIONS,
+  CUSTOMER_RETURN_BUCKETS,
   MERCHANT_RETURN_BUCKETS,
   MERCHANT_STATS_WINDOWS,
   RETURN_STATUSES,
+  REVIEW_STATUSES,
+  createReviewSchema,
+  requestReturnSchema,
 } from '@installment/commerce';
 import {
   PERMISSIONS as MIRRORED_PERMISSIONS,
@@ -22,6 +26,10 @@ import {
   RETURN_STATUSES as MIRRORED_RETURN_STATUSES,
   DEVICE_PLATFORMS as MIRRORED_DEVICE_PLATFORMS,
   registerDeviceSchema as mirroredRegisterDeviceSchema,
+  CUSTOMER_RETURN_BUCKETS as MIRRORED_CUSTOMER_RETURN_BUCKETS,
+  REVIEW_STATUSES as MIRRORED_REVIEW_STATUSES,
+  createReviewSchema as mirroredCreateReviewSchema,
+  requestReturnSchema as mirroredRequestReturnSchema,
 } from '@installment/api-types';
 
 /**
@@ -118,6 +126,84 @@ describe('api-types mirrors the backend contract', () => {
       expect(mirrored.success, JSON.stringify(input)).toBe(enforced.success);
       if (enforced.success && mirrored.success) expect(mirrored.data).toEqual(enforced.data);
     }
+  });
+
+  it("lists the buckets the buyer's own returns list can filter by", () => {
+    // The buyer's chips and the seller's chips are the same four statuses, and
+    // the point of asserting all three lists together is that they must not
+    // drift APART: the two screens read the same rows from opposite sides.
+    expect([...MIRRORED_CUSTOMER_RETURN_BUCKETS]).toEqual([...CUSTOMER_RETURN_BUCKETS]);
+    expect([...CUSTOMER_RETURN_BUCKETS]).toEqual([...MERCHANT_RETURN_BUCKETS]);
+  });
+
+  it('accepts and refuses exactly the return reasons the API does', () => {
+    // The mirror hardcoded `.max(1_000)` while the backend wrote
+    // `.max(REQUEST_RETURN_REASON_MAX)`, and nothing compared them — raising
+    // the constant on one side would have left the app silently refusing a
+    // reason the API accepts, at the moment of writing it, with no error to
+    // read. Both sides now name the constant and this pins them together.
+    const cases: unknown[] = [
+      { reason: 'Wrong size — the M is cut small.' },
+      // Trimmed to empty is the refusal that matters: a return with no reason
+      // is not reviewable, and the seller decides on the reason.
+      { reason: '   ' },
+      { reason: '' },
+      {},
+      { reason: 'x'.repeat(1_000) },
+      { reason: 'x'.repeat(1_001) },
+      // Trim happens before the length check on both sides, so this passes.
+      { reason: `  ${'x'.repeat(1_000)}  ` },
+      { reason: 42 },
+    ];
+
+    for (const input of cases) {
+      const enforced = requestReturnSchema.safeParse(input);
+      const mirrored = mirroredRequestReturnSchema.safeParse(input);
+      expect(mirrored.success, JSON.stringify(input)).toBe(enforced.success);
+      if (enforced.success && mirrored.success) expect(mirrored.data).toEqual(enforced.data);
+    }
+  });
+
+  it('accepts and refuses exactly the reviews the API does', () => {
+    // `rating` is a strict z.number() with no coercion, unlike every other
+    // numeric field in this contract — a form posting the string "5" gets a
+    // validation error rather than a review. That asymmetry is the single most
+    // likely thing for a hand-written mirror to smooth over, so it is pinned
+    // here rather than described in a comment somewhere.
+    const ITEM = '3f1a9c62-0d4e-4d8b-9a77-2c5e6b4f1a80';
+    const cases: unknown[] = [
+      { order_item_id: ITEM, rating: 5 },
+      { order_item_id: ITEM, rating: 4, title: 'Beautiful, runs small' },
+      { order_item_id: ITEM, rating: 1, title: 'No', body: 'Not as described.' },
+      { order_item_id: ITEM, rating: '5' },
+      { order_item_id: ITEM, rating: 4.5 },
+      { order_item_id: ITEM, rating: 0 },
+      { order_item_id: ITEM, rating: 6 },
+      { order_item_id: ITEM },
+      { rating: 5 },
+      { order_item_id: 'not-a-uuid', rating: 5 },
+      { order_item_id: ITEM, rating: 3, title: 't'.repeat(161) },
+      { order_item_id: ITEM, rating: 3, body: 'b'.repeat(4_001) },
+      { order_item_id: ITEM, rating: 3, title: 't'.repeat(160), body: 'b'.repeat(4_000) },
+    ];
+
+    for (const input of cases) {
+      const enforced = createReviewSchema.safeParse(input);
+      const mirrored = mirroredCreateReviewSchema.safeParse(input);
+      expect(mirrored.success, JSON.stringify(input)).toBe(enforced.success);
+      if (enforced.success && mirrored.success) expect(mirrored.data).toEqual(enforced.data);
+    }
+  });
+
+  it('lists every state a review can be in', () => {
+    // Both the const and its backend counterpart are new in this slice: the
+    // CHECK on `product_reviews.status` has always been these two values and
+    // no TypeScript anywhere had ever named them, so there was nothing for a
+    // mirror to be checked against. The literal is asserted too, because with
+    // both sides new the pair could agree and still both be wrong about the
+    // constraint they exist to describe.
+    expect([...MIRRORED_REVIEW_STATUSES]).toEqual([...REVIEW_STATUSES]);
+    expect([...REVIEW_STATUSES]).toEqual(['published', 'hidden']);
   });
 
   it('lists every platform a handset may register as', () => {

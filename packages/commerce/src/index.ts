@@ -57,6 +57,13 @@ export {
   type MerchantReturnDetail,
   type MerchantReturnRow,
 } from './modules/returns/merchant-returns.service';
+export {
+  CustomerReturnsService,
+  CUSTOMER_RETURN_BUCKETS,
+  type CustomerReturnBucket,
+  type CustomerReturnCounts,
+  type CustomerReturnRow,
+} from './modules/returns/customer-returns.service';
 
 // Analytics: the merchant's own trading figures
 export {

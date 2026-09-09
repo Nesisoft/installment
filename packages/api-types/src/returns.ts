@@ -16,14 +16,17 @@ export type MerchantReturnBucket = (typeof MERCHANT_RETURN_BUCKETS)[number];
  * fixed list: "wrong size" and "arrived with the screen cracked" are different
  * decisions, and a dropdown would flatten the information the decision turns on.
  */
+/** Mirrors `REQUEST_RETURN_REASON_MAX`. Kept named so a drift is one grep. */
+export const REQUEST_RETURN_REASON_MAX = 1_000;
+
 export const requestReturnSchema = z.object({
-  reason: z.string().trim().min(1).max(1_000),
+  reason: z.string().trim().min(1).max(REQUEST_RETURN_REASON_MAX),
 });
 export type RequestReturnInput = z.infer<typeof requestReturnSchema>;
 
 /** A refusal has to say why — `order_returns_rejection_needs_note` is a CHECK. */
 export const rejectReturnSchema = z.object({
-  decision_note: z.string().trim().min(1).max(1_000),
+  decision_note: z.string().trim().min(1).max(REQUEST_RETURN_REASON_MAX),
 });
 export type RejectReturnInput = z.infer<typeof rejectReturnSchema>;
 
@@ -92,4 +95,58 @@ export interface MerchantReturnCounts {
 export interface MerchantReturnPage {
   rows: MerchantReturnRow[];
   total: number;
+}
+
+/**
+ * The buckets the buyer's own returns list is filtered by.
+ *
+ * Identical to `MERCHANT_RETURN_BUCKETS` on purpose — the two screens read the
+ * same rows from opposite sides, and a buyer whose "waiting" meant something
+ * other than the seller's "requested" would be told a different story about
+ * the same request.
+ */
+export const CUSTOMER_RETURN_BUCKETS = [...RETURN_STATUSES, 'all'] as const;
+export type CustomerReturnBucket = (typeof CUSTOMER_RETURN_BUCKETS)[number];
+
+export interface CustomerReturnCounts {
+  requested: number;
+  approved: number;
+  rejected: number;
+  cancelled: number;
+  all: number;
+}
+
+/**
+ * One return as the buyer's own list draws it.
+ *
+ * The customer-side twin of {@link MerchantReturnRow}, and deliberately not the
+ * same shape: no buyer name or phone (the buyer is the caller), and none of the
+ * commission arithmetic. What approving costs the seller is the seller's
+ * business; the buyer's refund is the gross order total either way.
+ */
+export interface CustomerReturnRow {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  status: ReturnStatus;
+  reason: string;
+  /** Fixed at request time, so it cannot move while the seller thinks about it. */
+  refundPesewas: number;
+  requestedAt: string;
+  /**
+   * Null for `requested` AND for `cancelled` — `order_returns_decided_together`
+   * requires it, because a withdrawal is the request going away rather than the
+   * seller answering. Fall back to `requestedAt` when dating those two.
+   */
+  decidedAt: string | null;
+  decisionNote: string | null;
+  itemSummary: string | null;
+  /** Only while nobody has decided — the same rule `withdraw` enforces. */
+  canWithdraw: boolean;
+}
+
+/** What `GET /me/returns` answers with: the page and the chip counts together. */
+export interface CustomerReturnsPage {
+  rows: CustomerReturnRow[];
+  counts: CustomerReturnCounts;
 }

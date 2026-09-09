@@ -15,6 +15,7 @@ import {
   Text,
 } from '../../src/components';
 import { useProfile } from '../../src/features/account';
+import { usePendingReviews } from '../../src/features/reviews';
 import { useAddresses, useOrders } from '../../src/features/shop';
 import { initials, phoneDisplay, pluralise } from '../../src/lib/format';
 import { deregisterThisHandset } from '../../src/lib/push';
@@ -33,6 +34,7 @@ export default function AccountScreen(): React.ReactElement {
   const profile = useProfile(signedIn);
   const orders = useOrders(signedIn);
   const addresses = useAddresses(signedIn);
+  const pendingReviews = usePendingReviews(signedIn);
 
   if (!signedIn) {
     return (
@@ -177,7 +179,16 @@ export default function AccountScreen(): React.ReactElement {
             hint={network ?? 'Not set'}
             onPress={() => router.push('/wallet')}
           />
-          <MenuRow label="Orders & returns" onPress={() => router.push('/orders')} />
+          {/* Was one row labelled "Orders & returns" that went to the orders
+              tab and nowhere near a return — the label promised a destination
+              that did not exist. Two rows now, each going where it says. */}
+          <MenuRow label="Orders" onPress={() => router.push('/orders')} />
+          <MenuRow label="Returns" onPress={() => router.push('/returns')} />
+          <MenuRow
+            label="Rate what you bought"
+            hint={pendingReviews.data?.length ? String(pendingReviews.data.length) : undefined}
+            onPress={() => router.push('/reviews')}
+          />
           <MenuRow
             label="Saved items"
             hint={String(me.counts.saved_items)}

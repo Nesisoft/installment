@@ -21,8 +21,9 @@ import {
   usePayOrderMomo,
 } from '../../src/features/shop';
 import { useInstallments } from '../../src/features/account';
+import { useOpenReturnFor } from '../../src/features/returns';
 import { ghs, pluralise } from '../../src/lib/format';
-import { dateTime, longDate, relativeDate } from '../../src/lib/dates';
+import { dateTime, longDate, parseApiDate, relativeDate } from '../../src/lib/dates';
 import { color, radius, space } from '../../src/theme/tokens';
 import type { OrderEvent } from '../../src/features/types';
 
@@ -35,6 +36,17 @@ import type { OrderEvent } from '../../src/features/types';
  */
 const EXPECTED_TAIL = ['Delivered', 'Return window closes', 'Vendor settled'];
 
+/**
+ * The order statuses `ReturnsService.request` will accept.
+ *
+ * A copy of `RETURNABLE_STATUSES`, which is not exported from the contract —
+ * so this is a second definition and it can drift. It is here rather than
+ * absent because the alternative is offering the control on every order and
+ * letting the server refuse: this list only decides whether a link is drawn,
+ * and the request screen re-checks every rule and names the blocker.
+ */
+const RETURNABLE: string[] = ['paid', 'shipped', 'delivered'];
+
 export default function OrderDetailScreen(): React.ReactElement {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -46,6 +58,8 @@ export default function OrderDetailScreen(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const payOrder = usePayOrderMomo(id ?? '');
   const cancel = useCancelOrder(id ?? '');
+  // The one eligibility rule that is not on the order itself.
+  const openReturn = useOpenReturnFor(id ?? '', Boolean(id));
   const payKey = useRef(newIdempotencyKey('order-pay'));
 
   if (!id) {
@@ -76,6 +90,11 @@ export default function OrderDetailScreen(): React.ReactElement {
   }
 
   const data = order.data;
+  // Null before delivery, and that is NOT "no window" — a paid or shipped
+  // order is returnable and has simply not started its clock. Only a window
+  // that exists and has passed closes the door.
+  const windowEnds = parseApiDate(data.return_window_ends_at);
+  const returnWindowClosed = windowEnds !== null && windowEnds.getTime() < Date.now();
   const shipment = tracking.data?.shipment ?? null;
   const events = tracking.data?.events ?? [];
   const latest = events[events.length - 1] ?? null;
@@ -197,7 +216,44 @@ export default function OrderDetailScreen(): React.ReactElement {
           ))}
         </Card>
 
-        {data.return_window_ends_at ? (
+        {/* Was this sentence and nothing else: "Free returns until <date>",
+            static text on a screen with no way to start one, next to a seller
+            queue that could only ever read empty. The sentence stays, because
+            it is the promise; what is new is that it now leads somewhere.
+
+            Only for outright purchases. An instalment order is unwound with
+            its credit plan, which `ReturnsService.request` refuses outright —
+            offering the control here would be inviting a 422. */}
+        {data.payment_type === 'full' && RETURNABLE.includes(data.status) ? (
+          <Card style={styles.returnsCard}>
+            <Text variant="tiny" tone="muted" style={styles.returns}>
+              {data.return_window_ends_at
+                ? `Free returns until ${longDate(data.return_window_ends_at)}. The vendor is paid only once that window closes.`
+                : 'Free returns for a week after it reaches you. The vendor is paid only once that window closes.'}
+            </Text>
+            {openReturn ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/returns')}
+                style={styles.returnsCta}
+              >
+                <Text variant="smallMedium" tone="warn">
+                  You asked to send this back — see what the seller said
+                </Text>
+              </Pressable>
+            ) : returnWindowClosed ? null : (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push(`/returns/new?order=${data.id}`)}
+                style={styles.returnsCta}
+              >
+                <Text variant="smallMedium" tone="accent">
+                  Something wrong? Ask to send it back
+                </Text>
+              </Pressable>
+            )}
+          </Card>
+        ) : data.return_window_ends_at ? (
           <Text variant="tiny" tone="muted" style={styles.returns}>
             Free returns until {longDate(data.return_window_ends_at)}. The vendor is paid only once
             that window closes.
@@ -350,7 +406,13 @@ const styles = StyleSheet.create({
   dot: { width: 12, height: 12, borderRadius: radius.pill, borderWidth: 2 },
   line: { width: 2, flex: 1, minHeight: 22, marginVertical: 2 },
   timelineText: { flex: 1, paddingBottom: space.lg, gap: 1 },
-  returns: { paddingHorizontal: 2 },
+  returns: { paddingHorizontal: 2, lineHeight: 16 },
+  returnsCard: { gap: space.md },
+  returnsCta: {
+    borderTopWidth: 1,
+    borderTopColor: color.borderSoft,
+    paddingTop: space.md,
+  },
   items: { gap: space.sm },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   itemTitle: { flex: 1 },
