@@ -7,7 +7,7 @@ export { Pill, type PillTone } from './Pill';
 export { ProductCard } from './ProductCard';
 export { QuotedProductCard, GRID_WIDTH } from './QuotedProductCard';
 export { ScheduleStrip } from './ScheduleStrip';
-export { InstallmentStatusPill, OrderStatusPill } from './StatusPill';
+export { InstallmentStatusPill, OrderStatusPill, ReturnStatusPill } from './StatusPill';
 export {
   EmptyState,
   ErrorState,
@@ -18,3 +18,5 @@ export {
   StickyFooter,
 } from './Screen';
 export { Sheet } from './Sheet';
+export { StarRating, type StarRatingProps } from './StarRating';
+export { TextArea, type TextAreaProps } from './TextArea';

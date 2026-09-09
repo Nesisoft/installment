@@ -18,6 +18,10 @@
 import type { PickupHub } from '@installment/api-types';
 
 export type {
+  CustomerReturnBucket,
+  CustomerReturnCounts,
+  CustomerReturnRow,
+  CustomerReturnsPage,
   DeliveryQuote,
   HomeFeed,
   PickupHub,
@@ -31,6 +35,20 @@ export type {
   StorefrontStore,
   StorefrontVariant as ProductVariant,
   TrendingTerm,
+  ProductReviewView,
+  ReviewablePurchase,
+  ReturnStatus,
+} from '@installment/api-types';
+
+// Re-exported as VALUES, not types: the returns list renders a chip per bucket
+// and the request form caps its own text field, and a second copy of either
+// here is the drift `api-types-mirror.spec.ts` exists to stop.
+export {
+  CUSTOMER_RETURN_BUCKETS,
+  REQUEST_RETURN_REASON_MAX,
+  REVIEW_RATING_MAX,
+  REVIEW_TITLE_MAX,
+  REVIEW_BODY_MAX,
 } from '@installment/api-types';
 
 export interface Paginated<T> {

@@ -91,6 +91,18 @@ export const listReviewsSchema = z.object({
 });
 export type ListReviewsInput = z.infer<typeof listReviewsSchema>;
 
+/**
+ * A review is live or it is hidden.
+ *
+ * The CHECK on `product_reviews.status` has been these two values since 0015
+ * and no TypeScript anywhere had ever named them, so the published contract
+ * had nothing to mirror and the drift gate had nothing to compare. Nothing
+ * writes 'hidden' yet — there is no moderation path — which is worth knowing
+ * before building a screen that assumes one.
+ */
+export const REVIEW_STATUSES = ['published', 'hidden'] as const;
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+
 export const createReviewSchema = z.object({
   order_item_id: z.string().uuid(),
   rating: z.number().int().min(1).max(5),

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pill, type PillTone } from './Pill';
-import type { OrderStatus } from '../features/types';
+import type { OrderStatus, ReturnStatus } from '../features/types';
 
 /**
  * Order status, as a customer reads it.
@@ -56,4 +56,30 @@ export function InstallmentStatusPill({
   }
   if (status === 'due') return <Pill label="DUE" tone="warn" />;
   return <Pill label="UPCOMING" tone="neutral" />;
+}
+
+/**
+ * Return status, as the buyer reads it.
+ *
+ * The seller's queue labels the same four values `WAITING ON YOU` / `APPROVED`
+ * / `REFUSED` / `WITHDRAWN` (`merchant-mobile/app/returns/index.tsx`). Two of
+ * those are deliberately said differently here, and the pair is the point:
+ * `requested` is "waiting on YOU" to the seller and "waiting on the SELLER" to
+ * the buyer — one status, and each side told whose move it is. `cancelled` is
+ * the one the buyer causes, so it reads in their voice: they withdrew it,
+ * nobody refused it.
+ *
+ * `REFUSED` is deliberately the same word on both sides. A seller who declined
+ * a return and a buyer who was refused one should be able to talk about it.
+ */
+const RETURN_STATUS: Record<ReturnStatus, { label: string; tone: PillTone }> = {
+  requested: { label: 'WAITING ON THE SELLER', tone: 'warn' },
+  approved: { label: 'AGREED', tone: 'success' },
+  rejected: { label: 'REFUSED', tone: 'neutral' },
+  cancelled: { label: 'YOU WITHDREW THIS', tone: 'neutral' },
+};
+
+export function ReturnStatusPill({ status }: { status: ReturnStatus }): React.ReactElement {
+  const s = RETURN_STATUS[status] ?? { label: status.toUpperCase(), tone: 'neutral' as PillTone };
+  return <Pill label={s.label} tone={s.tone} />;
 }

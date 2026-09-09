@@ -412,16 +412,33 @@ return and asserts the promised figure equals what the ledger actually booked.
   someone runs `eas init`; see [`customer-app.md`](./customer-app.md) §6.2 for
   what is and is not proven.
 
-- **A withdraw control for the buyer.** The returns queue ships copy for
+- **A withdraw control for the buyer.** ~~The returns queue ships copy for
   `order_returns.status = 'cancelled'` — "Nothing withdrawn. A buyer can
   withdraw a request before you decide on it" — and nothing in this system sets
-  that status. Either the buyer gets a withdraw control or the status and the
-  copy both go. Written down rather than quietly deleted, because the seller's
-  screen currently tells them something untrue.
+  that status.~~
 
-- **A buyer-side return journey.** `POST /me/orders/:id/return` has no client,
-  so the queue in §5.2 can only ever read empty in production. The seller's half
-  shipped first; the shopper's half is the next slice.
+  **Done.** `ReturnsService.withdraw` and `POST /me/returns/:id/withdraw`, with
+  the control on the buyer's own returns list. The `WITHDRAWN` chip and the
+  "Nothing withdrawn" empty state on this app's queue are now reachable states
+  rather than copy for something nothing could do. A withdrawal is not a
+  decision — `decided_at` stays null, which `order_returns_decided_together`
+  requires — so it appears in the seller's queue as a request that went away,
+  not one they answered. See [`customer-app.md`](./customer-app.md) §6.8.
+
+  One consequence worth knowing on this side: a withdrawn return stops blocking
+  the order, so the same buyer can ask again while the window is open. That is
+  `order_returns_one_open_idx` being partial on `requested`, the same rule that
+  already let a rejected return be re-requested.
+- **A buyer-side return journey.** ~~`POST /me/orders/:id/return` has no client,
+  so the queue in §5.2 can only ever read empty in production.~~
+
+  **Done.** The shopper app now has the ask, the list and the withdraw, so the
+  queue in §5.2 reads real requests. Its buyer-facing labels differ from this
+  app's on purpose: `requested` is "WAITING ON YOU" to the seller and "WAITING
+  ON THE SELLER" to the buyer — one status, each side told whose move it is —
+  while `REFUSED` is deliberately the same word on both, because a seller who
+  declined a return and a buyer who was refused one should be able to talk
+  about it.
 
 ---
 

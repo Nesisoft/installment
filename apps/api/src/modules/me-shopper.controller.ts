@@ -15,6 +15,7 @@ import { z } from 'zod';
 import {
   DevicesService,
   FulfilmentService,
+  CustomerReturnsService,
   ReturnsService,
   ReviewsService,
   WishlistService,
@@ -88,6 +89,7 @@ export class MeShopperController {
     private readonly devices: DevicesService,
     private readonly fulfilment: FulfilmentService,
     private readonly returns: ReturnsService,
+    private readonly customerReturns: CustomerReturnsService,
   ) {}
 
   private async customerId(user: AuthenticatedUser): Promise<string> {
@@ -167,12 +169,41 @@ export class MeShopperController {
     return this.returns.request(customer.id, orderId, body);
   }
 
+  /**
+   * The buyer's own returns list.
+   *
+   * A projection rather than the bare `order_returns` rows this used to return.
+   * Those carry an order id and two amounts — nothing a buyer can recognise a
+   * purchase from — and the change breaks nobody: the route had no caller in
+   * any client until this slice. The seller's queue made the same move for the
+   * same reason.
+   */
   @Get('returns')
   @ApiOperation({ summary: 'My returns and what was decided' })
   async myReturns(@CurrentUser() user: AuthenticatedUser, @Query() q: Record<string, string>) {
     const customer = await this.customers.findByUserId(user.id);
     if (!customer) throw new CustomerNotFoundError(user.id);
-    return this.returns.listForCustomer(customer.id, q);
+    const [rows, counts] = await Promise.all([
+      this.customerReturns.list(customer.id, q),
+      this.customerReturns.counts(customer.id),
+    ]);
+    return { rows, counts };
+  }
+
+  /**
+   * Take it back before the seller decides.
+   *
+   * A POST rather than a DELETE: the return is not removed, it is moved to
+   * `cancelled` and stays on the buyer's list and in the seller's queue as a
+   * record of what happened.
+   */
+  @Post('returns/:id/withdraw')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Withdraw a return I asked for' })
+  async withdrawReturn(@Param('id') returnId: string, @CurrentUser() user: AuthenticatedUser) {
+    const customer = await this.customers.findByUserId(user.id);
+    if (!customer) throw new CustomerNotFoundError(user.id);
+    return this.returns.withdraw(customer.id, returnId);
   }
 
   // --- Ghana Card -----------------------------------------------------------

@@ -266,7 +266,7 @@ renders the order's real number instead of a hard-coded 7.
 |---|---|
 | Ghana Card capture in-app | `apps/customer-mobile/app/ghana-card.tsx` (#75) — camera or library, presigned upload, `POST /me/ghana-card` |
 | Push *delivery* (registration ships) | `PushNotifier` and the whole transport (#69, #74), and — since this slice — the handset half that makes them arrive. See §6.2. |
-| Returns/disputes flow | `ReturnsService`, `POST /me/orders/:id/return`, and the seller's queue and decision screens (#76, #82). **But see §7.3 — the buyer has no screen to start one.** |
+| Returns/disputes flow | `ReturnsService`, `POST /me/orders/:id/return`, the seller's queue and decision screens (#76, #82), and — since this slice — the buyer's own journey: asking, listing, and withdrawing. See §6.3 and §6.8. Disputes remain deferred; a return is the seller's to decide, a dispute is Ejua's. |
 | Merchant app | `apps/merchant-mobile`, Phases 15 complete — see [`merchant-app.md`](./merchant-app.md) |
 
 ---
@@ -395,20 +395,74 @@ verified is the decision logic (unit), the contract (drift gate, watched to
 fail), and the server side (`PushNotifier`, already covered by integration
 suites in core and commerce).
 
-### 6.3 A buyer cannot start a return
+### 6.3 A buyer cannot start a return — fixed
 
-`POST /me/orders/:id/return` and `GET /me/returns` have no caller in any
-client. The Account menu row is labelled "Orders & returns" and pushes
-`/orders`; the order screen prints "Free returns until &lt;date&gt;" as static
-text. The seller's queue (#82) can only ever read empty in production.
+**The finding.** `POST /me/orders/:id/return` and `GET /me/returns` had no
+caller in any client. The Account menu row was labelled "Orders & returns" and
+pushed `/orders`; the order screen printed "Free returns until &lt;date&gt;" as
+static text. The seller's queue (#82) could only ever read empty in production
+— a whole decision surface built for requests nothing could make.
 
-### 6.4 Reviews are read on four surfaces and writable from nowhere
+**The fix.** Four screens, one new service method and one new route:
 
-`POST /me/reviews` and `GET /me/reviews/pending` have no caller anywhere in the
-monorepo, while `rating_avg` / `rating_count` render on the product screen,
-every product card and the vendor header — and the product screen *fetches* the
-review list (`storefront.ts:121`). So the list is permanently empty and every
-rating permanently null.
+| | |
+|---|---|
+| `app/returns/new.tsx` | ask to send an order back, with the four eligibility rules checked before the button is offered |
+| `app/returns/index.tsx` | the buyer's own list, with chips, counts and the withdraw control |
+| `CustomerReturnsService` | the customer-side twin of `MerchantReturnsService` — `listForCustomer` returned bare rows carrying an order id and two amounts, which is nothing a buyer can recognise a purchase from |
+| `ReturnsService.withdraw` | see §6.8 |
+| the order screen | the static sentence now leads somewhere |
+
+**Where this departs from the canvas**, and why:
+
+- **No thumbnails.** The artboard draws a 52×52 product image on every returns
+  card. `order_items` carries no image; one would need a join to
+  `product_images` plus the media URL builder, in two services. The orders tab
+  already renders a plain `tintFor(order.id)` block for exactly this, so the
+  returns list matches the shipped app rather than the drawing.
+- **"GHS 410.00 is on its way back to your MoMo" is not shown.** It has no
+  backing field. Approving books `refund_payable` in the ledger and explicitly
+  does *not* move cash; `order_returns` records neither a destination nor a
+  date, and nothing distinguishes approved-and-unpaid from approved-and-paid.
+  The card says the seller agreed and the amount is being refunded, which is
+  what the record supports.
+- **The quick-reason chips prefill rather than fill.** In the artboard, tapping
+  a chip writes the label into the reason box as the entire answer — which
+  defeats the free-text field's own stated justification ("wrong size" and
+  "arrived with the screen cracked" are different decisions, *which is why
+  there is no dropdown*). Here a chip opens the sentence and leaves the cursor
+  after it.
+- **The dates.** The design labels each card by verb — "Asked", "Agreed",
+  "Refused". `decided_at` is null for `requested` **and** for `cancelled`
+  (`order_returns_decided_together` requires it), so both of those fall back to
+  `requestedAt`; a withdrawn return reads "Asked 5 Sep · withdrawn".
+
+### 6.4 Reviews are read on four surfaces and writable from nowhere — fixed
+
+**The finding.** `POST /me/reviews` and `GET /me/reviews/pending` had no caller
+anywhere in the monorepo, while `rating_avg` / `rating_count` render on the
+product screen, every product card and the vendor header — and the product
+screen *fetches* the review list (`storefront.ts:121`). So the list was
+permanently empty and every rating permanently null, on four surfaces, with
+nothing that looked broken.
+
+**The fix.** `app/reviews/index.tsx` (the pending queue) and
+`app/reviews/new.tsx` (the form, presented as a modal), plus the app's first
+interactive `StarRating` — the existing `Stars` in the product screen is a
+private, read-only average display — and its first multiline `TextArea`.
+
+**And a disagreement the two halves had with each other.** `reviewable()`
+listed order lines whose `product_id` had gone NULL (a delisted product;
+`order_items.product_id` is `ON DELETE SET NULL`) while `create()` refuses
+exactly those with "This product is no longer listed". The pending queue could
+hand a buyer a card whose only possible outcome was a 422 they could do nothing
+about. `reviewable()` now filters them, and `reviews.integration.spec.ts` — the
+first test coverage this module has ever had — pins the two halves together.
+
+The same query also gained the shop name, the delivery date, a deterministic
+order and a limit. It had none of those: a customer with a long history got
+their entire unrated history in arbitrary order, to render cards reading as a
+bare product name weeks after the fact.
 
 ### 6.5 Browse and Search show one page of a total they print
 
@@ -431,12 +485,39 @@ The checkout address sheet hard-codes it `null` and offers no input; the
 seller's order screen renders it when present. GhanaPostGPS is how a Ghanaian
 address is actually found, so every delivery routes off free text.
 
-### 6.8 `order_returns.status = 'cancelled'` is set by nothing
+### 6.8 `order_returns.status = 'cancelled'` is set by nothing — fixed
 
-The CHECK permits it, `RETURN_STATUSES` declares it, and no service writes it.
-The seller's queue ships copy for it — "Nothing withdrawn. A buyer can withdraw
-a request before you decide on it" — which is not true. Either give the buyer a
-withdraw control or drop the status and the copy.
+**The finding.** The CHECK permitted it, `RETURN_STATUSES` declared it,
+`listReturnsSchema` accepted it as a filter, the seller's queue shipped a
+`WITHDRAWN` chip and an empty state reading "Nothing withdrawn. A buyer can
+withdraw a request before you decide on it" — and no service wrote it. That
+copy was not a promise the product was slow to keep; it was one nothing could.
+
+**The fix.** `ReturnsService.withdraw(customerId, returnId)` and
+`POST /me/returns/:id/withdraw`, with the control on the buyer's returns list.
+
+Three things about it are worth recording, because each is a rule the schema
+had already anticipated:
+
+- **It is not a decision.** `decided_at` and `decided_by` stay null, and
+  `order_returns_decided_together` — `(status IN ('requested','cancelled')) =
+  (decided_at IS NULL)` — requires exactly that. A withdrawal is the request
+  going away, not the seller answering it.
+- **There is nothing to unwind.** `request` moves no money and touches no
+  stock; only `approve` does. If that ever stops being true, `withdraw` has to
+  grow the reversal, and `buyer-returns.integration.spec.ts` asserts the order
+  and the trial balance are untouched so the omission cannot go quiet.
+- **The order becomes askable again**, enforced by the schema rather than by
+  the method: `order_returns_one_open_idx` is partial on `status = 'requested'`.
+  A withdrawal that permanently barred the order would be worse than no control.
+
+**And an ownership hole found on the way.** `lockOpenReturn` checked the return's
+status *before* any ownership scope, so a buyer probing a stranger's return id
+would have been told "already approved" — a 409 confirming the row exists. It
+now takes an optional customer scope applied in the WHERE, so a return that is
+not yours reads as 404 whatever its state. The decision paths are unaffected
+(they scope through `lockOrder` on the merchant id); the test was watched to
+fail against the old shape.
 
 ### 6.9 Reported once, not verified
 

@@ -58,7 +58,17 @@ export default function RootLayout(): React.ReactElement | null {
  * Sign-in is required only where the customer's own data starts — cart,
  * checkout, orders, instalments, account.
  */
-const PROTECTED = ['cart', 'checkout', 'orders', 'plans', 'wallet', 'account', 'confirmation'];
+const PROTECTED = [
+  'cart',
+  'checkout',
+  'orders',
+  'plans',
+  'wallet',
+  'account',
+  'confirmation',
+  'returns',
+  'reviews',
+];
 
 function Routes(): React.ReactElement | null {
   const { ready, signedIn } = useAuth();
@@ -101,6 +111,12 @@ function Routes(): React.ReactElement | null {
       <Stack.Screen name="confirmation/[orderId]" options={{ animation: 'fade' }} />
       <Stack.Screen name="orders/[id]" />
       <Stack.Screen name="plans/index" />
+      <Stack.Screen name="returns/index" />
+      <Stack.Screen name="returns/new" />
+      <Stack.Screen name="reviews/index" />
+      {/* A single task over the pending list, not a place in the navigation —
+          which is why it is dismissed with an X rather than a back chevron. */}
+      <Stack.Screen name="reviews/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="wallet" />
     </Stack>
   );
