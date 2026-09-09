@@ -10,6 +10,7 @@ import {
   EmptyState,
   ErrorState,
   Icon,
+  ListFooter,
   Loading,
   Pill,
   QuotedProductCard,
@@ -308,14 +309,23 @@ function Shelf({ storeId, storeName }: { storeId: string; storeName: string }): 
         </View>
       ) : null}
 
-      {/* The catalogue read is a single limited page — there is no paging hook
-          in the app yet — so a shelf longer than the limit says what it is
-          showing instead of letting the grid imply it is the whole shop. */}
-      {total !== null && rows.length < total ? (
-        <Text variant="tiny" tone="faint" style={styles.sectionPad}>
-          Showing the first {rows.length} of {pluralise(total, 'item')}.
-        </Text>
-      ) : null}
+      {/* This used to read "Showing the first 48 of N" — an honest note about a
+          shelf that could not be paged. It can go: the shelf pages now.
+
+          The button without the scroll trigger, unlike Browse and Search. The
+          `Screen` that owns the scroll is this screen's parent and the shelf's
+          query lives down here, and threading a callback up through it to save
+          a tap is not worth the indirection. The button was always the real
+          control; the scroll trigger is the convenience on top of it. */}
+      <ListFooter
+        shown={rows.length}
+        total={total}
+        hasMore={Boolean(browse.hasNextPage)}
+        loading={browse.isFetchingNextPage}
+        onLoadMore={() => {
+          if (browse.hasNextPage && !browse.isFetchingNextPage) void browse.fetchNextPage();
+        }}
+      />
     </View>
   );
 }
@@ -333,6 +343,7 @@ function metaLine(store: StorefrontStore): string {
  * the child registers. A store page asks for more than the browse grid's
  * default page: this is the whole of one vendor's shop, not a filtered slice.
  */
+/** The shelf's page size — four rows of the two-column grid, then more on ask. */
 const SHELF_LIMIT = 48;
 
 function shelfFilters(storeId: string): BrowseFilters {

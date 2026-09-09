@@ -13,7 +13,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Text } from './Text';
 import { Icon } from './Icon';
-import { color, space, TAB_BAR_HEIGHT } from '../theme/tokens';
+import { color, radius, space, TAB_BAR_HEIGHT } from '../theme/tokens';
+
+/**
+ * How close to the bottom counts as the end.
+ *
+ * Roughly one screen: the next page starts loading while the reader still has
+ * something to look at, which on a slow connection is the difference between
+ * paging and waiting.
+ */
+const END_THRESHOLD = 600;
 
 export interface ScreenProps {
   children: React.ReactNode;
@@ -26,6 +35,16 @@ export interface ScreenProps {
   tabBar?: boolean;
   /** Leaves room for a sticky footer of this height. */
   footerHeight?: number;
+  /**
+   * Called once per approach to the bottom, for a list that pages.
+   *
+   * On a ScrollView rather than a FlatList because that is what these screens
+   * are: Browse's grid sits under a sticky filter bar and a chip rail in the
+   * same scroll, and a FlatList would mean rebuilding all three around a
+   * `ListHeaderComponent`. The guard below is what a FlatList would give for
+   * free — without it every scroll event inside the threshold fires again.
+   */
+  onEndReached?: () => void;
   style?: StyleProp<ViewStyle>;
   contentStyle?: StyleProp<ViewStyle>;
 }
@@ -38,10 +57,16 @@ export function Screen({
   onRefresh,
   tabBar,
   footerHeight = 0,
+  onEndReached,
   style,
   contentStyle,
 }: ScreenProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  // Latched while the reader is inside the threshold and released when they
+  // scroll back out, so one approach to the bottom is one call however many
+  // scroll events it takes. The caller is still expected to ignore the call
+  // when it has nothing more to fetch.
+  const armed = React.useRef(true);
   const background = dark ? color.dark : color.canvas;
   const bottomPad =
     (tabBar ? TAB_BAR_HEIGHT + insets.bottom : insets.bottom) + footerHeight + space.lg;
@@ -56,6 +81,23 @@ export function Screen({
       contentContainerStyle={[{ paddingBottom: bottomPad }, contentStyle]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
+      scrollEventThrottle={onEndReached ? 96 : undefined}
+      onScroll={
+        onEndReached
+          ? (event) => {
+              const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+              const fromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+              if (fromBottom <= END_THRESHOLD) {
+                if (armed.current) {
+                  armed.current = false;
+                  onEndReached();
+                }
+              } else {
+                armed.current = true;
+              }
+            }
+          : undefined
+      }
       refreshControl={
         onRefresh ? (
           <RefreshControl
@@ -260,4 +302,93 @@ const styles = StyleSheet.create({
   emptyAction: { marginTop: space.xl, alignSelf: 'stretch' },
   retry: { marginTop: space.lg, paddingVertical: space.sm, paddingHorizontal: space.lg },
   sectionLabel: { marginBottom: space.md },
+  listFooter: { alignItems: 'center', gap: space.sm, paddingVertical: space.xl },
+  listMore: {
+    paddingVertical: space.sm,
+    paddingHorizontal: space.xl,
+    borderRadius: radius.pill,
+    backgroundColor: color.surfaceSunk,
+  },
 });
+
+export interface ListFooterProps {
+  /** Whether another page exists. */
+  hasMore: boolean;
+  /** Whether one is on its way. */
+  loading: boolean;
+  onLoadMore: () => void;
+  /** How many are on screen now. */
+  shown: number;
+  /** How many there are altogether, or null while that is not known. */
+  total: number | null;
+  /** Word for one item — "item", "result", "product". */
+  noun?: string;
+}
+
+/**
+ * The bottom of a list that pages.
+ *
+ * The button is not a fallback for the scroll trigger, it is the real control:
+ * scrolling to load is invisible to a screen reader and unreliable on a slow
+ * connection, and a shopper who wants the next thirty should be able to ask
+ * for them. The scroll trigger is the convenience layered on top.
+ *
+ * The last line is a count that has to be TRUE. Browse used to print the real
+ * total over a grid that could only ever hold thirty, which is the specific
+ * lie this whole change exists to stop telling.
+ */
+export function ListFooter({
+  hasMore,
+  loading,
+  onLoadMore,
+  shown,
+  total,
+  noun = 'item',
+}: ListFooterProps): React.ReactElement | null {
+  if (shown === 0) return null;
+
+  if (loading) {
+    return (
+      <View style={styles.listFooter}>
+        <ActivityIndicator color={color.muted} />
+        <Text variant="tiny" tone="faint">
+          Loading more…
+        </Text>
+      </View>
+    );
+  }
+
+  if (hasMore) {
+    return (
+      <View style={styles.listFooter}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            total === null ? 'Show more' : `Show more, ${shown} of ${total} so far`
+          }
+          onPress={onLoadMore}
+          style={styles.listMore}
+        >
+          <Text variant="smallMedium" tone="accent">
+            Show more
+          </Text>
+        </Pressable>
+        {total === null ? null : (
+          <Text variant="tiny" tone="faint">
+            {`${shown} of ${total}`}
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.listFooter}>
+      <Text variant="tiny" tone="faint">
+        {total === null || total !== shown
+          ? `That is all ${shown}`
+          : `That is all ${shown} ${shown === 1 ? noun : `${noun}s`}`}
+      </Text>
+    </View>
+  );
+}

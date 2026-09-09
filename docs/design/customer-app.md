@@ -464,14 +464,51 @@ order and a limit. It had none of those: a customer with a long history got
 their entire unrated history in arbitrary order, to render cards reading as a
 bare product name weeks after the fact.
 
-### 6.5 Browse and Search show one page of a total they print
+### 6.5 Browse and Search show one page of a total they print — fixed
 
-`useBrowse` sends `limit: 30`, `useSearch` sends `limit: 40`, and neither ever
-sends `offset` — while the Browse header and its filter-sheet CTA print the
-real `total` ("Show 218 items"). In any category with more than thirty
-listings the shopper can reach thirty of them. The API has supported `offset`
-since Phase 11. The store screen hits the same wall and is honest about it
-("Showing the first 48 of N"), which shows the omission was known.
+**The finding.** `useBrowse` sent `limit: 30`, `useSearch` sent `limit: 40`,
+and neither ever sent `offset` — while the Browse header and its filter-sheet
+CTA printed the real `total` ("Show 218 items"). In any category with more than
+thirty listings the shopper could reach thirty of them. The API has supported
+`offset` since Phase 11. The store screen hit the same wall and was honest
+about it ("Showing the first 48 of N"), which showed the omission was known.
+
+**And the reason it could not simply be switched on.** `LIMIT`/`OFFSET` is
+only coherent over a TOTAL order. Every catalogue sort ended at
+`desc(products.created_at)`, and that column is nowhere near unique: it
+defaults to `NOW()`, which is transaction-start time held constant for the
+whole transaction, so one seed run, one bulk import or one batch upload writes
+an identical timestamp to every row it inserts. On the dev catalogue that was
+**eight products of ten on a single value**.
+
+Where rows tie, Postgres makes no promise about their order and is free to
+answer differently per query — so page 2 can repeat a product from page 1 while
+another appears on no page at all. Reproduced directly, in
+`browse-paging.integration.spec.ts`: twenty thousand rows on one timestamp, the
+same `LIMIT 5 OFFSET 10000` twice, and the only difference between the runs is
+the plan the planner is allowed to pick. **Zero rows in common.** With the
+tiebreak this slice adds, the same two plans agree exactly.
+
+So every sort now ends at `desc(products.id)` — arbitrary, which is fine, and
+stable, which is the whole requirement.
+
+**The fix, client side.** `useBrowse` and `useSearch` are `useInfiniteQuery`,
+with a `select` that flattens the pages back into the `{ rows, total }` the
+screens already read — so Browse, Search and a store's shelf all page without
+changing how any of them renders. `Screen` gained an `onEndReached`, and a
+shared `ListFooter` carries a "Show more" button, the in-flight state and a
+closing count. The button is the real control rather than a fallback: a
+scroll trigger is invisible to a screen reader and unreliable on a slow
+connection.
+
+**On what the tests do and do not prove.** The four contract tests (pages walk
+each product exactly once, the same page twice returns the same rows, the
+total agrees with the walk, running off the end returns empty) are a
+regression guard — but they pass against the old code too, because at twelve
+rows Postgres sorts the same way every time. That is precisely what let this
+survive: it is invisible until the table is big enough for the planner to have
+a choice. The twenty-thousand-row test is the one that reproduces it, and it
+is a statement about `ORDER BY` over ties rather than a gate on our own code.
 
 ### 6.6 Deal prices exist only in the seed
 

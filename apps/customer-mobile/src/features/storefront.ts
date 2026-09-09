@@ -1,4 +1,9 @@
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useQuery,
+  type UseInfiniteQueryResult,
+  type UseQueryResult,
+} from '@tanstack/react-query';
 import { useApi } from '@installment/mobile-kit';
 import { DEFAULT_CITY } from '../lib/config';
 import type {
@@ -59,37 +64,97 @@ export function useCategories(): UseQueryResult<StorefrontCategory[]> {
   });
 }
 
-/** Browse and filter. Returns a total, which is what "N items" on the header is. */
-export function useBrowse(filters: BrowseFilters): UseQueryResult<Paginated<StorefrontProduct>> {
+/**
+ * How many products one request brings back.
+ *
+ * Thirty is roughly two and a half screens of the two-column grid — enough
+ * that the first page rarely needs a second, small enough to be cheap on a
+ * Ghanaian mobile connection where the shopper pays for the bytes.
+ */
+const PAGE_SIZE = 30;
+
+/**
+ * A paged product list, flattened.
+ *
+ * `select` collapses `InfiniteData` back into the `{ rows, total }` the screens
+ * already read, so the three surfaces that page — Browse, Search and a store's
+ * shelf — did not have to change how they render. What they gained is
+ * `fetchNextPage` and `hasNextPage`.
+ */
+export type PagedProducts = UseInfiniteQueryResult<Paginated<StorefrontProduct>>;
+
+/**
+ * Browse and filter, one page at a time.
+ *
+ * This sent `limit: 30` and never an `offset`, while the header printed the
+ * real total — so a category with 218 listings showed thirty of them and said
+ * "218 items" over the top. There was no way to reach the other 188: no
+ * pagination control, no infinite scroll, nothing. The API has accepted
+ * `offset` since Phase 11.
+ *
+ * `getNextPageParam` counts the rows actually returned rather than multiplying
+ * page number by page size, so it stays correct if the server ever trims a
+ * page (a filter applied after the limit, a row that vanished mid-scroll).
+ */
+export function useBrowse(filters: BrowseFilters): PagedProducts {
   const api = useApi();
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['browse', filters],
-    queryFn: async () =>
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) =>
       (
         await api.get<Paginated<StorefrontProduct>>('/storefront/products', {
-          params: { limit: 30, ...filters },
+          // `...filters` before `offset` so a caller may set its own page size
+          // (the store shelf does) but can never pin the offset.
+          params: { limit: PAGE_SIZE, ...filters, offset: pageParam },
         })
       ).data,
+    getNextPageParam: nextOffset,
+    select: flatten,
     // Keep the previous page on screen while the next filter loads, so changing
     // a chip does not blank the grid.
     placeholderData: (prev) => prev,
   });
 }
 
-export function useSearch(term: string): UseQueryResult<Paginated<StorefrontProduct>> {
+export function useSearch(term: string): PagedProducts {
   const api = useApi();
   const q = term.trim();
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['search', q],
-    queryFn: async () =>
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) =>
       (
         await api.get<Paginated<StorefrontProduct>>('/storefront/search', {
-          params: { q, limit: 40, city: DEFAULT_CITY },
+          params: { q, limit: PAGE_SIZE, city: DEFAULT_CITY, offset: pageParam },
         })
       ).data,
+    getNextPageParam: nextOffset,
+    select: flatten,
     enabled: q.length > 0,
     placeholderData: (prev) => prev,
   });
+}
+
+/** The offset for the next page, or undefined once the total is reached. */
+function nextOffset(
+  lastPage: Paginated<StorefrontProduct>,
+  allPages: Paginated<StorefrontProduct>[],
+): number | undefined {
+  const loaded = allPages.reduce((n, page) => n + page.rows.length, 0);
+  // A page that came back empty means the end, whatever the total claims —
+  // without this an over-counting total would loop forever asking for nothing.
+  if (lastPage.rows.length === 0) return undefined;
+  return loaded < lastPage.total ? loaded : undefined;
+}
+
+function flatten(data: { pages: Paginated<StorefrontProduct>[] }): Paginated<StorefrontProduct> {
+  return {
+    rows: data.pages.flatMap((page) => page.rows),
+    // The freshest count, not the first page's: a shopper who has been
+    // scrolling for a minute should see the total the server last said.
+    total: data.pages[data.pages.length - 1]?.total ?? 0,
+  };
 }
 
 export function useTrending(): UseQueryResult<TrendingTerm[]> {
