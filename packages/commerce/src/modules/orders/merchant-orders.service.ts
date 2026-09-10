@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { PLAN_ACCRUAL_TX_PREFIX, reserveReleaseDate } from '@installment/core';
 import { schema, type Database } from '@installment/db';
 import { OrderNotFoundError } from './errors';
+import type { DeliverySnapshot } from './dto';
 import { ORDER_PAYMENT_TX_PREFIX, type Order, type OrderItem } from './orders.service';
 import type { OrderEvent } from '../fulfilment/fulfilment.service';
 import { ORDER_RETURN_TX_PREFIX } from '../returns/returns.service';
@@ -446,6 +447,28 @@ export class MerchantOrdersService {
       };
     }
 
+    // The order's own copy first. It is the address as it stood when the order
+    // was placed, and it cannot be moved by the buyer editing their address
+    // book afterwards or emptied by them deleting the entry — both of which
+    // this used to do, silently, to an order that might still be waiting to
+    // ship. See migration 0022.
+    const snapshot = order.delivery_address as DeliverySnapshot | null;
+    if (snapshot) {
+      return {
+        ...empty,
+        recipient: snapshot.recipient ?? null,
+        phone: snapshot.phone ?? null,
+        region: snapshot.region ?? null,
+        city: snapshot.city ?? null,
+        area: snapshot.area ?? null,
+        landmark: snapshot.landmark ?? null,
+        ghanapost_gps: snapshot.ghanapost_gps ?? null,
+      };
+    }
+
+    // Orders placed before 0022 whose address was already gone by the time the
+    // backfill ran. The old behaviour, kept because it is still the best
+    // answer available for them.
     if (!order.shipping_address_id) return empty;
     const [a] = await this.db
       .select()

@@ -2,19 +2,67 @@ import { z } from 'zod';
 
 // --- Addresses --------------------------------------------------------------
 
+/**
+ * A delivery address.
+ *
+ * The three free-text extras are `.nullish()`, not `.optional()`, and that one
+ * word was a live checkout blocker. The columns are nullable, the `Address`
+ * type the clients hold declares them `string | null`, and the shopper app's
+ * address sheet accordingly sends `area: null, landmark: null,
+ * ghanapost_gps: null` for a form the shopper left blank. Under `.optional()`
+ * Zod refuses null outright — "Expected string, received null" — so **every**
+ * attempt to save an address from the mobile app answered 400, and a shopper
+ * with no address on file could not complete a courier checkout at all. The
+ * web form only escaped it by spreading its optional fields conditionally.
+ *
+ * Accepting both is the honest contract: a field the customer left empty is
+ * absent or null depending on which client is asking, and neither is a
+ * mistake worth a validation error. `create` normalises them to null on the
+ * way into the column.
+ */
 export const createAddressSchema = z.object({
   recipient: z.string().trim().min(1).max(200),
   phone: z.string().trim().min(7).max(20),
   region: z.string().trim().min(1).max(120),
   city: z.string().trim().min(1).max(120),
-  area: z.string().trim().max(200).optional(),
-  landmark: z.string().trim().max(300).optional(),
-  ghanapost_gps: z.string().trim().max(60).optional(),
+  area: z.string().trim().max(200).nullish(),
+  landmark: z.string().trim().max(300).nullish(),
+  ghanapost_gps: z.string().trim().max(60).nullish(),
   is_default: z.boolean().optional(),
 });
 export type CreateAddressInput = z.infer<typeof createAddressSchema>;
 
-export const updateAddressSchema = createAddressSchema.partial();
+/**
+ * Patching an address. Every field, all optional — but not NO field.
+ *
+ * `.partial()` on its own accepts `{}`, which reaches Drizzle's `mapUpdateSet`
+ * with nothing to set and throws a bare `Error('No values to set')`. That name
+ * is in neither the exception filter's status map nor its intentionally-
+ * unmapped list, so a client sending an empty patch got a 500 and raised a
+ * Sentry alert — a caller's mistake reported as our fault.
+ */
+/**
+ * The delivery address as an order remembers it.
+ *
+ * Written once at checkout into `orders.delivery_address` and never updated:
+ * where a parcel went is a fact about that order, not a view of whatever the
+ * shopper's address book says today. See migration 0022.
+ */
+export interface DeliverySnapshot {
+  recipient: string;
+  phone: string;
+  region: string;
+  city: string;
+  area: string | null;
+  landmark: string | null;
+  ghanapost_gps: string | null;
+}
+
+export const updateAddressSchema = createAddressSchema
+  .partial()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: 'Nothing to change',
+  });
 export type UpdateAddressInput = z.infer<typeof updateAddressSchema>;
 
 // --- Cart -------------------------------------------------------------------

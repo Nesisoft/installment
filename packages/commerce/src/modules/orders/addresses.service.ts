@@ -36,9 +36,11 @@ export class AddressesService {
           phone: input.phone,
           region: input.region,
           city: input.city,
-          area: input.area,
-          landmark: input.landmark,
-          ghanapost_gps: input.ghanapost_gps,
+          // `?? null` rather than passing through: the DTO accepts absent OR
+          // null for these, and the column should not care which client asked.
+          area: input.area ?? null,
+          landmark: input.landmark ?? null,
+          ghanapost_gps: input.ghanapost_gps ?? null,
           is_default: input.is_default ?? false,
         })
         .returning();
@@ -91,12 +93,44 @@ export class AddressesService {
     });
   }
 
+  /**
+   * Delete an address, and never leave the customer without a default.
+   *
+   * The promotion is the point. `addresses_one_default_idx` enforces *at most*
+   * one default and nothing enforced *at least* one, so deleting the default
+   * left a customer with several addresses and none of them marked — and
+   * checkout's `shipping_address_id` is optional, so the next order did not
+   * fail loudly, it quietly fell through to the national delivery price.
+   *
+   * The successor is the newest surviving address, which is the same order
+   * `list` puts them in, so the one that moves to the top of the screen is the
+   * one that became the default.
+   *
+   * In a transaction because the two writes are one decision: a delete that
+   * committed without its promotion would leave exactly the state this exists
+   * to prevent.
+   */
   async remove(customerId: string, id: string): Promise<void> {
-    const rows = await this.db
-      .delete(a)
-      .where(and(eq(a.id, id), eq(a.customer_id, customerId)))
-      .returning({ id: a.id });
-    if (!rows[0]) throw new AddressNotFoundError(id);
+    await runInTransaction(this.db, async (tx) => {
+      const rows = await tx
+        .delete(a)
+        .where(and(eq(a.id, id), eq(a.customer_id, customerId)))
+        .returning({ id: a.id, was_default: a.is_default });
+      const deleted = rows[0];
+      if (!deleted) throw new AddressNotFoundError(id);
+      if (!deleted.was_default) return;
+
+      const successor = await tx
+        .select({ id: a.id })
+        .from(a)
+        .where(eq(a.customer_id, customerId))
+        .orderBy(desc(a.created_at))
+        .limit(1);
+      // None left is a fine outcome — the customer has no addresses at all.
+      if (successor[0]) {
+        await tx.update(a).set({ is_default: true }).where(eq(a.id, successor[0].id));
+      }
+    });
   }
 
   /** Unset the customer's current default (optionally excluding one address). */

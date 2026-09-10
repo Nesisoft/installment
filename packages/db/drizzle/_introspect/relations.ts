@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, products, stores, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, customer_card_authorizations, refunds, order_returns, product_reviews, wishlist_items, search_queries, pickup_hubs, order_events, shipments, customer_credit_standing, merchant_kyc_documents, push_devices, permissions, role_permissions, roles, user_roles } from "./schema";
+import { users, customers, customer_employment, employers, applications, merchants, plan_templates, credit_profiles, customer_plans, installment_schedule, payment_attempts, payouts, held_reserves, collections_cases, collections_actions, rule_definitions, categories, products, stores, product_variants, product_images, carts, inventory, product_plan_offers, addresses, cart_items, orders, order_items, customer_card_authorizations, refunds, order_returns, product_reviews, wishlist_items, pickup_hubs, search_queries, order_events, shipments, customer_credit_standing, merchant_kyc_documents, push_devices, permissions, role_permissions, roles, user_roles } from "./schema";
 
 export const customersRelations = relations(customers, ({one, many}) => ({
 	user_ghana_card_reviewed_by: one(users, {
@@ -21,8 +21,8 @@ export const customersRelations = relations(customers, ({one, many}) => ({
 	customer_card_authorizations: many(customer_card_authorizations),
 	product_reviews: many(product_reviews),
 	wishlist_items: many(wishlist_items),
-	search_queries: many(search_queries),
 	orders: many(orders),
+	search_queries: many(search_queries),
 	customer_credit_standings: many(customer_credit_standing),
 	push_devices: many(push_devices),
 	order_returns: many(order_returns),
@@ -451,15 +451,15 @@ export const wishlist_itemsRelations = relations(wishlist_items, ({one}) => ({
 	}),
 }));
 
+export const pickup_hubsRelations = relations(pickup_hubs, ({many}) => ({
+	orders: many(orders),
+}));
+
 export const search_queriesRelations = relations(search_queries, ({one}) => ({
 	customer: one(customers, {
 		fields: [search_queries.customer_id],
 		references: [customers.id]
 	}),
-}));
-
-export const pickup_hubsRelations = relations(pickup_hubs, ({many}) => ({
-	orders: many(orders),
 }));
 
 export const order_eventsRelations = relations(order_events, ({one}) => ({
