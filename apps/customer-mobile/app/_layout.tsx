@@ -68,6 +68,8 @@ const PROTECTED = [
   'confirmation',
   'returns',
   'reviews',
+  'addresses',
+  'saved',
 ];
 
 function Routes(): React.ReactElement | null {
@@ -111,6 +113,9 @@ function Routes(): React.ReactElement | null {
       <Stack.Screen name="confirmation/[orderId]" options={{ animation: 'fade' }} />
       <Stack.Screen name="orders/[id]" />
       <Stack.Screen name="plans/index" />
+      <Stack.Screen name="addresses/index" />
+      <Stack.Screen name="addresses/edit" />
+      <Stack.Screen name="saved" />
       <Stack.Screen name="returns/index" />
       <Stack.Screen name="returns/new" />
       <Stack.Screen name="reviews/index" />

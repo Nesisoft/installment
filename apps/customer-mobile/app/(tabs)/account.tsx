@@ -128,7 +128,7 @@ export default function AccountScreen(): React.ReactElement {
           <StatTile
             value={String(me.counts.saved_items)}
             label="Saved"
-            onPress={() => router.push('/browse')}
+            onPress={() => router.push('/saved')}
           />
           <StatTile
             value={String(me.counts.active_plans)}
@@ -189,15 +189,18 @@ export default function AccountScreen(): React.ReactElement {
             hint={pendingReviews.data?.length ? String(pendingReviews.data.length) : undefined}
             onPress={() => router.push('/reviews')}
           />
+          {/* Both of these pointed somewhere else entirely: "Saved items" at
+              Browse and "Delivery addresses" at checkout — the same lie the
+              "Orders & returns" row above told, and the last two of it. */}
           <MenuRow
             label="Saved items"
             hint={String(me.counts.saved_items)}
-            onPress={() => router.push('/browse')}
+            onPress={() => router.push('/saved')}
           />
           <MenuRow
             label="Delivery addresses"
             hint={defaultAddress ? defaultAddress.city : 'None saved'}
-            onPress={() => router.push('/checkout')}
+            onPress={() => router.push('/addresses')}
           />
           {/* Inert rather than a button that goes nowhere: neither destination
               exists yet, and a dead tap is worse than a plain row. */}
