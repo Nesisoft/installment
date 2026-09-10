@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { StoreNotFoundError } from '../stores/errors';
 import { ProductNotFoundError } from './errors';
@@ -41,7 +41,7 @@ const sq = schema.search_queries;
  * site, because that is how the seller check went missing from four places at
  * once: whoever adds the fifth read gets it for free.
  */
-function liveListingWhere(): SQL {
+export function liveListingWhere(): SQL {
   return and(
     isNull(p.deleted_at),
     eq(p.status, 'active'),
@@ -483,6 +483,37 @@ export class StorefrontService {
   }
 
   // ---------------------------------------------------------------- internal
+
+  /**
+   * Cards for exactly these product ids, in one query.
+   *
+   * The read `WishlistService` needed and did not have. Without it, listing
+   * saved items fetched the catalogue's top-100 *popular* page and looked each
+   * saved id up in it — which in any catalogue larger than a hundred products
+   * misses almost every saved item, because "saved by this shopper" and "most
+   * sold in the marketplace" are unrelated sets. Each miss then fell back to a
+   * full `product()` detail fetch: around seven queries apiece, so thirty saved
+   * items was on the order of two hundred round trips to open one screen.
+   *
+   * `liveListingWhere()` applies, so a saved product whose seller was suspended
+   * or whose listing was archived is absent rather than tappable through to a
+   * dead page. The caller decides what that absence means on screen; here it is
+   * simply not a live listing.
+   *
+   * Returned as a Map because the caller has its own ordering — saved-at, in
+   * the wishlist's case — and re-sorting an array by an id list is the caller's
+   * business, not this method's.
+   */
+  async cardsByIds(ids: string[]): Promise<Map<string, StorefrontProduct>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.selectCards(
+      and(inArray(p.id, ids), liveListingWhere()),
+      [desc(p.created_at), desc(p.id)],
+      ids.length,
+      0,
+    );
+    return new Map(rows.map((row) => [row.id, row]));
+  }
 
   private async browseWhere(input: BrowseProductsInput): Promise<SQL | undefined> {
     // The joins to stores and merchants are always present, so an inactive or

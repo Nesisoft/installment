@@ -2,6 +2,7 @@ export { Text } from './Text';
 export { Button } from './Button';
 export { Card } from './Card';
 export { Chip } from './Chip';
+export { Field, type FieldProps } from './Field';
 export { Icon, type IconName } from './Icon';
 export { Pill, type PillTone } from './Pill';
 export { ProductCard } from './ProductCard';

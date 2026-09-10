@@ -72,17 +72,82 @@ export function useAddresses(enabled = true): UseQueryResult<Address[]> {
   });
 }
 
+/**
+ * What the API accepts when saving an address.
+ *
+ * Named rather than `Omit<Address, 'id'>`, which is what this used to take —
+ * and that type was half of a live bug. `Address` declares `area`, `landmark`
+ * and `ghanapost_gps` as `string | null`, so `Omit<Address,'id'>` REQUIRED
+ * them, forcing the caller to send nulls that the server's `.optional()` then
+ * refused. Every save from this app answered 400 (#87). The server takes null
+ * or absent now; this type says the same thing, so a form can simply leave a
+ * blank field out.
+ */
+export interface AddressInput {
+  recipient: string;
+  phone: string;
+  region: string;
+  city: string;
+  area?: string | null;
+  landmark?: string | null;
+  ghanapost_gps?: string | null;
+  is_default?: boolean;
+}
+
 export function useCreateAddress() {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: Omit<Address, 'id'>) =>
+    mutationFn: async (input: AddressInput) =>
       (await api.post<Address>('/me/addresses', input)).data,
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['addresses'] });
-      void qc.invalidateQueries({ queryKey: ['delivery-quote'] });
-    },
+    onSuccess: invalidateAddresses(qc),
   });
+}
+
+export function useUpdateAddress() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: Partial<AddressInput> & { id: string }) =>
+      (await api.patch<Address>(`/me/addresses/${id}`, patch)).data,
+    onSuccess: invalidateAddresses(qc),
+  });
+}
+
+export function useSetDefaultAddress() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => (await api.post<Address>(`/me/addresses/${id}/default`)).data,
+    onSuccess: invalidateAddresses(qc),
+  });
+}
+
+export function useDeleteAddress() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/me/addresses/${id}`);
+    },
+    onSuccess: invalidateAddresses(qc),
+  });
+}
+
+/**
+ * Everything an address change touches.
+ *
+ * The delivery quote goes too, and that is the one worth naming: the quote is
+ * priced off the address's city and region, so a shopper who fixes a typo in
+ * their city and goes back to checkout must not be shown the fee the old
+ * spelling was charged. Any write can move the default, so the list is always
+ * stale as well — even a rename, since the list is ordered default-first.
+ */
+function invalidateAddresses(qc: ReturnType<typeof useQueryClient>) {
+  return () => {
+    void qc.invalidateQueries({ queryKey: ['addresses'] });
+    void qc.invalidateQueries({ queryKey: ['delivery-quote'] });
+  };
 }
 
 // --- Checkout ----------------------------------------------------------------

@@ -625,9 +625,9 @@ fail against the old shape.
 ### 6.9 Reported once, not verified
 
 An audit pass raised these and its verification stage never ran. Treat each as
-a lead, not a finding: no address book (four address routes unreached); no
+a lead, not a finding: ~~no address book (four address routes unreached); no
 saved-items screen (`GET /me/wishlist` unconsumed, both "Saved" controls open
-Browse); a notification bell opening a tab with no notifications; "LIMIT LEFT
+Browse);~~ **both now verified and fixed — see §6.10**; a notification bell opening a tab with no notifications; "LIMIT LEFT
 GHS 0.00" shown to a customer with no limit; "Deliver to Accra" hard-coded in
 three places and also pricing the delivery quote; no pay-early, receipt or
 statement on Instalments; profile and consents read-only for the life of the
@@ -637,3 +637,81 @@ and six dead customer routes.
 
 Four surfaces — the merchant apps, the engine and money paths, the web apps,
 and tests/ops — were never audited at all.
+
+---
+
+## 6.10 The address book and saved items
+
+Two of the §6.9 leads, checked and closed. Both were true, and both were worse
+than the lead said.
+
+**Addresses.** Five of the six routes had no caller — only the list was read,
+by checkout — and the Account row labelled "Delivery addresses" pushed
+`/checkout`. Scoping the screen turned up the live 400 and the history-rewrite
+described in §6.7a and §6.7b, which shipped first (#87) because the screen is
+what would have made them reachable.
+
+`app/addresses/index.tsx` and `app/addresses/edit.tsx` now cover list, add,
+edit, set-default and remove.
+
+**Saved items.** `useWishlist` had existed with zero callers since it was
+written, `GET /me/wishlist` had no consumer anywhere in the monorepo, and both
+controls labelled "Saved" — the menu row and the stat tile — opened Browse.
+
+The read had to be fixed before a screen could call it. `list` hydrated its
+cards from the catalogue's top-100 **popular** page and fell back to a full
+per-id detail fetch — about seven queries each — for every saved item that page
+did not happen to contain. Since "saved by this shopper" and "most sold in the
+marketplace" are unrelated sets, in any catalogue over a hundred products
+nearly every item took the slow path: thirty saved items was on the order of
+two hundred round trips to open one screen. The response was two shapes as
+well — the hits came back as thin `StorefrontProduct` cards, the misses as full
+`StorefrontProductDetails`, in one array the contract documented as one type.
+
+`StorefrontService.cardsByIds` is the batched read it needed and did not have.
+
+And `count` disagreed with `list`: a bare `COUNT(*)` with no product join
+against a list filtered through `liveListingWhere()`, so the account screen
+printed "7 saved" over a list of five — both on screen at once, because the
+client invalidates `['wishlist']` and `['profile']` together. `count` now
+counts through the same predicate. `liveListingWhere` is finally **exported**,
+which its own docstring has claimed since it was written ("one exported
+expression rather than a predicate repeated at each call site, because that is
+how the seller check went missing from four places at once"). The wishlist was
+the fifth call site that docstring warns about.
+
+`ids` deliberately still does *not* filter. It answers "did I save this?" on a
+product page the shopper already has open, and that page can be open for a
+listing since archived; emptying the heart there would deny a save that is real
+and a DELETE that still works.
+
+### Where these depart from the canvas
+
+- **No "BACK IN STOCK" banner, and no "1 back in stock" in the header.** Both
+  need a stock *transition*. `wishlist_items` stores `(customer_id, product_id,
+  created_at)` and a card carries a point-in-time `in_stock` boolean; nothing
+  anywhere records what the stock was yesterday. Not deferred for effort —
+  underivable from any current endpoint.
+- **"SOLD OUT", not "No sizes left".** Per-variant stock lives on
+  `StorefrontProductDetails`, which the list does not return. One boolean per
+  product is what there is.
+- **No "Used on 6 orders" on an address card.** There is no usage count on the
+  row and no endpoint returns one. It could be a `COUNT` over
+  `orders.shipping_address_id` — but that FK is `ON DELETE SET NULL`, so the
+  number silently drops when an address is removed, which makes it a figure
+  that quietly lies rather than one that is merely missing.
+- **Four address lines, not five.** The artboard draws phone, a street line, a
+  neighbourhood-and-city line and a landmark. The table has four usable text
+  columns and no street column; `area` carries whichever the shopper wrote.
+- **A Remove control, which the artboard does not draw.** `DELETE
+  /me/addresses/:id` has always existed and been unreachable, which is the
+  class of thing this whole audit is about. Safe as of #87, which promotes a
+  replacement default and stops the delete blanking past orders.
+- **The saved grid reuses `QuotedProductCard`.** The artboard draws a
+  lowercase shop name, a light SOLD OUT pill and a permanently filled heart;
+  the shipped card uppercases, uses a dark pill and toggles the heart. A saved
+  grid that looked unlike every other grid in the app would be the drawing
+  winning over the product.
+- **GhanaPostGPS is on the form**, which the canvas flags as a proposal rather
+  than present behaviour. The column exists, the seller's order screen already
+  renders it, and until now nothing wrote it — §6.7.
