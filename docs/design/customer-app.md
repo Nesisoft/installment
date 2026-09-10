@@ -516,11 +516,77 @@ is a statement about `ORDER BY` over ties rather than a gate on our own code.
 surfaces and are absent from every write dto. The strikethrough "was" price and
 the deal countdown can only ever come from `marketplace-demo.sql`.
 
+### 6.7a Saving a delivery address from the phone returned 400 — fixed
+
+Found while scoping the address book, and it is the most serious thing this
+audit has turned up: **no shopper could save a delivery address from the mobile
+app, ever.**
+
+`createAddressSchema` marked `area`, `landmark` and `ghanapost_gps`
+`.optional()`. The columns are nullable, the `Address` type the clients hold
+declares them `string | null`, and the app's address sheet accordingly sends
+`null` for whatever the shopper left blank. Zod's `.optional()` refuses null
+outright — "Expected string, received null" — so the create 400'd every time.
+The web form escaped it only because it spreads its optional fields
+conditionally.
+
+The mobile hook's own type made the bug compulsory: `useCreateAddress` takes
+`Omit<Address, 'id'>`, and `Address` declares those three as `string | null`,
+so TypeScript forbade omitting them.
+
+A shopper with no address on file could therefore not complete a courier
+checkout at all. Nothing caught it because no test ever sent a null; the fields
+are `.nullish()` now and `addresses.integration.spec.ts` sends the body the app
+actually sends.
+
+Two more on the same route, both reachable the moment an address book exists:
+an empty `PATCH` parsed clean, reached Drizzle with nothing to set and threw a
+bare `Error` the exception filter does not classify — a caller's mistake
+surfacing as a 500 and a Sentry alert. And deleting the default address left
+the customer with none: `addresses_one_default_idx` enforces *at most* one and
+nothing enforced *at least* one, so the next checkout quietly fell through to
+the national delivery price. `remove` now promotes the newest survivor.
+
+### 6.7b An order's delivery address was a live read — fixed
+
+`orders.shipping_address_id` is a foreign key and the seller's order screen
+re-read that row at render time. Nothing was copied onto the order, so the
+buyer owned the seller's copy of the address after the sale:
+
+- **Editing** a saved address rewrote the delivery block of every order
+  pointing at it. Correcting "Adenta" to "Adenta East" changed where a parcel
+  delivered last month says it went.
+- **Deleting** one blanked it. `ON DELETE SET NULL` plus no snapshot meant
+  `deliveryFor` fell through to its all-null `empty` — for an order that might
+  still be in `fulfilling`, waiting to go on a van.
+
+Neither was reachable from a client, and only because five of the six address
+routes had no caller. The address book screen is what makes them reachable, so
+migration 0022 adds `orders.delivery_address` (JSONB, backfilled) and checkout
+writes it from the row it already loads to prove the address is the caller's.
+The same reasoning `order_items.title` and `unit_price_pesewas` were snapshotted
+under at 0006: a product renamed or repriced must not rewrite what somebody
+bought.
+
+Both are pinned in `merchant-orders.integration.spec.ts` — edit one, delete the
+other, and the seller still sees where the parcel is going. Watched to fail
+against the live read.
+
 ### 6.7 `addresses.ghanapost_gps` is read by the seller and written by nobody
 
 The checkout address sheet hard-codes it `null` and offers no input; the
 seller's order screen renders it when present. GhanaPostGPS is how a Ghanaian
 address is actually found, so every delivery routes off free text.
+
+**Correction.** "Written by nobody" is not quite right, and the difference
+matters. The write path is complete: `createAddressSchema` accepts
+`ghanapost_gps`, `AddressesService.create` inserts it, and the partial update
+DTO patches it. What is missing is a client that offers the field — the mobile
+sheet hard-coded `null` and the web form has no such input. The accurate
+statement is **accepted by the API, offered by no client**. The canvas flags
+the field as a proposal rather than shipped behaviour
+(`ejua-new-screens/README.md`), so the address book is where that decision
+lands.
 
 ### 6.8 `order_returns.status = 'cancelled'` is set by nothing — fixed
 

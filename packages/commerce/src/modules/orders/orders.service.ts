@@ -17,7 +17,12 @@ import {
   SYSTEM_ACTORS,
 } from '@installment/core';
 import { InventoryService } from '../catalog/inventory.service';
-import { cancelOrderSchema, checkoutSchema, confirmOrderPaymentSchema } from './dto';
+import {
+  type DeliverySnapshot,
+  cancelOrderSchema,
+  checkoutSchema,
+  confirmOrderPaymentSchema,
+} from './dto';
 import {
   AddressNotFoundError,
   EmptyCartError,
@@ -285,10 +290,29 @@ export class OrdersService {
         }
       }
 
+      /**
+       * The delivery address, verified and then KEPT.
+       *
+       * This already loaded the row to prove the address is the caller's; it
+       * selected only the id and threw the rest away. Holding it is what lets
+       * the order carry its own copy — see `delivery_address` on the insert
+       * below and migration 0022 for why an order must not read a live
+       * address row it does not own.
+       */
+      let deliverySnapshot: DeliverySnapshot | null = null;
       if (input.shipping_address_id) {
         const addr = (
           await tx
-            .select({ id: addresses.id })
+            .select({
+              id: addresses.id,
+              recipient: addresses.recipient,
+              phone: addresses.phone,
+              region: addresses.region,
+              city: addresses.city,
+              area: addresses.area,
+              landmark: addresses.landmark,
+              ghanapost_gps: addresses.ghanapost_gps,
+            })
             .from(addresses)
             .where(
               and(
@@ -299,6 +323,8 @@ export class OrdersService {
             .limit(1)
         )[0];
         if (!addr) throw new AddressNotFoundError(input.shipping_address_id);
+        const { id: _id, ...snapshot } = addr;
+        deliverySnapshot = snapshot;
       }
 
       if (input.fulfilment_method === 'pickup') {
@@ -364,6 +390,11 @@ export class OrdersService {
             ...(input.shipping_address_id
               ? { shipping_address_id: input.shipping_address_id }
               : {}),
+            // The address as it stood right now. `shipping_address_id` stays
+            // as the pointer for anything that wants the live row; this is the
+            // historical fact, and the two are allowed to diverge the moment
+            // the shopper edits their address book.
+            delivery_address: deliverySnapshot,
           })
           .returning();
         if (!order) throw new Error('orders insert returned no row');

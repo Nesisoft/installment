@@ -588,6 +588,95 @@ describe.skipIf(!RUN_DB)('MerchantOrdersService (integration)', () => {
     expect(plan.installments.every((i) => i.status === 'overdue')).toBe(true);
   });
 
+  /**
+   * An order's delivery address is a fact about that order.
+   *
+   * It used to be a live read of `addresses` through `shipping_address_id`, so
+   * the buyer owned the seller's copy of it after the sale: editing a saved
+   * address rewrote the delivery block of every past order pointing at it, and
+   * deleting one blanked it outright — `ON DELETE SET NULL` plus no snapshot
+   * meant the seller lost recipient, phone and city for an order that might
+   * still be sitting in `fulfilling`.
+   *
+   * Neither was reachable from a client only because no client offered edit or
+   * delete. The address book screen is what makes them reachable, so these two
+   * go in with the snapshot rather than after it.
+   */
+  async function courierOrder(customerId: string, storeId: string, addressId: string) {
+    // The harness truncates `delivery_zones`, so the migration's seeded
+    // national row is gone by the time a spec runs and a courier checkout has
+    // nothing to price against. One national fallback is enough here: these
+    // two tests are about the address surviving, not about the rate.
+    await db
+      .insert(schema.delivery_zones)
+      .values({ region: null, city: null, fee_pesewas: 2_000, eta_min_days: 2, eta_max_days: 5 })
+      .onConflictDoNothing();
+    const v = await variant(storeId, 25_000);
+    await cart.addItem(customerId, { variant_id: v.id, quantity: 1 });
+    const [order] = await orders.checkout(
+      customerId,
+      { payment_type: 'full', fulfilment_method: 'courier', shipping_address_id: addressId },
+      ACTOR,
+    );
+    await orders.confirmPayment(
+      order!.id,
+      { provider_reference: `ps_${order!.id.slice(0, 8)}` },
+      ACTOR,
+    );
+    return order!;
+  }
+
+  it('keeps the address the order was placed to when the buyer edits theirs', async () => {
+    const { merchantId, storeId } = await shop();
+    const customer = await freshCustomer();
+    const address = await addresses.create(customer.id, {
+      recipient: 'Ama Mensah',
+      phone: '0240000002',
+      region: 'Greater Accra',
+      city: 'Accra',
+      area: 'Osu',
+    });
+    const order = await courierOrder(customer.id, storeId, address.id);
+
+    // The buyer moves house and corrects their address book.
+    await addresses.update(customer.id, address.id, { city: 'Kumasi', area: 'Asokwa' });
+
+    const detail = await queue.detail(merchantId, order.id);
+    expect(detail.delivery).toMatchObject({ city: 'Accra', area: 'Osu' });
+  });
+
+  it('keeps it when the buyer deletes the address altogether', async () => {
+    const { merchantId, storeId } = await shop();
+    const customer = await freshCustomer();
+    const address = await addresses.create(customer.id, {
+      recipient: 'Kofi Asante',
+      phone: '0240000003',
+      region: 'Ashanti',
+      city: 'Kumasi',
+      landmark: 'Opposite the chemist',
+    });
+    const order = await courierOrder(customer.id, storeId, address.id);
+
+    await addresses.remove(customer.id, address.id);
+
+    // `ON DELETE SET NULL` still nulls the pointer — that part is unchanged.
+    const [row] = await db
+      .select({ id: schema.orders.shipping_address_id })
+      .from(schema.orders)
+      .where(eq(schema.orders.id, order.id));
+    expect(row?.id).toBeNull();
+
+    // But the seller can still put it on a van.
+    const detail = await queue.detail(merchantId, order.id);
+    expect(detail.delivery).toMatchObject({
+      recipient: 'Kofi Asante',
+      phone: '0240000003',
+      region: 'Ashanti',
+      city: 'Kumasi',
+      landmark: 'Opposite the chemist',
+    });
+  });
+
   it('resolves a courier order to the address it is going to', async () => {
     const { merchantId, storeId } = await shop();
     const customer = await freshCustomer();

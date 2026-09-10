@@ -1127,41 +1127,6 @@ export const wishlist_items = pgTable("wishlist_items", {
 	unique("wishlist_items_customer_id_product_id_key").on(table.customer_id, table.product_id),
 ]);
 
-export const search_queries = pgTable("search_queries", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	term: text().notNull(),
-	normalised: text().notNull(),
-	city: text(),
-	customer_id: uuid(),
-	result_count: integer().default(0).notNull(),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("search_queries_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("timestamptz_ops"), table.created_at.desc().nullsFirst().op("uuid_ops")).where(sql`(customer_id IS NOT NULL)`),
-	index("search_queries_trending_idx").using("btree", table.created_at.desc().nullsFirst().op("timestamptz_ops"), table.normalised.asc().nullsLast().op("timestamptz_ops")),
-	foreignKey({
-			columns: [table.customer_id],
-			foreignColumns: [customers.id],
-			name: "search_queries_customer_id_fkey"
-		}).onDelete("set null"),
-]);
-
-export const pickup_hubs = pgTable("pickup_hubs", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	name: text().notNull(),
-	region: text().notNull(),
-	city: text().notNull(),
-	area: text(),
-	detail: text(),
-	latitude: numeric({ precision: 9, scale:  6 }),
-	longitude: numeric({ precision: 9, scale:  6 }),
-	is_active: boolean().default(true).notNull(),
-	position: integer().default(0).notNull(),
-	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("pickup_hubs_city_idx").using("btree", table.city.asc().nullsLast().op("int4_ops"), table.position.asc().nullsLast().op("int4_ops")).where(sql`is_active`),
-]);
-
 export const orders = pgTable("orders", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	order_number: text().notNull(),
@@ -1194,6 +1159,7 @@ export const orders = pgTable("orders", {
 	return_window_days: smallint().default(7).notNull(),
 	delivered_at: timestamp({ withTimezone: true, mode: 'string' }),
 	return_window_ends_at: timestamp({ withTimezone: true, mode: 'string' }),
+	delivery_address: jsonb(),
 }, (table) => [
 	index("orders_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("uuid_ops")),
 	index("orders_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("uuid_ops")),
@@ -1247,6 +1213,41 @@ export const orders = pgTable("orders", {
 	check("orders_status_check", sql`status = ANY (ARRAY['pending_payment'::text, 'pending_approval'::text, 'paid'::text, 'financing_active'::text, 'fulfilling'::text, 'shipped'::text, 'delivered'::text, 'completed'::text, 'cancelled'::text, 'payment_failed'::text, 'declined'::text, 'returned'::text, 'defaulted'::text])`),
 	check("orders_subtotal_pesewas_check", sql`subtotal_pesewas >= 0`),
 	check("orders_total_pesewas_check", sql`total_pesewas >= 0`),
+]);
+
+export const search_queries = pgTable("search_queries", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	term: text().notNull(),
+	normalised: text().notNull(),
+	city: text(),
+	customer_id: uuid(),
+	result_count: integer().default(0).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("search_queries_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("timestamptz_ops"), table.created_at.desc().nullsFirst().op("uuid_ops")).where(sql`(customer_id IS NOT NULL)`),
+	index("search_queries_trending_idx").using("btree", table.created_at.desc().nullsFirst().op("timestamptz_ops"), table.normalised.asc().nullsLast().op("timestamptz_ops")),
+	foreignKey({
+			columns: [table.customer_id],
+			foreignColumns: [customers.id],
+			name: "search_queries_customer_id_fkey"
+		}).onDelete("set null"),
+]);
+
+export const pickup_hubs = pgTable("pickup_hubs", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	name: text().notNull(),
+	region: text().notNull(),
+	city: text().notNull(),
+	area: text(),
+	detail: text(),
+	latitude: numeric({ precision: 9, scale:  6 }),
+	longitude: numeric({ precision: 9, scale:  6 }),
+	is_active: boolean().default(true).notNull(),
+	position: integer().default(0).notNull(),
+	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("pickup_hubs_city_idx").using("btree", table.city.asc().nullsLast().op("int4_ops"), table.position.asc().nullsLast().op("int4_ops")).where(sql`is_active`),
 ]);
 
 export const order_events = pgTable("order_events", {
