@@ -10,6 +10,7 @@ import {
   addImageSchema,
   addVariantSchema,
   createProductSchema,
+  dealRuleIssue,
   listProductsSchema,
   searchProductsSchema,
   setPlanOffersSchema,
@@ -61,7 +62,15 @@ export interface MerchantCatalogSummary {
   lowStockVariants: number;
 }
 
-const productCols = {
+/**
+ * The columns every product read returns.
+ *
+ * Exported so `api-types-mirror.spec.ts` can compare its keys against
+ * `PRODUCT_FIELDS` — the published `Product` interface had fallen four fields
+ * behind this object, and a type mirror is the one drift that spec could not
+ * otherwise catch.
+ */
+export const productCols = {
   id: p.id,
   store_id: p.store_id,
   merchant_id: p.merchant_id,
@@ -126,6 +135,12 @@ export class ProductsService {
     scope: ProductScope = {},
   ): Promise<ProductDetails> {
     const input: CreateProductInput = createProductSchema.parse(rawInput);
+    // Both halves are in the body here, so this is a plain check. `update` has
+    // to merge with the stored row first — see there.
+    const dealIssue = dealRuleIssue(input);
+    if (dealIssue) throw new ProductValidationError(dealIssue);
+    // Both halves are in the body here, so this is a plain check. `update` has
+    // to merge with the stored row first — see there.
 
     const id = await runInTransaction(this.db, async (tx) => {
       const storeRows = await tx
@@ -157,6 +172,8 @@ export class ProductsService {
           description: input.description,
           status: input.status ?? 'draft',
           base_price_pesewas: input.base_price_pesewas,
+          compare_at_price_pesewas: input.compare_at_price_pesewas ?? null,
+          deal_ends_at: input.deal_ends_at ?? null,
           attributes: input.attributes ?? {},
         })
         .returning({ id: p.id });
@@ -417,6 +434,35 @@ export class ProductsService {
     const patch: UpdateProductInput = updateProductSchema.parse(rawPatch);
 
     return runInTransaction(this.db, async (tx) => {
+      /**
+       * The sale rules, checked against the row this patch would PRODUCE.
+       *
+       * A schema cannot do this one. Raising `base_price_pesewas` past a
+       * `compare_at_price_pesewas` the patch never mentions is a perfectly
+       * valid patch and an invalid row, and so is clearing the "was" price of
+       * a product whose sale is still running. Without the merge, both reach
+       * Postgres, trip `products_compare_at_above_price` or
+       * `products_deal_needs_compare_at`, and come back as a 500 — a seller's
+       * typo reported as our fault.
+       *
+       * Locked because the row is read and then written on the strength of
+       * what was read.
+       */
+      const current = await tx
+        .select({
+          base_price_pesewas: p.base_price_pesewas,
+          compare_at_price_pesewas: p.compare_at_price_pesewas,
+          deal_ends_at: p.deal_ends_at,
+        })
+        .from(p)
+        .where(and(eq(p.id, id), isNull(p.deleted_at), ...ownedBy(scope)))
+        .for('update')
+        .limit(1);
+      if (!current[0]) throw new ProductNotFoundError(id);
+
+      const dealIssue = dealRuleIssue({ ...current[0], ...patch });
+      if (dealIssue) throw new ProductValidationError(dealIssue);
+
       const rows = await tx
         .update(p)
         .set({ ...patch })

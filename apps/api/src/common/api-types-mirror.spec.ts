@@ -13,7 +13,10 @@ import {
   MERCHANT_STATS_WINDOWS,
   RETURN_STATUSES,
   REVIEW_STATUSES,
+  createProductSchema,
   createReviewSchema,
+  dealRuleIssue,
+  productCols,
   requestReturnSchema,
 } from '@installment/commerce';
 import {
@@ -29,6 +32,9 @@ import {
   CUSTOMER_RETURN_BUCKETS as MIRRORED_CUSTOMER_RETURN_BUCKETS,
   REVIEW_STATUSES as MIRRORED_REVIEW_STATUSES,
   createReviewSchema as mirroredCreateReviewSchema,
+  createProductSchema as mirroredCreateProductSchema,
+  dealRuleIssue as mirroredDealRuleIssue,
+  PRODUCT_FIELDS as MIRRORED_PRODUCT_FIELDS,
   requestReturnSchema as mirroredRequestReturnSchema,
 } from '@installment/api-types';
 
@@ -204,6 +210,87 @@ describe('api-types mirrors the backend contract', () => {
     // constraint they exist to describe.
     expect([...MIRRORED_REVIEW_STATUSES]).toEqual([...REVIEW_STATUSES]);
     expect([...REVIEW_STATUSES]).toEqual(['published', 'hidden']);
+  });
+
+  it('accepts and refuses exactly the listings the API does', () => {
+    // The two sale fields were on neither schema, so a "was" price and a deal
+    // countdown could only come from the seed. Adding them to two hand-written
+    // copies is exactly how they drift, and the pair the app posts is the pair
+    // the database has a CHECK about.
+    const STORE = '9f2b4c11-6d3a-4f88-b0e7-1a5c9d2e6b40';
+    const base = { store_id: STORE, title: 'Kente Scarf', base_price_pesewas: 6_990 };
+    const cases: unknown[] = [
+      base,
+      { ...base, compare_at_price_pesewas: 9_990 },
+      { ...base, compare_at_price_pesewas: null },
+      { ...base, compare_at_price_pesewas: 9_990, deal_ends_at: '2026-12-24T23:59:00Z' },
+      { ...base, compare_at_price_pesewas: 9_990, deal_ends_at: '2026-12-24T23:59:00+00:00' },
+      // No offset: `.datetime({ offset: true })` still requires a Z or an
+      // offset, and a bare local time is the shape a naive client sends.
+      { ...base, compare_at_price_pesewas: 9_990, deal_ends_at: '2026-12-24T23:59:00' },
+      { ...base, compare_at_price_pesewas: 9_990, deal_ends_at: 'christmas' },
+      { ...base, compare_at_price_pesewas: 6_990.5 },
+      { ...base, compare_at_price_pesewas: -1 },
+      { ...base, compare_at_price_pesewas: '9990' },
+    ];
+
+    for (const input of cases) {
+      const enforced = createProductSchema.safeParse(input);
+      const mirrored = mirroredCreateProductSchema.safeParse(input);
+      expect(mirrored.success, JSON.stringify(input)).toBe(enforced.success);
+      if (enforced.success && mirrored.success) expect(mirrored.data).toEqual(enforced.data);
+    }
+  });
+
+  it('applies the same sale rules on both sides, and the same ones the table does', () => {
+    // `dealRuleIssue` is the cross-field half that no schema can express — a
+    // "was" price is only valid RELATIVE to the price beside it. Two copies of
+    // a rule that Postgres also holds is three places to disagree, so all
+    // three are asserted together: the last two expectations restate
+    // `products_compare_at_above_price` and `products_deal_needs_compare_at`
+    // verbatim, because with both TypeScript copies new they could agree with
+    // each other and still be wrong about the constraint.
+    const rows = [
+      { base_price_pesewas: 6_990, compare_at_price_pesewas: 9_990 },
+      { base_price_pesewas: 6_990, compare_at_price_pesewas: 6_990 },
+      { base_price_pesewas: 6_990, compare_at_price_pesewas: 1_000 },
+      { base_price_pesewas: 6_990, compare_at_price_pesewas: null },
+      { base_price_pesewas: 6_990 },
+      { base_price_pesewas: 6_990, deal_ends_at: '2026-12-24T23:59:00Z' },
+      {
+        base_price_pesewas: 6_990,
+        compare_at_price_pesewas: 9_990,
+        deal_ends_at: '2026-12-24T23:59:00Z',
+      },
+      { base_price_pesewas: 6_990, compare_at_price_pesewas: null, deal_ends_at: null },
+    ];
+
+    for (const row of rows) {
+      expect(mirroredDealRuleIssue(row), JSON.stringify(row)).toBe(dealRuleIssue(row));
+    }
+
+    // products_compare_at_above_price: NULL, or strictly above the price.
+    expect(dealRuleIssue({ base_price_pesewas: 100, compare_at_price_pesewas: 101 })).toBeNull();
+    expect(
+      dealRuleIssue({ base_price_pesewas: 100, compare_at_price_pesewas: 100 }),
+    ).not.toBeNull();
+    expect(dealRuleIssue({ base_price_pesewas: 100, compare_at_price_pesewas: null })).toBeNull();
+    // products_deal_needs_compare_at: an end date needs something to count from.
+    expect(dealRuleIssue({ base_price_pesewas: 100, deal_ends_at: 'x' })).not.toBeNull();
+  });
+
+  it('declares every field the product read actually returns', () => {
+    // The one kind of drift the rest of this file cannot see. Everything else
+    // here compares runtime VALUES, because esbuild strips type annotations
+    // without checking them — so an interface that has fallen behind the API
+    // passes every assertion in this spec while a client cannot see half the
+    // response.
+    //
+    // `productCols` is a real object, so its keys are checkable. It found four
+    // on arrival: compare_at_price_pesewas, deal_ends_at, updated_at and
+    // deleted_at were all being sent and declared by nothing, which is why the
+    // seller's edit screen could not read back the sale it had just set.
+    expect([...MIRRORED_PRODUCT_FIELDS].sort()).toEqual(Object.keys(productCols).sort());
   });
 
   it('lists every platform a handset may register as', () => {

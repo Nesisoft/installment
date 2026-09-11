@@ -27,6 +27,31 @@ export const createProductSchema = z.object({
   description: z.string().trim().max(20_000).optional(),
   category_id: z.string().uuid().optional(),
   base_price_pesewas: pesewas,
+  /**
+   * The "was" price a discount is measured against.
+   *
+   * `products_compare_at_above_price` refuses anything that is not strictly
+   * higher than `base_price_pesewas`, and the migration that added it says why:
+   * "A strikethrough that is not actually a discount is a lie the UI would tell
+   * on every card, so the database refuses it." The DTO agrees with the CHECK
+   * rather than restating a looser version of it — a mismatch here is a 500
+   * from a constraint violation where a 400 was owed.
+   *
+   * Nullable so a seller can end a sale and go back to one price.
+   */
+  compare_at_price_pesewas: pesewas.nullable().optional(),
+  /**
+   * When the sale ends, which is what the home screen counts down to.
+   *
+   * `products_deal_needs_compare_at` refuses one without a "was" price: a
+   * countdown next to an unchanged price is a countdown to nothing.
+   *
+   * A date already past is accepted and simply means the deal is over — that is
+   * what `deal_ends_at > NOW()` already decides on the read side, and refusing
+   * it here would block a seller editing the title of a product whose sale
+   * ended last week.
+   */
+  deal_ends_at: z.string().datetime({ offset: true }).nullable().optional(),
   status: z.enum(PRODUCT_STATUSES).optional(),
   attributes: z.record(z.unknown()).optional(),
   variants: z.array(variantInputSchema).max(100).optional(),
@@ -40,10 +65,58 @@ export const updateProductSchema = z.object({
   description: z.string().trim().max(20_000).nullable().optional(),
   category_id: z.string().uuid().nullable().optional(),
   base_price_pesewas: pesewas.optional(),
+  /**
+   * The "was" price a discount is measured against.
+   *
+   * `products_compare_at_above_price` refuses anything that is not strictly
+   * higher than `base_price_pesewas`, and the migration that added it says why:
+   * "A strikethrough that is not actually a discount is a lie the UI would tell
+   * on every card, so the database refuses it." The DTO agrees with the CHECK
+   * rather than restating a looser version of it — a mismatch here is a 500
+   * from a constraint violation where a 400 was owed.
+   *
+   * Nullable so a seller can end a sale and go back to one price.
+   */
+  compare_at_price_pesewas: pesewas.nullable().optional(),
+  /**
+   * When the sale ends, which is what the home screen counts down to.
+   *
+   * `products_deal_needs_compare_at` refuses one without a "was" price: a
+   * countdown next to an unchanged price is a countdown to nothing.
+   *
+   * A date already past is accepted and simply means the deal is over — that is
+   * what `deal_ends_at > NOW()` already decides on the read side, and refusing
+   * it here would block a seller editing the title of a product whose sale
+   * ended last week.
+   */
+  deal_ends_at: z.string().datetime({ offset: true }).nullable().optional(),
   status: z.enum(PRODUCT_STATUSES).optional(),
   attributes: z.record(z.unknown()).optional(),
 });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
+
+/**
+ * The two rules `products` enforces about a sale, checked before Postgres does.
+ *
+ * Shared by both schemas and applied again in the service, because neither
+ * schema can see the whole picture on its own: a PATCH that raises
+ * `base_price_pesewas` past an untouched `compare_at_price_pesewas` is a valid
+ * patch and an invalid row, and only the service holds both halves.
+ */
+export function dealRuleIssue(row: {
+  base_price_pesewas?: number | null;
+  compare_at_price_pesewas?: number | null;
+  deal_ends_at?: string | null;
+}): string | null {
+  const { base_price_pesewas: base, compare_at_price_pesewas: compare } = row;
+  if (compare != null && base != null && compare <= base) {
+    return 'The “was” price has to be higher than the price you are selling at';
+  }
+  if (row.deal_ends_at != null && compare == null) {
+    return 'A sale that ends needs a “was” price to count down from';
+  }
+  return null;
+}
 
 export const addVariantSchema = variantInputSchema;
 export type AddVariantInput = z.infer<typeof addVariantSchema>;
