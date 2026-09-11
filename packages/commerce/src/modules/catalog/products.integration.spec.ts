@@ -619,4 +619,124 @@ describe.skipIf(!RUN_DB)('ProductsService (integration)', () => {
       });
     });
   });
+
+  // ------------------------------------------------------------------- a sale
+
+  /**
+   * `compare_at_price_pesewas` and `deal_ends_at` were read on four surfaces —
+   * the strikethrough on every card, the discount pill, the product screen and
+   * the home feed's Deals rail with its countdown — and were on NEITHER write
+   * schema. Every "was" price and every deal in the app came from
+   * `marketplace-demo.sql`; no seller could put a thing on sale.
+   *
+   * The rules were not new. `products_compare_at_above_price` and
+   * `products_deal_needs_compare_at` have been on the table since 0015, and the
+   * migration says why: "A strikethrough that is not actually a discount is a
+   * lie the UI would tell on every card, so the database refuses it." What
+   * these tests pin is that the service refuses the same things FIRST, so a
+   * seller's typo is a 422 they can read rather than a 500 and a Sentry alert.
+   */
+  const sale = (over: Record<string, unknown> = {}) => ({
+    store_id: storeId,
+    title: `Kente Scarf ${randomUUID().slice(0, 8)}`,
+    base_price_pesewas: 6_990,
+    ...over,
+  });
+
+  it('puts a product on sale', async () => {
+    const created = await products.create(
+      sale({ compare_at_price_pesewas: 9_990, deal_ends_at: '2030-12-24T23:59:00Z' }),
+      SYSTEM_ACTOR,
+    );
+
+    expect(created.compare_at_price_pesewas).toBe(9_990);
+    expect(created.deal_ends_at).not.toBeNull();
+  });
+
+  it('refuses a “was” price that is not above the price', async () => {
+    // The whole point of the field. Equal is not a discount either — it renders
+    // as a strikethrough over the same number.
+    for (const compare of [6_990, 1_000]) {
+      await expect(
+        products.create(sale({ compare_at_price_pesewas: compare }), SYSTEM_ACTOR),
+      ).rejects.toThrow(ProductValidationError);
+    }
+  });
+
+  it('refuses a countdown with nothing to count down from', async () => {
+    await expect(
+      products.create(sale({ deal_ends_at: '2030-12-24T23:59:00Z' }), SYSTEM_ACTOR),
+    ).rejects.toThrow(ProductValidationError);
+  });
+
+  it('lets a seller end a sale', async () => {
+    const created = await products.create(
+      sale({ compare_at_price_pesewas: 9_990, deal_ends_at: '2030-12-24T23:59:00Z' }),
+      SYSTEM_ACTOR,
+    );
+
+    const ended = await products.update(
+      created.id,
+      { compare_at_price_pesewas: null, deal_ends_at: null },
+      SYSTEM_ACTOR,
+    );
+
+    expect(ended.compare_at_price_pesewas).toBeNull();
+    expect(ended.deal_ends_at).toBeNull();
+  });
+
+  it('refuses a price rise that would leave the “was” price below it', async () => {
+    // THE ONE A SCHEMA CANNOT CATCH. This patch touches only
+    // `base_price_pesewas` and is perfectly valid on its own; it is the row it
+    // would produce that breaks. Without merging against the stored row it
+    // reaches Postgres, trips the CHECK, and a seller raising a price gets a
+    // 500.
+    const created = await products.create(sale({ compare_at_price_pesewas: 9_990 }), SYSTEM_ACTOR);
+
+    await expect(
+      products.update(created.id, { base_price_pesewas: 12_000 }, SYSTEM_ACTOR),
+    ).rejects.toThrow(ProductValidationError);
+
+    // And the row is untouched, not half-written.
+    const [row] = await db
+      .select({ price: schema.products.base_price_pesewas })
+      .from(schema.products)
+      .where(eq(schema.products.id, created.id));
+    expect(row?.price).toBe(6_990);
+  });
+
+  it('refuses clearing the “was” price while the sale is still running', async () => {
+    // The mirror of the above: the patch mentions `compare_at_price_pesewas`
+    // and says nothing about `deal_ends_at`, and the row it produces is a
+    // countdown to nothing.
+    const created = await products.create(
+      sale({ compare_at_price_pesewas: 9_990, deal_ends_at: '2030-12-24T23:59:00Z' }),
+      SYSTEM_ACTOR,
+    );
+
+    await expect(
+      products.update(created.id, { compare_at_price_pesewas: null }, SYSTEM_ACTOR),
+    ).rejects.toThrow(ProductValidationError);
+  });
+
+  it('allows a price rise the “was” price still sits above', async () => {
+    const created = await products.create(sale({ compare_at_price_pesewas: 9_990 }), SYSTEM_ACTOR);
+
+    const raised = await products.update(created.id, { base_price_pesewas: 8_000 }, SYSTEM_ACTOR);
+
+    expect(raised.base_price_pesewas).toBe(8_000);
+    expect(raised.compare_at_price_pesewas).toBe(9_990);
+  });
+
+  it('takes a deal that has already ended, because that is just an ended deal', async () => {
+    // Not refused, deliberately. `deal_ends_at > NOW()` on the read side is
+    // what decides whether a deal is live, and refusing a past date here would
+    // block a seller editing the title of something whose sale ended last week.
+    const created = await products.create(
+      sale({ compare_at_price_pesewas: 9_990, deal_ends_at: '2020-01-01T00:00:00Z' }),
+      SYSTEM_ACTOR,
+    );
+
+    expect(created.deal_ends_at).not.toBeNull();
+  });
 });

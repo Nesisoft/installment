@@ -510,11 +510,59 @@ survive: it is invisible until the table is big enough for the planner to have
 a choice. The twenty-thousand-row test is the one that reproduces it, and it
 is a statement about `ORDER BY` over ties rather than a gate on our own code.
 
-### 6.6 Deal prices exist only in the seed
+### 6.6 Deal prices exist only in the seed — fixed
 
-`products.compare_at_price_pesewas` and `deal_ends_at` are read on four
-surfaces and are absent from every write dto. The strikethrough "was" price and
-the deal countdown can only ever come from `marketplace-demo.sql`.
+**The finding.** `products.compare_at_price_pesewas` and `deal_ends_at` were
+read on four surfaces — the strikethrough on every card, the discount pill, the
+product screen and the home feed's Deals rail with its countdown — and were on
+neither write DTO. Every sale in the app came from `marketplace-demo.sql`; no
+seller could put anything on sale.
+
+**The rules were not new.** `products_compare_at_above_price` and
+`products_deal_needs_compare_at` have been on the table since 0015, and that
+migration already said why:
+
+> A strikethrough that is not actually a discount is a lie the UI would tell on
+> every card, so the database refuses it.
+
+So this slice did not invent a policy; it made the write path agree with one
+that was already enforced. That distinction matters, because a DTO looser than
+the CHECK turns a seller's typo into a Postgres constraint violation — a 500
+and a Sentry alert where a 422 was owed.
+
+**Where the rule lives.** In three places, deliberately, and only one of them
+could have done the job alone:
+
+- the CHECK, which is the guarantee;
+- `dealRuleIssue`, shared by the backend DTO and its api-types mirror;
+- the service, which re-runs it against the row a PATCH would *produce*.
+
+That last one is the case no schema can express. Raising `base_price_pesewas`
+past a `compare_at_price_pesewas` the patch never mentions is a perfectly valid
+patch and an invalid row; so is clearing a "was" price while the sale is still
+running. `update` locks the row, merges, and checks — otherwise both reach
+Postgres and come back as a 500.
+
+**A past `deal_ends_at` is accepted**, and that is not an oversight. `deal_ends_at
+> NOW()` on the read side is what decides whether a deal is live, and refusing a
+past date would block a seller editing the title of something whose sale ended
+last week.
+
+**And one thing I had wrong.** I thought `ProductCard` needed fixing, because it
+renders the strikethrough on the field's mere presence rather than on it being
+higher than the price. It does not: the CHECK guarantees `compare_at >
+base_price` for anything in the table, so the card cannot draw a fake discount.
+The guarantee was already load-bearing; I had simply not read it before
+assuming the client was wrong.
+
+**A fourth drift, found on the way.** The published `Product` interface was
+missing `compare_at_price_pesewas`, `deal_ends_at`, `updated_at` and
+`deleted_at` — all four returned by every product read. That is why the
+seller's own edit screen could not see the sale it was meant to edit. It is
+also the one kind of drift `api-types-mirror.spec.ts` could not catch, since
+vitest runs through esbuild and a type assertion between two interfaces passes
+whatever either says. `PRODUCT_FIELDS` is now a runtime list compared against
+the server's own `productCols`.
 
 ### 6.7a Saving a delivery address from the phone returned 400 — fixed
 

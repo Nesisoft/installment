@@ -872,11 +872,57 @@ export interface Product {
   description: string | null;
   status: ProductStatus;
   base_price_pesewas: number;
+  /**
+   * The "was" price, always strictly above `base_price_pesewas` — the table's
+   * `products_compare_at_above_price` CHECK sees to that, so a client can
+   * render the strikethrough on this field's presence alone.
+   */
+  compare_at_price_pesewas: number | null;
+  /** When the sale ends. Never set without a "was" price to count down from. */
+  deal_ends_at: string | null;
   currency: 'GHS';
   attributes: Record<string, unknown>;
   metadata: Record<string, unknown>;
   created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
 }
+
+/**
+ * Every field `Product` declares, as a runtime list.
+ *
+ * The mirror spec compares this to the server's own `productCols`, and it
+ * exists because a hand-written interface is the one kind of drift that gate
+ * cannot otherwise see: vitest runs through esbuild, which strips type
+ * annotations without checking them, so a structural assertion between two
+ * types passes no matter what either says.
+ *
+ * It caught a real one on arrival — `compare_at_price_pesewas`, `deal_ends_at`,
+ * `updated_at` and `deleted_at` were all being returned by the API and declared
+ * by nothing, so the seller's own edit screen could not see the sale it was
+ * supposed to edit.
+ *
+ * `satisfies` keeps the list honest in the other direction: a name here that is
+ * not a key of `Product` fails to compile.
+ */
+export const PRODUCT_FIELDS = [
+  'id',
+  'store_id',
+  'merchant_id',
+  'category_id',
+  'title',
+  'description',
+  'status',
+  'base_price_pesewas',
+  'compare_at_price_pesewas',
+  'deal_ends_at',
+  'currency',
+  'attributes',
+  'metadata',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+] as const satisfies readonly (keyof Product)[];
 
 export interface ProductVariant {
   id: string;

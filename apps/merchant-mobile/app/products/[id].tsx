@@ -61,6 +61,7 @@ export default function ProductScreen(): React.ReactElement {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
+  const [wasPrice, setWasPrice] = useState('');
   const [status, setStatus] = useState<ProductStatus>('draft');
   const [categoryId, setCategoryId] = useState<string | undefined>();
   const [restocking, setRestocking] = useState(false);
@@ -71,37 +72,64 @@ export default function ProductScreen(): React.ReactElement {
   const savedTitle = p?.title ?? '';
   const savedDescription = p?.description ?? '';
   const savedPrice = p ? cedis(p.base_price_pesewas).replace(/,/g, '') : '';
+  const savedWas = p?.compare_at_price_pesewas
+    ? cedis(p.compare_at_price_pesewas).replace(/,/g, '')
+    : '';
   const savedStatus = p?.status ?? 'draft';
   const savedCategory = p?.category_id ?? undefined;
 
-  // The five values, never the query result: React Query hands back a new
+  // The six values, never the query result: React Query hands back a new
   // object on every background refetch, and depending on it would wipe a
   // half-typed price.
   useEffect(() => {
     setTitle(savedTitle);
     setDescription(savedDescription);
     setPrice(savedPrice);
+    setWasPrice(savedWas);
     setStatus(savedStatus);
     setCategoryId(savedCategory);
-  }, [savedTitle, savedDescription, savedPrice, savedStatus, savedCategory]);
+  }, [savedTitle, savedDescription, savedPrice, savedWas, savedStatus, savedCategory]);
 
   const pesewas = parseGhsToPesewas(price);
+
+  /**
+   * The "was" price, checked against the price in the SAME form.
+   *
+   * `products_compare_at_above_price` refuses anything not strictly above the
+   * selling price, and on an edit either half can move — raising the price past
+   * an untouched "was" breaks the row just as surely as lowering the "was"
+   * does. The service re-checks the merged row for the same reason; this is so
+   * the seller sees it while typing.
+   */
+  const wasTyped = wasPrice.trim().length > 0;
+  const wasPesewas = wasTyped ? parseGhsToPesewas(wasPrice) : null;
+  const wasError = !wasTyped
+    ? null
+    : wasPesewas === null
+      ? 'Enter a plain amount, like 400.00.'
+      : pesewas !== null && wasPesewas <= pesewas
+        ? 'The old price has to be higher than what you are charging now.'
+        : null;
+
   const dirty = useMemo(
     () =>
       title !== savedTitle ||
       description !== savedDescription ||
       price !== savedPrice ||
+      wasPrice !== savedWas ||
       status !== savedStatus ||
       categoryId !== savedCategory,
     [
       title,
       description,
       price,
+      wasPrice,
       status,
       categoryId,
       savedTitle,
       savedDescription,
       savedPrice,
+      savedWas,
       savedStatus,
       savedCategory,
     ],
@@ -141,6 +169,7 @@ export default function ProductScreen(): React.ReactElement {
     if (!title.trim()) return setError('A listing needs a name buyers will recognise.');
     if (pesewas === null) return setError('Enter the price as a plain amount, like 320.00.');
     if (pesewas === 0) return setError('A price of zero cannot be sold.');
+    if (wasError) return setError(wasError);
     update.mutate(
       {
         title: title.trim(),
@@ -148,6 +177,9 @@ export default function ProductScreen(): React.ReactElement {
         // column rather than leaving the old text on the storefront.
         description: description.trim() || null,
         base_price_pesewas: pesewas,
+        // Null, not omitted: clearing the box has to end the sale rather than
+        // silently leave the old strikethrough on every card.
+        compare_at_price_pesewas: wasPesewas,
         status,
         category_id: categoryId ?? null,
       },
@@ -274,6 +306,21 @@ export default function ProductScreen(): React.ReactElement {
                 pesewas !== null && p && pesewas !== p.base_price_pesewas
                   ? `Was ${ghs(p.base_price_pesewas)}. A price change does not affect orders already placed.`
                   : undefined
+              }
+            />
+            <Field
+              label="WAS (GHS) — OPTIONAL"
+              value={wasPrice}
+              onChangeText={setWasPrice}
+              placeholder="400.00"
+              keyboardType="decimal-pad"
+              error={wasError}
+              hint={
+                wasPesewas !== null && pesewas !== null && wasPesewas > pesewas
+                  ? `Buyers see ${ghs(wasPesewas)} struck through and ${Math.round((1 - pesewas / wasPesewas) * 100)}% off.`
+                  : savedWas
+                    ? 'Clear this to end the sale.'
+                    : 'The old price, if this is on sale.'
               }
             />
           </Card>

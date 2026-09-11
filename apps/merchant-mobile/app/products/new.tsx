@@ -67,6 +67,7 @@ export default function NewProductScreen(): React.ReactElement {
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState<string | undefined>();
   const [price, setPrice] = useState('');
+  const [wasPrice, setWasPrice] = useState('');
   const [photoKeys, setPhotoKeys] = useState<string[]>([]);
   const [photoUris, setPhotoUris] = useState<string[]>([]);
   const [optionName, setOptionName] = useState('');
@@ -77,6 +78,24 @@ export default function NewProductScreen(): React.ReactElement {
 
   const pesewas = parseGhsToPesewas(price);
   const priceTyped = price.trim().length > 0;
+
+  /**
+   * The "was" price, and the one rule the database has about it.
+   *
+   * `products_compare_at_above_price` has refused anything not strictly above
+   * the selling price since 0015 — "a strikethrough that is not actually a
+   * discount is a lie the UI would tell on every card". Checking here means a
+   * seller sees it while they are typing rather than on submit.
+   */
+  const wasTyped = wasPrice.trim().length > 0;
+  const wasPesewas = wasTyped ? parseGhsToPesewas(wasPrice) : null;
+  const wasError = !wasTyped
+    ? null
+    : wasPesewas === null
+      ? 'Enter a plain amount, like 400.00.'
+      : pesewas !== null && wasPesewas <= pesewas
+        ? 'The old price has to be higher than what you are charging now.'
+        : null;
 
   /**
    * Which plans this price can actually be sold on.
@@ -157,6 +176,7 @@ export default function NewProductScreen(): React.ReactElement {
     if (!title.trim()) return setError('Give the listing a name buyers will recognise.');
     if (pesewas === null) return setError('Enter the price as a plain amount, like 320.00.');
     if (pesewas === 0) return setError('A price of zero cannot be sold. Enter what it costs.');
+    if (wasError) return setError(wasError);
 
     const named = options.filter((o) => o.value.trim());
     const values = named.map((o) => o.value.trim().toLowerCase());
@@ -184,6 +204,8 @@ export default function NewProductScreen(): React.ReactElement {
         ...(description.trim() ? { description: description.trim() } : {}),
         ...(categoryId ? { category_id: categoryId } : {}),
         base_price_pesewas: pesewas,
+        // Omitted rather than sent as null when the seller left it blank.
+        ...(wasPesewas !== null ? { compare_at_price_pesewas: wasPesewas } : {}),
         status,
         variants,
         images: photoKeys.map((storage_key, position) => ({ storage_key, position })),
@@ -287,6 +309,19 @@ export default function NewProductScreen(): React.ReactElement {
               keyboardType="decimal-pad"
               error={priceTyped && pesewas === null ? 'Enter a plain amount, like 320.00.' : null}
             />
+            <Field
+              label="WAS (GHS) — OPTIONAL"
+              value={wasPrice}
+              onChangeText={setWasPrice}
+              placeholder="400.00"
+              keyboardType="decimal-pad"
+              error={wasError}
+            />
+            <Text variant="tiny" tone="muted" style={styles.saleHint}>
+              {wasPesewas !== null && pesewas !== null && wasPesewas > pesewas
+                ? `Buyers see ${ghs(wasPesewas)} struck through and a ${Math.round((1 - pesewas / wasPesewas) * 100)}% off badge.`
+                : 'The old price, if this is on sale. It has to be higher than what you are charging — a strikethrough that is not a real discount is not allowed.'}
+            </Text>
           </Card>
 
           <View>
@@ -495,6 +530,7 @@ const styles = StyleSheet.create({
   body: { padding: space.lg, gap: space.xl },
   gap: { gap: space.lg },
   lead: { marginTop: space.sm, lineHeight: 16 },
+  saleHint: { lineHeight: 16 },
   multiline: { minHeight: 78, textAlignVertical: 'top' },
 
   photos: { flexDirection: 'row', gap: space.sm, paddingRight: space.lg },
