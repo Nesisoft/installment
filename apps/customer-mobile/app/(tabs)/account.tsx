@@ -175,6 +175,11 @@ export default function AccountScreen(): React.ReactElement {
             onPress={() => router.push('/plans')}
           />
           <MenuRow
+            label="Your details"
+            hint={me.date_of_birth ? undefined : 'Date of birth missing'}
+            onPress={() => router.push('/profile')}
+          />
+          <MenuRow
             label="Wallet & payments"
             hint={network ?? 'Not set'}
             onPress={() => router.push('/wallet')}

@@ -127,6 +127,17 @@ export class MeShopperController {
       momo_provider: customer.momo_provider,
       kyc_tier: customer.kyc_tier,
       ghana_card_verified: customer.ghana_card_verified,
+      /**
+       * Returned so the shopper can see whether we have one, and fix it.
+       *
+       * #83 made this writable through `PATCH /me/profile` precisely so an
+       * account opened before signup asked for a birthday could supply one —
+       * without it `gate.age_range` declines every instalment application. But
+       * the read never exposed it and no screen ever called the patch, so the
+       * remedy was unreachable from the app: the fix existed and the person who
+       * needed it could not get to it.
+       */
+      date_of_birth: customer.date_of_birth,
       // Consents are surfaced as timestamps, not booleans: "when did I agree to
       // a credit check" is the question a customer (and a regulator) actually
       // asks, and a boolean cannot answer it.

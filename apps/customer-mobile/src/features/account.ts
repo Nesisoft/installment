@@ -47,8 +47,17 @@ export function useUpdateProfile() {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (patch: { first_name?: string; last_name?: string; email?: string }) =>
-      (await api.patch('/me/profile', patch)).data,
+    mutationFn: async (patch: {
+      first_name?: string;
+      last_name?: string;
+      email?: string;
+      /**
+       * The field the whole patch route exists for. Added to the server schema
+       * in #83 and missing from this type until now, so even a screen that
+       * called this hook could not have sent one.
+       */
+      date_of_birth?: string;
+    }) => (await api.patch('/me/profile', patch)).data,
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['profile'] }),
   });
 }

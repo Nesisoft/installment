@@ -670,23 +670,83 @@ not yours reads as 404 whatever its state. The decision paths are unaffected
 (they scope through `lockOrder` on the merchant id); the test was watched to
 fail against the old shape.
 
-### 6.9 Reported once, not verified
+### 6.9 Reported once, then verified
 
-An audit pass raised these and its verification stage never ran. Treat each as
-a lead, not a finding: ~~no address book (four address routes unreached); no
-saved-items screen (`GET /me/wishlist` unconsumed, both "Saved" controls open
-Browse);~~ **both now verified and fixed — see §6.10**; a notification bell opening a tab with no notifications; "LIMIT LEFT
-GHS 0.00" shown to a customer with no limit; "Deliver to Accra" hard-coded in
-three places and also pricing the delivery quote; no pay-early, receipt or
-statement on Instalments; profile and consents read-only for the life of the
-account; `pickup_hubs` with no write route; `search_queries.customer_id`
-written NULL on every row; three of seven `shipments` statuses unreachable;
-and six dead customer routes.
+An audit pass raised eleven leads and its verification stage never ran, so they
+sat here as guesses. Every one has now been checked against the code. Nine were
+true; one was true and worse than described; one was overstated.
 
-Four surfaces — the merchant apps, the engine and money paths, the web apps,
-and tests/ops — were never audited at all.
+| Lead | Verdict |
+|---|---|
+| No address book | **True** — fixed in #88 |
+| No saved-items screen | **True** — fixed in #88 |
+| Profile and consents read-only for the life of the account | **True, and worse — see below.** Fixed here |
+| "LIMIT LEFT GHS 0.00" to a customer with no limit | **True, and the field to prevent it already existed.** Fixed here |
+| A notification bell opening a tab with no notifications | **True** — it was labelled "Notifications" and pushed `/account`. Removed here |
+| "Deliver to Accra" hard-coded in three places | **True** — `DEFAULT_CITY` in six places, including the home feed, search and trending. Deferred |
+| No pay-early, receipt or statement on Instalments | **True** — `usePayInstallmentLink` exists and calls `POST /me/installments/:id/pay-link`; no screen uses it. Deferred |
+| `pickup_hubs` with no write route | **True** — no POST, PATCH, PUT or DELETE anywhere. Deferred |
+| `search_queries.customer_id` written NULL on every row | **True** — deferred, see the prerequisite below |
+| Three of seven `shipments` statuses unreachable | **True.** The CHECK permits seven; the service writes `dispatched`, `out_for_delivery` and `delivered`, and `pending` is the column default — so `in_transit`, `failed` and `returned` are the three. Deferred |
+| Six dead customer routes | **Overstated.** Comparing verb-and-path against every call the app makes: **two**, `DELETE /me/cart` and `GET /me/addresses/:id`. The second is genuinely redundant — the address book reads the list |
 
----
+### 6.9a The date-of-birth remedy was unreachable
+
+The worst of them, and it is mine.
+
+#83 made `date_of_birth` writable through `PATCH /me/profile` for one stated
+reason: an account opened before signup asked for a birthday is declined every
+instalment application by `gate.age_range`, which is a hard gate that refuses an
+age it does not know. The commit said so — "a customer with no route to fix that
+is a customer who can never buy."
+
+Three things then made that route unreachable, and each looked fine on its own:
+
+- `useUpdateProfile` existed and **no screen called it**.
+- The hook's own parameter type listed `first_name`, `last_name` and `email` —
+  **not `date_of_birth`**, so even a screen that used it could not have sent one.
+- `GET /me/profile` **did not return** `date_of_birth`, so nothing could show a
+  customer whether theirs was missing.
+
+The fix shipped, and the person it was for could not get to it. All three are
+closed here, with `app/profile.tsx` as the screen, and the account row carries
+a "Date of birth missing" hint so the customer who needs it is told rather than
+left to find it.
+
+### 6.9b The credit tile could not tell "never scored" from "spent it all"
+
+The home header rendered `ghs(credit.available_pesewas)` under the label "LIMIT
+LEFT", and `available_pesewas` is `Math.max(0, limit - inUse)` — which is `0`
+for a customer who has never been assessed. So a new shopper read that they had
+a limit and had used all of it.
+
+`CreditStanding.has_limit` exists for exactly this, and its docstring says so:
+*"Whether a limit has ever been set — false means 'never scored'."* The tile
+ignored it. It now reads "INSTALMENTS / Check yours" until there is a real
+limit to report.
+
+### 6.9c Still true, and deliberately left
+
+- **`search_queries.customer_id` is NULL on every row.** The column exists,
+  `StorefrontService.search` accepts a `customerId` in its context, and the
+  controller never passes one. It cannot: the route is `@Public()`, and the
+  guard's first line is `if (isPublic) return true` — it returns before
+  decoding a token, so no user is attached even when one is signed in.
+  Attributing a search needs an optional-auth path that does not exist, which
+  is a slice, not a line.
+- **Three unreachable `shipments` statuses.** `in_transit`, `failed` and
+  `returned` are permitted by the CHECK and written by nothing. Each needs a
+  decision before it needs code: who marks a parcel in transit, what happens to
+  an order when delivery fails, and how a courier return differs from
+  `order_returns`.
+- **`DEFAULT_CITY = 'Accra'`**, in six places. Wrong for a shopper in Kumasi in
+  a way that is invisible to them — the home feed, trending and pickup hubs are
+  all silently Accra's. Needs a city the shopper picks or an address to derive
+  from, plus somewhere to keep it.
+- **No pay-early.** `usePayInstallmentLink` is written and calls a real route;
+  it wants a screen and a decision about whether early settlement changes what
+  is owed.
+- **No `pickup_hubs` write route.** Hubs are seeded and unmanageable.
 
 ## 6.10 The address book and saved items
 

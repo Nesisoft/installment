@@ -299,6 +299,8 @@ export interface CustomerProfile {
   momo_provider: MomoProvider | null;
   kyc_tier: number;
   ghana_card_verified: boolean;
+  /** `YYYY-MM-DD`, or null for an account opened before signup asked. */
+  date_of_birth: string | null;
   consents: {
     data_processing_at: string | null;
     credit_scoring_at: string | null;
