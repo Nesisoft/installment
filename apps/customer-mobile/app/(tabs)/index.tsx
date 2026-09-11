@@ -60,22 +60,30 @@ export default function HomeScreen(): React.ReactElement {
                 onPress={() => router.push('/wallet')}
                 style={styles.walletChip}
               >
+                {/* `has_limit` is what tells "never assessed" from "spent it
+                    all", and its own docstring says so — "false means never
+                    scored". The tile ignored it and rendered
+                    `ghs(available_pesewas)`, so a shopper who has never been
+                    scored read "LIMIT LEFT GHS 0": a limit they had used up,
+                    rather than one they have not been given. */}
                 <Text variant="eyebrow" tone="onDarkFaint">
-                  LIMIT LEFT
+                  {credit.data?.has_limit ? 'LIMIT LEFT' : 'INSTALMENTS'}
                 </Text>
                 <Text variant="smallMedium" tone="onDark">
-                  {credit.data ? ghs(credit.data.available_pesewas) : '—'}
+                  {!credit.data
+                    ? '—'
+                    : credit.data.has_limit
+                      ? ghs(credit.data.available_pesewas)
+                      : 'Check yours'}
                 </Text>
               </Pressable>
             ) : null}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Notifications"
-              hitSlop={10}
-              onPress={() => router.push('/account')}
-            >
-              <Icon name="bell" size={19} color={color.onDark} />
-            </Pressable>
+            {/* The bell is gone rather than repointed. It was labelled
+                "Notifications" and opened the Account tab, which is not what a
+                bell means anywhere. A real one needs `GET /me/notifications`,
+                which does not exist — though `PushNotifier` has been writing
+                the rows since #74, so the data is there waiting for a route and
+                a screen. Better nothing than a control that lies. */}
           </View>
         </View>
 

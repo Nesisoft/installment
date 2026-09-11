@@ -70,6 +70,7 @@ const PROTECTED = [
   'reviews',
   'addresses',
   'saved',
+  'profile',
 ];
 
 function Routes(): React.ReactElement | null {
@@ -116,6 +117,7 @@ function Routes(): React.ReactElement | null {
       <Stack.Screen name="addresses/index" />
       <Stack.Screen name="addresses/edit" />
       <Stack.Screen name="saved" />
+      <Stack.Screen name="profile" />
       <Stack.Screen name="returns/index" />
       <Stack.Screen name="returns/new" />
       <Stack.Screen name="reviews/index" />
