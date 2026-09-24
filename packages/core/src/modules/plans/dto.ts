@@ -26,6 +26,8 @@ export const createPlanTemplateSchema = z
     interest_rate_bps: z.number().int().min(0).max(10_000).default(0),
     service_fee_flat_pesewas: z.number().int().min(0).default(0),
     late_fee_pesewas: z.number().int().min(0).default(0),
+    late_fee_bps_per_week: z.number().int().min(0).max(10_000).default(0),
+    late_fee_cap_bps: z.number().int().min(0).max(10_000).default(0),
     grace_period_days: z.number().int().min(0).max(14).default(3),
 
     min_amount_pesewas: z.number().int().min(0),
@@ -59,6 +61,8 @@ export const updatePlanTemplateSchema = z
     interest_rate_bps: z.number().int().min(0).max(10_000),
     service_fee_flat_pesewas: z.number().int().min(0),
     late_fee_pesewas: z.number().int().min(0),
+    late_fee_bps_per_week: z.number().int().min(0).max(10_000),
+    late_fee_cap_bps: z.number().int().min(0).max(10_000),
     grace_period_days: z.number().int().min(0).max(14),
     min_amount_pesewas: z.number().int().min(0),
     max_amount_pesewas: z.number().int().min(1),

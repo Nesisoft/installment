@@ -233,6 +233,13 @@ export class CustomerPlansService {
             grace_period_days: template.grace_period_days,
             mdr_bps: effectiveMdrBps,
             reserve_bps: effectiveReserveBps,
+            // The plan is the contract: snapshot the late-fee terms here so
+            // repricing the template later cannot change what this customer
+            // agreed to. LateFeeService reads these columns and nothing else,
+            // so omitting them (as this insert did) left every plan at the
+            // column default of 0 and made accrual unreachable.
+            late_fee_bps_per_week: template.late_fee_bps_per_week,
+            late_fee_cap_bps: template.late_fee_cap_bps,
             order_amount_pesewas: application.order_amount_pesewas,
             down_payment_pesewas: generated.downPaymentPesewas,
             financed_amount_pesewas: generated.financedAmountPesewas,
@@ -413,7 +420,17 @@ export class CustomerPlansService {
       )[0];
       if (!plan) throw new CustomerPlanNotFoundError(installment.customer_plan_id);
 
+      // Two different numbers, and conflating them inflates the plan's debt.
+      // `refundAmount` is cash going back to the customer: they paid the
+      // instalment *and* its late fee, so both come back. `restoredDebt` is
+      // what the plan owes again — and `finalisePaidInstallment` only ever
+      // took `amount_due` off `outstanding_pesewas`, because a late fee is a
+      // penalty on top of the contract, not part of `total_payable_pesewas`.
+      // Adding the fee back here raised `outstanding` above `total_payable`
+      // and the CHECK aborted the whole refund, so a late payer could not be
+      // refunded at all.
       const refundAmount = installment.amount_paid_pesewas;
+      const restoredDebt = installment.amount_due_pesewas;
 
       const [updatedSchedule] = await tx
         .update(sched)
@@ -436,7 +453,7 @@ export class CustomerPlansService {
       // Re-open the plan if the refund pushes outstanding back above zero.
       // (Conceptually the order is no longer satisfied — the customer is owed
       // money back, so the plan can't remain in `completed`.)
-      const newOutstanding = plan.outstanding_pesewas + refundAmount;
+      const newOutstanding = plan.outstanding_pesewas + restoredDebt;
       const reopen = plan.status === 'completed' && newOutstanding > 0;
       const [updatedPlan] = await tx
         .update(cp)

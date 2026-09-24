@@ -42,6 +42,8 @@ export class PlanTemplatesService {
           interest_rate_bps: input.interest_rate_bps,
           service_fee_flat_pesewas: input.service_fee_flat_pesewas,
           late_fee_pesewas: input.late_fee_pesewas,
+          late_fee_bps_per_week: input.late_fee_bps_per_week,
+          late_fee_cap_bps: input.late_fee_cap_bps,
           grace_period_days: input.grace_period_days,
           min_amount_pesewas: input.min_amount_pesewas,
           max_amount_pesewas: input.max_amount_pesewas,
