@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ReconciliationService } from '@installment/core';
 import type { Env } from '../config/env.validation';
-import { captureWorkerError } from '../common/alerting';
+import { captureAlert, captureWorkerError } from '../common/alerting';
 
 const RECONCILE_BATCH_LIMIT = 100;
 
@@ -45,6 +45,18 @@ export class ReconciliationCron {
         },
         'payout reconciliation sweep complete',
       );
+      // The sweep now survives a row it cannot resolve rather than throwing,
+      // so an unresolved payout no longer surfaces as a failed run. It is
+      // money in flight that nobody has confirmed — mirror what the refund
+      // reconciler already does and say so.
+      if (summary.unresolved > 0) {
+        captureAlert('payouts could not be reconciled', 'error', {
+          unresolved: summary.unresolved,
+          references: summary.results
+            .filter((r) => r.outcome === 'unresolved')
+            .map((r) => r.reference),
+        });
+      }
     } catch (err) {
       this.logger.error({ err }, 'payout reconciliation sweep failed');
       captureWorkerError(err, 'reconciliation');
