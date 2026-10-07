@@ -1,4 +1,4 @@
-import { asc, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, or } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { SettlementService, type PayoutStatus } from './settlement.service';
 import type { RefundService, RefundStatus } from '../refunds/refund.service';
@@ -241,7 +241,22 @@ export class ReconciliationService {
     const stale = await this.db
       .select()
       .from(refunds)
-      .where(inArray(refunds.status, [...RECONCILABLE_STATUSES]))
+      .where(
+        or(
+          inArray(refunds.status, [...RECONCILABLE_STATUSES]),
+          // Claimed but never resolved. `claimForSubmission` stamps
+          // `submitted_at` and leaves the status at `initiated`; if the write
+          // after the provider call then throws, the row sits in a gap between
+          // the two queues — `findUnsent` skips it because `submitted_at` is
+          // set, and this sweep used to skip it because the status is not
+          // `pending_confirmation` or `unknown`. A refund submitted to Paystack
+          // that nothing will ever look at again is the worst of the three
+          // states, so claim it here. Without a provider refund id it resolves
+          // to `unresolved`, which is honest: it cannot be verified and must
+          // not be re-sent, and the cron alerts on it.
+          and(eq(refunds.status, 'initiated'), isNotNull(refunds.submitted_at)),
+        ),
+      )
       .orderBy(asc(refunds.requested_at))
       .limit(opts.limit ?? 100);
 
