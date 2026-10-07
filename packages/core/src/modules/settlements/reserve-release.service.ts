@@ -32,16 +32,27 @@ export interface ReserveReleaseResult {
   fullyReleased: boolean;
 }
 
+export interface ReserveReleaseFailure {
+  heldReserveId: string;
+  customerPlanId: string;
+  /** The error's message — a reserve that would not release needs a name. */
+  error: string;
+}
+
 export interface ReserveReleaseSummary {
   merchantId: string;
   totalReleasedPesewas: number;
   releases: ReserveReleaseResult[];
+  /** Rows that threw. Each is a merchant still waiting on their money. */
+  failures: ReserveReleaseFailure[];
 }
 
 export interface ReserveSweepSummary {
   asOf: string;
   merchantsChecked: number;
   totalReleasedPesewas: number;
+  /** Rows that threw, across every merchant. Non-zero deserves an alert. */
+  failedReleases: number;
   perMerchant: ReserveReleaseSummary[];
 }
 
@@ -206,6 +217,7 @@ export class ReserveReleaseService {
       .where(and(eq(held.merchant_id, merchantId), isNull(held.fully_released_at)));
 
     const releases: ReserveReleaseResult[] = [];
+    const failures: ReserveReleaseFailure[] = [];
     let totalReleased = 0;
 
     for (const row of openReserves) {
@@ -214,14 +226,26 @@ export class ReserveReleaseService {
       // delivery, no default), so there is nothing to mature.
       if (!releasableFrom || releasableFrom > asOf) continue;
 
-      const result = await this.releaseOne(row, asOf);
-      if (result.releasedPesewas > 0 || result.fullyReleased) {
-        releases.push(result);
-        totalReleased += result.releasedPesewas;
+      // Per-row isolation, which is the half of this method's contract that
+      // the per-row transaction does not provide. Without the catch, one bad
+      // row ended the sweep for every row after it — and, through runSweep,
+      // for every merchant after this one.
+      try {
+        const result = await this.releaseOne(row, asOf);
+        if (result.releasedPesewas > 0 || result.fullyReleased) {
+          releases.push(result);
+          totalReleased += result.releasedPesewas;
+        }
+      } catch (err) {
+        failures.push({
+          heldReserveId: row.id,
+          customerPlanId: row.customer_plan_id,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
-    return { merchantId, totalReleasedPesewas: totalReleased, releases };
+    return { merchantId, totalReleasedPesewas: totalReleased, releases, failures };
   }
 
   /**
@@ -238,16 +262,38 @@ export class ReserveReleaseService {
 
     const perMerchant: ReserveReleaseSummary[] = [];
     let totalReleased = 0;
+    let failedReleases = 0;
     for (const { merchantId } of merchants) {
-      const summary = await this.releaseMaturedReserves(merchantId, asOf);
-      perMerchant.push(summary);
-      totalReleased += summary.totalReleasedPesewas;
+      // releaseMaturedReserves already isolates per row; this guards against
+      // the surrounding query failing for one merchant (a lock timeout, a
+      // dropped connection) taking every later merchant down with it.
+      try {
+        const summary = await this.releaseMaturedReserves(merchantId, asOf);
+        perMerchant.push(summary);
+        totalReleased += summary.totalReleasedPesewas;
+        failedReleases += summary.failures.length;
+      } catch (err) {
+        perMerchant.push({
+          merchantId,
+          totalReleasedPesewas: 0,
+          releases: [],
+          failures: [
+            {
+              heldReserveId: '',
+              customerPlanId: '',
+              error: err instanceof Error ? err.message : String(err),
+            },
+          ],
+        });
+        failedReleases += 1;
+      }
     }
 
     return {
       asOf: asOf.toISOString(),
       merchantsChecked: merchants.length,
       totalReleasedPesewas: totalReleased,
+      failedReleases,
       perMerchant,
     };
   }
@@ -282,7 +328,11 @@ export class ReserveReleaseService {
       // Never release more reserve than the ledger still holds for the plan (a
       // refund or a default may have drawn part of it down).
       const ledgerBalance = await this.ledger.balanceOf('reserve_held', row.customer_plan_id, tx);
-      const amount = Math.max(0, Math.min(desired, ledgerBalance));
+      // `Number.isFinite` rather than `> 0`: a non-finite amount passes every
+      // `<= 0` guard below and only fails at the ledger, which is far too late
+      // to tell which row was at fault.
+      const bookable = Number.isFinite(desired) && Number.isFinite(ledgerBalance);
+      const amount = bookable ? Math.max(0, Math.min(desired, ledgerBalance)) : 0;
 
       const newReleased = row.released_amount_pesewas + amount;
       // Done when the held_reserves accounting is exhausted, or the ledger has
@@ -378,6 +428,14 @@ export class ReserveReleaseService {
     if (monthsElapsed >= policy.months) return remaining;
 
     const perMonth = Math.floor(row.amount_pesewas / policy.months);
+    // A reserve smaller than its term in months has no whole-pesewa monthly
+    // slice. Dividing by the resulting zero produced NaN, and every guard
+    // between here and the ledger is a `<= 0` comparison — which NaN fails —
+    // so it travelled all the way to `ledger.record` and threw there, taking
+    // the rest of the sweep with it. There is nothing to dribble out monthly,
+    // so release the remainder once the first month has elapsed.
+    if (perMonth <= 0) return remaining;
+
     const monthsAlreadyReleased = Math.floor(row.released_amount_pesewas / perMonth);
     const monthsToRelease = monthsElapsed - monthsAlreadyReleased;
     if (monthsToRelease <= 0) return 0;
