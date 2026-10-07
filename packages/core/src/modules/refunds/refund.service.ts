@@ -243,7 +243,26 @@ export class RefundService {
     };
 
     for (const row of await this.findUnsent(limit)) {
-      const result = await this.disburse(row.reference);
+      // Per-item isolation. `disburse` wraps the provider call, but everything
+      // after it — confirmRefund, markUnknown, the pending write — takes a
+      // FOR UPDATE lock and posts to the ledger, so it can throw. Letting that
+      // escape ended the sweep for every refund behind this one, and the cron
+      // runs both halves under one try, so it also skipped the reconciliation
+      // pass that would have healed them.
+      let result: DisburseResult;
+      try {
+        result = await this.disburse(row.reference);
+      } catch (err) {
+        // `unknown` is the accurate bucket: the provider call may well have
+        // succeeded, so this must never be re-sent blindly. The cron already
+        // alerts on it.
+        result = {
+          refundId: row.id,
+          reference: row.reference,
+          outcome: 'unknown',
+          reason: err instanceof Error ? err.message : String(err),
+        };
+      }
       if (result.outcome === 'skipped') continue;
       summary.attempted += 1;
       summary.results.push(result);
