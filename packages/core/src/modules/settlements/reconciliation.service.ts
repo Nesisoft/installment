@@ -114,11 +114,26 @@ export class ReconciliationService {
     };
 
     for (const payout of stale) {
-      const result = await this.reconcileOne({
-        id: payout.id,
-        reference: payout.reference,
-        status: payout.status as PayoutStatus,
-      });
+      // Structural backstop. reconcileOne is written not to throw, but the
+      // loop must not depend on that: one unreconciled payout is money in
+      // flight, and killing the sweep leaves every payout behind it in flight
+      // too.
+      let result: ReconciliationResult;
+      try {
+        result = await this.reconcileOne({
+          id: payout.id,
+          reference: payout.reference,
+          status: payout.status as PayoutStatus,
+        });
+      } catch (err) {
+        result = {
+          payoutId: payout.id,
+          reference: payout.reference,
+          from: payout.status as PayoutStatus,
+          outcome: 'unresolved',
+          reason: err instanceof Error ? err.message : String(err),
+        };
+      }
       summary.checked += 1;
       summary.results.push(result);
       if (result.outcome === 'settled') summary.settled += 1;
@@ -146,27 +161,58 @@ export class ReconciliationService {
       // A definitive not-found on an `unknown` payout means the transfer never
       // reached Paystack — safe to reverse. Everything else is transient.
       if (isNotFound(err) && payout.status === 'unknown') {
-        await this.settlement.confirmPayout(payout.reference, 'failed', {
-          error: 'transfer not found at Paystack',
-        });
-        return { ...base, outcome: 'failed', reason: 'not found at Paystack' };
+        return this.resolve(base, 'failed', 'not found at Paystack', () =>
+          this.settlement.confirmPayout(payout.reference, 'failed', {
+            error: 'transfer not found at Paystack',
+          }),
+        );
       }
       const message = err instanceof Error ? err.message : String(err);
       return { ...base, outcome: 'unresolved', reason: message };
     }
 
     if (status === 'success') {
-      await this.settlement.confirmPayout(payout.reference, 'settled');
-      return { ...base, outcome: 'settled' };
+      return this.resolve(base, 'settled', undefined, () =>
+        this.settlement.confirmPayout(payout.reference, 'settled'),
+      );
     }
     if (status === 'failed' || status === 'reversed') {
-      await this.settlement.confirmPayout(payout.reference, 'failed', {
-        error: `transfer ${status}`,
-      });
-      return { ...base, outcome: 'failed', reason: `transfer ${status}` };
+      return this.resolve(base, 'failed', `transfer ${status}`, () =>
+        this.settlement.confirmPayout(payout.reference, 'failed', {
+          error: `transfer ${status}`,
+        }),
+      );
     }
     // pending / otp / ongoing → not terminal yet.
     return { ...base, outcome: 'still_pending', reason: status || 'pending' };
+  }
+
+  /**
+   * Applies a terminal outcome, turning a failure to apply it into
+   * `unresolved` rather than a throw.
+   *
+   * The verify call was already wrapped; the write side was not, and it can
+   * throw just as readily — `confirmPayout` opens a transaction and takes a
+   * FOR UPDATE lock, so a lock timeout or serialization failure surfaces here,
+   * and a missing row raises PayoutNotFoundError. `unresolved` is the right
+   * bucket: the payout is untouched, so the next sweep retries it.
+   */
+  private async resolve(
+    base: Omit<ReconciliationResult, 'outcome' | 'reason'>,
+    outcome: 'settled' | 'failed',
+    reason: string | undefined,
+    apply: () => Promise<void>,
+  ): Promise<ReconciliationResult> {
+    try {
+      await apply();
+      return { ...base, outcome, ...(reason ? { reason } : {}) };
+    } catch (err) {
+      return {
+        ...base,
+        outcome: 'unresolved',
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   /**
@@ -231,19 +277,32 @@ export class ReconciliationService {
         continue;
       }
 
-      if (status === 'processed' || status === 'success') {
-        await this.refundService.confirmRefund(row.reference, 'succeeded');
-        summary.settled += 1;
-        summary.results.push({ ...base, outcome: 'settled' });
-      } else if (status === 'failed') {
-        await this.refundService.confirmRefund(row.reference, 'failed', {
-          error: 'provider reported the refund failed',
+      // Same shape as the payout loop: the verify call is wrapped above, but
+      // confirmRefund writes under a lock and can throw too. A refund we
+      // cannot resolve is a customer still out of pocket — report it and keep
+      // going, rather than ending the sweep for everyone behind it.
+      try {
+        if (status === 'processed' || status === 'success') {
+          await this.refundService.confirmRefund(row.reference, 'succeeded');
+          summary.settled += 1;
+          summary.results.push({ ...base, outcome: 'settled' });
+        } else if (status === 'failed') {
+          await this.refundService.confirmRefund(row.reference, 'failed', {
+            error: 'provider reported the refund failed',
+          });
+          summary.failed += 1;
+          summary.results.push({ ...base, outcome: 'failed', reason: 'refund failed' });
+        } else {
+          summary.stillPending += 1;
+          summary.results.push({ ...base, outcome: 'still_pending', reason: status || 'pending' });
+        }
+      } catch (err) {
+        summary.unresolved += 1;
+        summary.results.push({
+          ...base,
+          outcome: 'unresolved',
+          reason: err instanceof Error ? err.message : String(err),
         });
-        summary.failed += 1;
-        summary.results.push({ ...base, outcome: 'failed', reason: 'refund failed' });
-      } else {
-        summary.stillPending += 1;
-        summary.results.push({ ...base, outcome: 'still_pending', reason: status || 'pending' });
       }
     }
 

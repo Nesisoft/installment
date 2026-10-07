@@ -212,12 +212,34 @@ export class SettlementService {
 
     // Book the liability down + create/reset the payout row atomically, BEFORE
     // the transfer, so we can never double-pay.
-    const payoutId = await runInTransaction(this.db, async (tx) => {
+    const booked = await runInTransaction(this.db, async (tx) => {
+      // The idempotency check above runs without a lock, which leaves the same
+      // TOCTOU window `confirmPayout` documents closing — except on the path
+      // that actually sends the money. On a first settlement
+      // UNIQUE(merchant_id, as_of_date) serialises the INSERT, but a RETRY
+      // updates an existing row, and each attempt mints a fresh provider
+      // reference, so the two ledger debits carry different transaction ids and
+      // `ledger_posting_identity_uq` never collides. Re-read the row under
+      // FOR UPDATE and decide again on what is actually there.
+      let amount = balance;
+      if (existing) {
+        const locked = (
+          await tx.select().from(payouts).where(eq(payouts.id, existing.id)).for('update').limit(1)
+        )[0];
+        if (!locked || (locked.status !== 'failed' && locked.status !== 'reversed')) {
+          return null; // another run retried this row while we queued
+        }
+        // Re-read under that lock: the other run's debit has committed by the
+        // time we get here, so booking the stale figure would pay twice.
+        amount = await this.ledger.balanceOf('merchant_payable', merchantId, tx);
+        if (amount <= 0) return null;
+      }
+
       const [row] = existing
         ? await tx
             .update(payouts)
             .set({
-              amount_pesewas: balance,
+              amount_pesewas: amount,
               reference,
               status: 'initiated',
               // Clear the previous attempt's outcome so the row describes this
@@ -234,7 +256,7 @@ export class SettlementService {
             .insert(payouts)
             .values({
               merchant_id: merchantId,
-              amount_pesewas: balance,
+              amount_pesewas: amount,
               as_of_date: asOfDate,
               reference,
               status: 'initiated',
@@ -249,7 +271,7 @@ export class SettlementService {
             accountType: 'merchant_payable',
             accountRef: merchantId,
             direction: 'debit',
-            amountPesewas: balance,
+            amountPesewas: amount,
             description: `Settlement payout ${asOfDate}`,
             metadata: { payout_id: row.id, as_of_date: asOfDate },
           },
@@ -258,7 +280,7 @@ export class SettlementService {
             accountType: 'paystack_settlement',
             accountRef: SETTLEMENT_CASH_REF,
             direction: 'credit',
-            amountPesewas: balance,
+            amountPesewas: amount,
             description: `Cash out for payout ${row.id}`,
             metadata: { payout_id: row.id, merchant_id: merchantId },
           },
@@ -273,17 +295,29 @@ export class SettlementService {
         toState: 'initiated',
         actorId: SETTLEMENT_ACTOR.actorId,
         actorType: SETTLEMENT_ACTOR.actorType,
-        metadata: { merchant_id: merchantId, amount_pesewas: balance, as_of_date: asOfDate },
+        metadata: { merchant_id: merchantId, amount_pesewas: amount, as_of_date: asOfDate },
       });
-      return row.id;
+      return { id: row.id, amount };
     });
+
+    // Another run booked this retry while we queued behind its lock. Reporting
+    // it as skipped is the whole point: the money already went out once.
+    if (!booked) {
+      return {
+        merchantId,
+        status: 'skipped',
+        amountPesewas: 0,
+        reason: 'settled concurrently by another run',
+      };
+    }
+    const { id: payoutId, amount } = booked;
 
     // Initiate the transfer. The liability is already cleared, so failures only
     // need to either reverse (definitive rejection) or park as unknown.
     try {
       const res = await this.transfers.initiateTransfer({
         source: 'balance',
-        amount: balance,
+        amount,
         recipient: merchant.recipient,
         reason: `Settlement for ${asOfDate}`,
         reference,
@@ -292,14 +326,14 @@ export class SettlementService {
 
       if (status === 'success') {
         await this.markTerminal(payoutId, 'settled', { transferCode: res.data.transfer_code });
-        return { merchantId, status: 'settled', amountPesewas: balance, payoutId, reference };
+        return { merchantId, status: 'settled', amountPesewas: amount, payoutId, reference };
       }
       if (status === 'failed' || status === 'reversed') {
-        await this.reverseAndFail(payoutId, merchantId, balance, `transfer ${status}`, reference);
+        await this.reverseAndFail(payoutId, merchantId, amount, `transfer ${status}`, reference);
         return {
           merchantId,
           status: 'failed',
-          amountPesewas: balance,
+          amountPesewas: amount,
           payoutId,
           reference,
           reason: `transfer ${status}`,
@@ -310,7 +344,7 @@ export class SettlementService {
       return {
         merchantId,
         status: 'pending_confirmation',
-        amountPesewas: balance,
+        amountPesewas: amount,
         payoutId,
         reference,
       };
@@ -323,7 +357,7 @@ export class SettlementService {
       return {
         merchantId,
         status: 'unknown',
-        amountPesewas: balance,
+        amountPesewas: amount,
         payoutId,
         reference,
         reason: message,
