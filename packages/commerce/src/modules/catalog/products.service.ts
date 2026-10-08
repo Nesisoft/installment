@@ -238,13 +238,19 @@ export class ProductsService {
           AND coalesce(i.quantity_available, 0) = 0
       )`);
     }
-    return this.db
-      .select(productCols)
-      .from(p)
-      .where(and(...where))
-      .orderBy(desc(p.created_at))
-      .limit(input.limit)
-      .offset(input.offset);
+    return (
+      this.db
+        .select(productCols)
+        .from(p)
+        .where(and(...where))
+        // `created_at` alone is not a total order — it defaults to NOW(), which
+        // is transaction-start time, so a bulk upload stamps one value across
+        // every row. LIMIT/OFFSET over ties lets a product appear on two pages
+        // and on none. See merchant-paging.integration.spec.ts.
+        .orderBy(desc(p.created_at), desc(p.id))
+        .limit(input.limit)
+        .offset(input.offset)
+    );
   }
 
   /**
@@ -374,13 +380,17 @@ export class ProductsService {
   async search(rawInput: unknown): Promise<Product[]> {
     const input: SearchProductsInput = searchProductsSchema.parse(rawInput);
     const query = sql`plainto_tsquery('english', ${input.q})`;
-    return this.db
-      .select(productCols)
-      .from(p)
-      .where(and(eq(p.status, 'active'), isNull(p.deleted_at), sql`${p.search_tsv} @@ ${query}`))
-      .orderBy(sql`ts_rank(${p.search_tsv}, ${query}) DESC`, desc(p.created_at))
-      .limit(input.limit)
-      .offset(input.offset);
+    return (
+      this.db
+        .select(productCols)
+        .from(p)
+        .where(and(eq(p.status, 'active'), isNull(p.deleted_at), sql`${p.search_tsv} @@ ${query}`))
+        // Rank ties are the norm, not the exception, and `created_at` behind it
+        // ties too — so this page needs a unique final term like any other.
+        .orderBy(sql`ts_rank(${p.search_tsv}, ${query}) DESC`, desc(p.created_at), desc(p.id))
+        .limit(input.limit)
+        .offset(input.offset)
+    );
   }
 
   async get(id: string, scope: ProductScope = {}): Promise<Product> {

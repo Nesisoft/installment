@@ -148,7 +148,8 @@ export class MerchantDashboardService {
         .select()
         .from(payoutsTbl)
         .where(where)
-        .orderBy(desc(payoutsTbl.initiated_at))
+        // Unique final term so the paged list cannot repeat or skip a payout.
+        .orderBy(desc(payoutsTbl.initiated_at), desc(payoutsTbl.id))
         .limit(limit)
         .offset(offset),
       this.db.select({ n: count() }).from(payoutsTbl).where(where),
