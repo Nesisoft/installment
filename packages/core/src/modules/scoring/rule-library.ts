@@ -253,6 +253,23 @@ export const RULE_LIBRARY: RuleBlueprint[] = [
   defineRule({
     id: 'score.device_stability',
     category: 'score',
+    /**
+     * Stable device fingerprint.
+     *
+     * Dead in production, and deliberately still here. `TenureCollector`
+     * hardcodes `deviceFingerprintKnown: false` — no device telemetry is
+     * captured — so the first line below short-circuits for every customer and
+     * the 50 points cannot be earned by anyone.
+     *
+     * The fail-open guard is right: "we cannot see your devices" must not be
+     * scored as "you have too many". What is wrong is that the scale claims
+     * 1000 while production tops out at 900, and a reader sees a device
+     * control that does nothing. `scoring-engine.ts` makes the case directly —
+     * "a rule that can never fire is worse than no rule, because it reads as
+     * protection" — and routed `phoneVerified` out for exactly this reason.
+     * This one needs the signal captured rather than the rule rewritten, so it
+     * stays priced and `reachable-ceiling.spec.ts` holds the gap at 50.
+     */
     description: 'Stable device fingerprint',
     defaultConfig: { maxDevices: 3, points: 50 },
     build:
@@ -285,6 +302,21 @@ export const RULE_LIBRARY: RuleBlueprint[] = [
   defineRule({
     id: 'score.kyc_tier',
     category: 'score',
+    /**
+     * Higher KYC tier = more trust.
+     *
+     * `tier2` is currently unreachable: no code path writes `kyc_tier = 2`.
+     * Approving a Ghana card caps the value at 1
+     * (`previousTier < 1 ? 1 : previousTier` in CustomersService), rejection
+     * demotes, and the only other mention of 2 is a list filter. The value is
+     * permitted by the DB CHECK and priced here, and produced nowhere — so the
+     * 50-point uplift from tier 1 to tier 2 cannot be earned.
+     *
+     * Left priced rather than removed because what tier 2 *means* is an open
+     * product question (enhanced KYC? proof of address? income verification?),
+     * and the rule is where that answer will land. `reachable-ceiling.spec.ts`
+     * pins the gap so it cannot widen unnoticed; deciding tier 2 closes it.
+     */
     description: 'Higher KYC tier = more trust',
     defaultConfig: { tier1: 50, tier2: 100 },
     build:
