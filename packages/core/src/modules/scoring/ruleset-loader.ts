@@ -23,7 +23,13 @@ function asConfig(value: unknown): Record<string, unknown> {
  * {@link RULE_LIBRARY} (the DB never supplies executable code); a row only
  * activates a known rule and tunes its configuration. Reads are cached for a
  * short TTL — call {@link invalidate} to pick up a change immediately. When a
- * version has no active rows, the built-in {@link DEFAULT_RULESET} is returned.
+ * version has no active rows — or no active *gate* rows, which would run the
+ * engine ungated — the built-in {@link DEFAULT_RULESET} is returned.
+ *
+ * Note this loader is not yet consumed: `ScoringService` is constructed with
+ * `DEFAULT_RULESET` directly, and nothing populates `rule_definitions`. The
+ * hot-reload path is wired as a provider and injected nowhere, so the
+ * behaviour here is insurance for whoever connects it, not a live code path.
  */
 export class RulesetLoader {
   private readonly cache = new Map<string, { ruleset: Ruleset; expiresAt: number }>();
@@ -82,6 +88,16 @@ export class RulesetLoader {
             : exposureRules;
       bucket.push(rule);
     }
+
+    // A version with rows but no gates must never run ungated. The empty-table
+    // fallback above only catches `no rows at all`; one active scoring row is
+    // enough to take this path, and if none of the active rows is a gate,
+    // `hardGates` is empty — and the engine's Stage 1 loop then iterates
+    // nothing, so a blocklisted customer with a recent default and no Ghana
+    // card passes every gate. Building a version row by row passes straight
+    // through that state. Falling back keeps the gates on; an operator who
+    // genuinely wants a gate off deactivates that gate, which leaves the rest.
+    if (hardGates.length === 0) return DEFAULT_RULESET;
 
     return { version, hardGates, scoringRules, exposureRules };
   }
