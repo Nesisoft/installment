@@ -18,6 +18,7 @@ import {
   useCart,
   useCheckout,
   useCreateAddress,
+  useDeliveryQuote,
   usePlanTemplates,
 } from '../lib/shop-api';
 import { cadenceLabel, isEligible, previewPlan } from '../lib/installment-preview';
@@ -60,13 +61,25 @@ export function CheckoutPage() {
     addressList[0] ??
     null;
 
+  // Checkout never sends `fulfilment_method`, so the server applies its
+  // default of `courier` and prices delivery against this address. The fee is
+  // part of what the customer owes and part of what the plan finances, so
+  // every figure below is derived from `total`, not `subtotal`. Quoting the
+  // plan on the subtotal understated both the instalments and the total.
+  const delivery = useDeliveryQuote(chosenAddress?.id);
+  const deliveryFee = delivery.data?.fee_pesewas ?? 0;
+  const total = subtotal + deliveryFee;
+  // Until the fee is known the total is a lie, so the plan offers wait for it
+  // rather than render a figure that moves under the customer.
+  const totalKnown = chosenAddress === null || delivery.isSuccess;
+
   const offers = useMemo(() => {
-    if (!templates.data || subtotal <= 0) return [];
+    if (!templates.data || total <= 0 || !totalKnown) return [];
     return templates.data
-      .filter((t) => isEligible(t, subtotal))
-      .map((t) => ({ template: t, preview: previewPlan(t, subtotal) }))
+      .filter((t) => isEligible(t, total))
+      .map((t) => ({ template: t, preview: previewPlan(t, total) }))
       .sort((a, b) => a.preview.perInstallmentPesewas - b.preview.perInstallmentPesewas);
-  }, [templates.data, subtotal]);
+  }, [templates.data, total, totalKnown]);
 
   const chosenPlan = offers.find((o) => o.template.id === planId) ?? null;
 
@@ -281,7 +294,7 @@ export function CheckoutPage() {
                   {t === 'installment' ? 'In instalments' : 'Pay in full'}
                 </span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  {t === 'installment' ? 'Spread the cost' : formatGhs(subtotal)}
+                  {t === 'installment' ? 'Spread the cost' : totalKnown ? formatGhs(total) : '—'}
                 </span>
               </button>
             ))}
@@ -292,8 +305,9 @@ export function CheckoutPage() {
               <LoadingState label="Loading plans…" />
             ) : offers.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No instalment plan covers {formatGhs(subtotal)} right now. You can still pay in
-                full.
+                {totalKnown
+                  ? `No instalment plan covers ${formatGhs(total)} right now. You can still pay in full.`
+                  : 'Working out your delivery fee…'}
               </p>
             ) : (
               <div className="space-y-2">
@@ -347,9 +361,25 @@ export function CheckoutPage() {
       </Card>
 
       <Card>
-        <CardContent className="flex items-center justify-between p-4">
-          <span className="text-sm text-muted-foreground">Order total</span>
-          <span className="text-lg font-semibold">{formatGhs(subtotal)}</span>
+        <CardContent className="space-y-2 p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Subtotal</span>
+            <span className="text-sm">{formatGhs(subtotal)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Delivery</span>
+            <span className="text-sm">
+              {chosenAddress === null
+                ? 'Add an address'
+                : delivery.isSuccess
+                  ? formatGhs(deliveryFee)
+                  : '—'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between border-t pt-2">
+            <span className="text-sm text-muted-foreground">Order total</span>
+            <span className="text-lg font-semibold">{totalKnown ? formatGhs(total) : '—'}</span>
+          </div>
         </CardContent>
       </Card>
 

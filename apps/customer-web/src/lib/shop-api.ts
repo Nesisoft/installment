@@ -10,6 +10,7 @@ import type {
   CheckoutInput,
   CreateAddressInput,
   CustomerPlan,
+  DeliveryQuote,
   InstallmentScheduleRow,
   OrderWithItems,
   PlanTemplate,
@@ -76,6 +77,27 @@ export function useProduct(id: string) {
     queryFn: async () =>
       (await api.get<StorefrontProductDetails>(`/storefront/products/${id}`)).data,
     enabled: Boolean(id),
+  });
+}
+
+/**
+ * Courier fee for a saved address. Checkout always submits `fulfilment_method`
+ * as the server's default (`courier`) and always sends an address, so this fee
+ * is always charged — the page has to show it, and the instalment plan has to
+ * be quoted on the amount that includes it.
+ */
+export function useDeliveryQuote(addressId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['delivery-quote', addressId],
+    queryFn: async () =>
+      (
+        await api.get<DeliveryQuote>('/storefront/delivery-quote', {
+          params: { address_id: addressId },
+        })
+      ).data,
+    enabled: Boolean(addressId),
+    staleTime: 5 * 60_000,
   });
 }
 
