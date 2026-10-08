@@ -260,7 +260,10 @@ export class MerchantOrdersService {
       // seller's, and an abandoned cart's `created_at` would float it above a
       // real order placed a minute ago. Nulls last, then `created_at` as the
       // tiebreak so unplaced rows still have a stable order.
-      .orderBy(sql`${o.placed_at} DESC NULLS LAST`, desc(o.created_at))
+      // One checkout writes an order per store in a single transaction, so
+      // `placed_at` and `created_at` can both tie across them. A unique final
+      // term is what makes LIMIT/OFFSET coherent.
+      .orderBy(sql`${o.placed_at} DESC NULLS LAST`, desc(o.created_at), desc(o.id))
       .limit(limit)
       .offset(offset);
     if (rows.length === 0) return { rows: [], total: count };

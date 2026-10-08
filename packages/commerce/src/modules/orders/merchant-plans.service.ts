@@ -142,7 +142,9 @@ export class MerchantPlansService {
       .from(cp)
       .leftJoin(cust, eq(cust.id, cp.customer_id))
       .where(where)
-      .orderBy(desc(cp.created_at))
+      // Total order, or paging repeats and skips rows. See
+      // merchant-paging.integration.spec.ts.
+      .orderBy(desc(cp.created_at), desc(cp.id))
       .limit(limit)
       .offset(offset);
     if (plans.length === 0) return { rows: [], total: count };
