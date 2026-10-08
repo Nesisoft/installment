@@ -14,6 +14,7 @@ function makeLogger(): PinoLogger {
 describe('CollectionsCron', () => {
   it('runs the sweep and logs when something moved', async () => {
     const runSweep = vi.fn(async () => ({
+      settledClosed: 0,
       graceExpired: 2,
       casesOpened: 1,
       stagesAdvanced: 3,
@@ -28,6 +29,7 @@ describe('CollectionsCron', () => {
     expect(runSweep).toHaveBeenCalledOnce();
     const [meta] = (logger.info as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(meta).toMatchObject({
+      settledClosed: 0,
       graceExpired: 2,
       casesOpened: 1,
       stagesAdvanced: 3,
@@ -37,6 +39,7 @@ describe('CollectionsCron', () => {
 
   it('stays quiet when nothing moved', async () => {
     const runSweep = vi.fn(async () => ({
+      settledClosed: 0,
       graceExpired: 0,
       casesOpened: 0,
       stagesAdvanced: 0,

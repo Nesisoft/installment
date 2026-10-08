@@ -31,6 +31,7 @@ export class CollectionsCron {
     try {
       const summary = await this.collections.runSweep(ACTOR, new Date());
       if (
+        summary.settledClosed === 0 &&
         summary.graceExpired === 0 &&
         summary.casesOpened === 0 &&
         summary.stagesAdvanced === 0 &&
@@ -40,6 +41,7 @@ export class CollectionsCron {
       }
       this.logger.info(
         {
+          settledClosed: summary.settledClosed,
           graceExpired: summary.graceExpired,
           casesOpened: summary.casesOpened,
           stagesAdvanced: summary.stagesAdvanced,

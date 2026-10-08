@@ -77,12 +77,28 @@ export interface StageNotifier {
 }
 
 export interface CollectionsSweepSummary {
+  /** Cases closed because their instalment is no longer owed. */
+  settledClosed: number;
   graceExpired: number;
   casesOpened: number;
   stagesAdvanced: number;
   writtenOff: number;
   advances: Array<{ caseId: string; from: CollectionsStage; to: CollectionsStage }>;
 }
+
+/**
+ * How a case is resolved once its instalment has left `in_collections`.
+ * Anything absent here is still owed, so the case stays open and keeps
+ * escalating. `defaulted` is listed so a case left open beside an
+ * already-defaulted row is tidied rather than re-defaulting the plan.
+ */
+const SETTLED_RESOLUTION: Partial<Record<ScheduleStatus, string>> = {
+  paid: 'paid',
+  waived: 'waived',
+  refunded: 'waived',
+  restructured: 'restructured',
+  defaulted: 'defaulted',
+};
 
 /**
  * Owns the collections lifecycle. Three operations, each idempotent and run as
@@ -370,6 +386,37 @@ export class CollectionsService {
     actor: CollectionsActor,
     now: Date,
   ): Promise<boolean> {
+    // 0. Never default a debt that is no longer owed. The ordering below put
+    //    `markPlanDefaulted` first, before anything read the instalment — so a
+    //    case left open over a paid row defaulted the plan of a customer who
+    //    had paid, writing off the receivable, consuming the merchant's
+    //    reserve and clawing back the rest. `closeSettledCases` should have
+    //    closed such a case already; this is the guard that makes the money
+    //    move impossible rather than merely unlikely.
+    if (c.schedule_id) {
+      const s = (await this.db.select().from(sched).where(eq(sched.id, c.schedule_id)).limit(1))[0];
+      if (s && (s.status as ScheduleStatus) !== 'in_collections') {
+        const resolution = SETTLED_RESOLUTION[s.status as ScheduleStatus];
+        if (resolution) {
+          await this.db
+            .update(cases)
+            .set({ resolution, closed_at: now.toISOString() })
+            .where(and(eq(cases.id, c.id), isNull(cases.closed_at)));
+          await this.audit.append(this.db, {
+            entityType: 'collections_case',
+            entityId: c.id,
+            eventType: 'collections_case.closed',
+            fromState: 'write_off',
+            toState: resolution,
+            reason: `instalment ${s.status} — not defaulted`,
+            actorId: actor.actorId,
+            actorType: actor.actorType,
+          });
+        }
+        return false;
+      }
+    }
+
     // 1. Default the plan first (full-outstanding loss). A sibling case may have
     //    already defaulted it → PlanDefaultError, which is a safe no-op here.
     if (this.planDefaulter) {
@@ -440,17 +487,74 @@ export class CollectionsService {
     actor: CollectionsActor,
     asOf: Date = new Date(),
   ): Promise<CollectionsSweepSummary> {
+    // Settled debts first. A case whose instalment has left `in_collections`
+    // must be closed before anything else looks at it: `advanceStages` filters
+    // on `closed_at` alone and never reads the instalment, so an open case over
+    // a paid row keeps escalating and keeps texting a customer who has paid.
+    const settledClosed = await this.closeSettledCases(actor, asOf);
     const graceExpired = await this.escalateGraceExpired(asOf, actor);
     const casesOpened = await this.openCasesForOverdue(actor, asOf);
     const advances = await this.advanceStages(asOf, actor);
     const writtenOff = await this.defaultWrittenOffCases(actor, asOf);
     return {
+      settledClosed,
       graceExpired,
       casesOpened,
       stagesAdvanced: advances.length,
       writtenOff,
       advances,
     };
+  }
+
+  /**
+   * Closes every open case whose instalment is no longer in collections.
+   *
+   * Nothing else does this. `closed_at` is written in exactly two places — the
+   * write-off path and the manual `closeCase` — and a payment reaches neither.
+   * Paying moved the schedule to `paid` and left the case open, so the customer
+   * went on receiving dunning SMS and, at ninety days, `resolveWriteOff`
+   * defaulted their plan.
+   *
+   * Run as part of the sweep rather than called from the payment path on
+   * purpose: `CollectionsService` already depends on `CustomerPlansService`,
+   * so a call the other way would close the loop, and a sweep heals cases that
+   * are already stranded rather than only new ones.
+   */
+  async closeSettledCases(actor: CollectionsActor, asOf: Date = new Date()): Promise<number> {
+    const open = await this.db
+      .select({ id: cases.id, scheduleId: cases.schedule_id, stage: cases.current_stage })
+      .from(cases)
+      .where(isNull(cases.closed_at));
+    if (open.length === 0) return 0;
+
+    let closed = 0;
+    for (const c of open) {
+      if (!c.scheduleId) continue;
+      const s = (await this.db.select().from(sched).where(eq(sched.id, c.scheduleId)).limit(1))[0];
+      if (!s) continue;
+      const resolution = SETTLED_RESOLUTION[s.status as ScheduleStatus];
+      if (!resolution) continue; // still owed — leave the case to the dunning stages
+
+      const [updated] = await this.db
+        .update(cases)
+        .set({ resolution, closed_at: asOf.toISOString() })
+        .where(and(eq(cases.id, c.id), isNull(cases.closed_at)))
+        .returning();
+      if (!updated) continue;
+
+      await this.audit.append(this.db, {
+        entityType: 'collections_case',
+        entityId: c.id,
+        eventType: 'collections_case.closed',
+        fromState: c.stage,
+        toState: resolution,
+        reason: `instalment ${s.status}`,
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+      });
+      closed += 1;
+    }
+    return closed;
   }
 
   // --------------------------------------------------------- agent worklist
@@ -596,8 +700,24 @@ export class CollectionsService {
 
   /**
    * Manually closes an open case with a non-default resolution
-   * (paid / waived / restructured). The installment's own status is driven by
-   * the payment / refund / restructure flows, not here.
+   * (paid / waived / restructured).
+   *
+   * `paid` needs nothing here — the payment flow has already moved the
+   * instalment, and `closeSettledCases` closes the case on the next sweep.
+   *
+   * `waived` does: the state machine has an `in_collections:admin_waive →
+   * waived` edge and nothing dispatched it, so waiving closed the case and
+   * left the instalment in `in_collections` with no open case — invisible to
+   * `openCasesForOverdue`, which only selects `overdue`, and so never
+   * collected, waived or written off again. Applied here, the debt actually
+   * ends.
+   *
+   * `restructured` is still a dead end and deliberately left alone: the edge
+   * exists, but restructuring means issuing a replacement plan (hence
+   * `customer_plans.restructured_from_plan_id`) and no such flow exists.
+   * Marking the instalment terminal without the replacement would record the
+   * debt as resolved with nothing standing in for it, which is worse than
+   * leaving it. Closing a case this way still strands the instalment.
    */
   async closeCase(
     caseId: string,
@@ -613,6 +733,30 @@ export class CollectionsService {
       if (c.closed_at) throw new CaseAlreadyClosedError(caseId);
 
       const nowIso = new Date().toISOString();
+
+      if (input.resolution === 'waived' && c.schedule_id) {
+        const s = (
+          await tx.select().from(sched).where(eq(sched.id, c.schedule_id)).for('update').limit(1)
+        )[0];
+        if (s && (s.status as ScheduleStatus) === 'in_collections') {
+          nextScheduleStatus('in_collections', 'admin_waive'); // → waived
+          await tx
+            .update(sched)
+            .set({ status: 'waived', status_changed_at: nowIso, version: s.version + 1 })
+            .where(and(eq(sched.id, s.id), eq(sched.version, s.version)));
+          await this.audit.append(tx, {
+            entityType: 'installment_schedule',
+            entityId: s.id,
+            eventType: 'schedule.admin_waive',
+            fromState: 'in_collections',
+            toState: 'waived',
+            actorId: actor.actorId,
+            actorType: actor.actorType,
+            reason: input.notes ?? null,
+          });
+        }
+      }
+
       const [updated] = await tx
         .update(cases)
         .set({ resolution: input.resolution, closed_at: nowIso })
