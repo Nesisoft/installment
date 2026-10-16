@@ -17,6 +17,30 @@
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * The API's timestamp, rewritten into ECMA-262's Date Time String Format —
+ * the one shape every conformant engine is required to parse.
+ *
+ * Three things keep the raw value out of that format, and this fixed two of
+ * them. The space separator and the bare `+00` offset were handled; the
+ * fraction was not. Postgres emits microseconds — six digits — and the format
+ * specifies exactly three, so the string reaching `new Date()` still fell to
+ * implementation-defined parsing. V8 is lenient about it, which is why nothing
+ * noticed: vitest runs on V8, and V8 parses even the raw API string unaided.
+ * Hermes is not obliged to be lenient. Truncating (or padding) to three digits
+ * makes the result conformant, so it parses because the spec says it must
+ * rather than because an engine happens to be forgiving.
+ */
+export function toIsoDateTime(value: string): string {
+  return (
+    value
+      .replace(' ', 'T')
+      .replace(/\.(\d+)/, (_match, fraction: string) => `.${fraction.slice(0, 3).padEnd(3, '0')}`)
+      // "+00" → "+00:00"; Date.parse rejects a bare two-digit offset.
+      .replace(/([+-]\d{2})$/, '$1:00')
+  );
+}
+
 export function parseApiDate(value: string | null | undefined): Date | null {
   if (!value) return null;
 
@@ -26,11 +50,7 @@ export function parseApiDate(value: string | null | undefined): Date | null {
     return new Date(y!, m! - 1, d!, 12, 0, 0);
   }
 
-  const normalised = value
-    .replace(' ', 'T')
-    // "+00" → "+00:00"; Date.parse rejects a bare two-digit offset.
-    .replace(/([+-]\d{2})$/, '$1:00');
-  const parsed = new Date(normalised);
+  const parsed = new Date(toIsoDateTime(value));
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
