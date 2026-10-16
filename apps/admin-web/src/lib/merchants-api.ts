@@ -104,7 +104,10 @@ export function useUpdateMerchantTerms(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (
-      input: Pick<UpdateMerchantInput, 'mdr_bps_override' | 'reserve_bps_override'>,
+      input: Pick<
+        UpdateMerchantInput,
+        'mdr_bps_override' | 'reserve_bps_override' | 'commission_bps_override'
+      >,
     ) => {
       const { data } = await api.patch<Merchant>(`/admin/merchants/${id}`, input);
       return data;

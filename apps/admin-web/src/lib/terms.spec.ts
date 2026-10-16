@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SellerFees } from '@installment/api-types';
-import { describeRates, parseBpsOverride } from './terms';
+import { describeCommission, describeRates, parseBpsOverride } from './terms';
 
 /**
  * The console's negotiated-rate fields.
@@ -39,6 +39,7 @@ describe('describeRates', () => {
     },
     mdr_negotiated: false,
     reserve_negotiated: false,
+    commission_negotiated: false,
   };
 
   it('shows the span the plan types charge when there is no deal', () => {
@@ -59,5 +60,30 @@ describe('describeRates', () => {
     };
     expect(describeRates(deal, 'mdr')).toBe('2.50% (negotiated)');
     expect(describeRates(deal, 'reserve')).toBe('2%–12% by plan type');
+  });
+});
+
+describe('describeCommission', () => {
+  const base: SellerFees = {
+    pay_now_commission_bps: 500,
+    plans: {
+      bnpl: { mdr_bps: 400, reserve_bps: 500 },
+      layaway: { mdr_bps: 300, reserve_bps: 200 },
+      hybrid: { mdr_bps: 400, reserve_bps: 700 },
+      rent_to_own: { mdr_bps: 500, reserve_bps: 1200 },
+    },
+    mdr_negotiated: false,
+    reserve_negotiated: false,
+    commission_negotiated: false,
+  };
+
+  it('says when the platform default applies', () => {
+    expect(describeCommission(base)).toBe('5% (platform default)');
+  });
+
+  it('marks a negotiated commission, independent of any MDR deal', () => {
+    expect(
+      describeCommission({ ...base, pay_now_commission_bps: 300, commission_negotiated: true }),
+    ).toBe('3% (negotiated)');
   });
 });

@@ -24,6 +24,12 @@ export const createMerchantSchema = z.object({
    */
   mdr_bps_override: z.number().int().min(0).max(2000).nullable().optional(),
   reserve_bps_override: z.number().int().min(0).max(5000).nullable().optional(),
+  /**
+   * A negotiated marketplace commission on paid-in-full orders. Absent or NULL:
+   * the platform default (`DEFAULT_MARKETPLACE_COMMISSION_BPS`). Separate from
+   * the MDR — that prices a plan, this prices a cash sale. Migration 0023.
+   */
+  commission_bps_override: z.number().int().min(0).max(2000).nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
 });
 export type CreateMerchantInput = z.infer<typeof createMerchantSchema>;

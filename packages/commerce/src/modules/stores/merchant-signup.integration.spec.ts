@@ -206,6 +206,7 @@ describe.skipIf(!RUN_DB)('merchant self-signup (integration)', () => {
       // must never reach it.
       mdr_bps_override: 0,
       reserve_bps_override: 0,
+      commission_bps_override: 0,
     } as never);
 
     const merchant = await merchantOf(result.userId);
@@ -213,6 +214,7 @@ describe.skipIf(!RUN_DB)('merchant self-signup (integration)', () => {
     expect(merchant.default_reserve_bps).toBe(500);
     expect(merchant.mdr_bps_override).toBeNull();
     expect(merchant.reserve_bps_override).toBeNull();
+    expect(merchant.commission_bps_override).toBeNull();
   });
 
   it('sends no code to a phone that already has a login', async () => {
