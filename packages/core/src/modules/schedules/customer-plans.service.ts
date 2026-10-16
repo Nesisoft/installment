@@ -27,7 +27,7 @@ import { buildReceipt, type Receipt } from '../receipts/receipt';
 import type { PayoutRecorder, RecordPayoutAccrualInput } from '../settlements/payout-recorder';
 import type { ReserveReleaseService } from '../settlements/reserve-release.service';
 import type { DefaultService } from '../settlements/default.service';
-import { MODEL_CONFIG, type BusinessModel } from '../settlements/model-config';
+import { effectiveRates, type BusinessModel } from '../settlements/model-config';
 
 const cp = schema.customer_plans;
 const sched = schema.installment_schedule;
@@ -186,9 +186,10 @@ export class CustomerPlansService {
     // applies — layaway carries a lower reserve than rent_to_own for a reason.
     // Snapshotting rather than re-reading means changing a merchant's terms can
     // never retroactively alter accruals already booked on an append-only book.
-    const modelConfig = MODEL_CONFIG[template.business_model as BusinessModel];
-    const effectiveMdrBps = merchant.mdrOverride ?? modelConfig.mdrBps;
-    const effectiveReserveBps = merchant.reserveOverride ?? modelConfig.reserveBps;
+    const { mdrBps: effectiveMdrBps, reserveBps: effectiveReserveBps } = effectiveRates(
+      template.business_model as BusinessModel,
+      { mdrBpsOverride: merchant.mdrOverride, reserveBpsOverride: merchant.reserveOverride },
+    );
 
     // Schedule is derived from the template's terms. (Accepted counter-offer
     // amounts on the application are honoured in a later refinement.)

@@ -59,3 +59,4 @@ export {
   type HeaderProps,
   type EmptyStateProps,
 } from './Screen';
+export { SaleSplits, type SaleSplitsProps } from './SaleSplits';

@@ -23,6 +23,7 @@ export * from './modules/catalog/storefront.service';
 export * from './modules/fulfilment/dto';
 export * from './modules/fulfilment/fulfilment.service';
 export * from './modules/orders/checkout-decision.service';
+export * from './modules/orders/seller-fees';
 export * from './modules/shopper/errors';
 export * from './modules/shopper/wishlist.service';
 export * from './modules/shopper/reviews.service';

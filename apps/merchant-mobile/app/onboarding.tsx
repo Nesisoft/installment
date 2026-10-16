@@ -19,11 +19,11 @@ import {
   Line,
   Loading,
   Note,
+  SaleSplits,
   Screen,
   StatusDot,
   StickyFooter,
   Text,
-  Total,
 } from '../src/components';
 import {
   isNoStoreYet,
@@ -32,6 +32,7 @@ import {
   useMerchantStore,
   usePayoutAccount,
   usePayoutDestinations,
+  usePlanTemplates,
   useResolvePayoutAccount,
   useSetPayoutAccount,
   useShopCategories,
@@ -39,6 +40,7 @@ import {
   useUpdateMerchantStore,
   type PickedImage,
 } from '../src/features/merchant';
+import { saleSplits } from '../src/lib/fees';
 import { ghs } from '../src/lib/format';
 import { color, radius, space } from '../src/theme/tokens';
 
@@ -503,14 +505,24 @@ function Payout(): React.ReactElement {
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const mdrBps = profile.data?.default_mdr_bps ?? 0;
-  const reserveBps = profile.data?.default_reserve_bps ?? 0;
+  const templates = usePlanTemplates();
   // A worked example on a round number, because basis points are not how a
   // seller thinks about a sale. GHS 100 is the whole point: the arithmetic is
   // legible without doing any.
+  //
+  // At the rates each kind of sale is actually charged (`fees`, from the
+  // server), across the plan types on offer today. This printed
+  // `default_mdr_bps` / `default_reserve_bps` — 4% and 5% for everyone — which
+  // nothing has charged since migration 0009.
   const example = 10_000;
-  const exampleMdr = Math.floor((example * mdrBps) / 10_000);
-  const exampleReserve = Math.floor((example * reserveBps) / 10_000);
+  const fees = profile.data?.fees;
+  const splits = fees
+    ? saleSplits(
+        example,
+        fees,
+        (templates.data ?? []).map((t) => t.business_model),
+      )
+    : null;
 
   async function check(): Promise<void> {
     setError(null);
@@ -612,27 +624,20 @@ function Payout(): React.ReactElement {
           HOW A GHS 100 SALE IS SPLIT
         </Text>
         <Line label="Order total" value={ghs(example)} dark />
-        <Line
-          label="Ejua fee"
-          qualifier={`${mdrBps / 100}%`}
-          value={`−${ghs(exampleMdr)}`}
-          deduction
-          dark
-        />
-        <Line
-          label="Reserve held"
-          qualifier={`${reserveBps / 100}%`}
-          value={`−${ghs(exampleReserve)}`}
-          deduction
-          dark
-        />
-        <Total label="Paid to you" value={ghs(example - exampleMdr - exampleReserve)} dark />
+        {splits ? (
+          <SaleSplits splits={splits} dark />
+        ) : (
+          <Text variant="tiny" tone="onDarkFaint">
+            Checking your rates…
+          </Text>
+        )}
         <Text variant="tiny" tone="onDarkFaint" style={styles.lead}>
-          {/* The reserve is only taken on instalment sales, and released on the
-              buffer for this merchant's model rather than a fixed number of
-              days — which is why no day count is named here. */}
-          The reserve is only held on instalment sales, and comes back to you once that buyer has
-          finished paying. On a paid-in-full order there is no reserve at all.
+          {/* Released on each plan type's own schedule — after delivery for
+              layaway, monthly over a year for rent-to-own — so neither a day
+              count nor "once the buyer has finished paying" is true of all of
+              them. */}
+          A reserve is only held on a plan, and comes back to you on that plan type&apos;s schedule.
+          On a paid-in-full order there is no reserve at all.
         </Text>
       </Card>
 

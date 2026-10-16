@@ -115,6 +115,40 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
     ],
   } as SchemaObject;
 
+  // A merchant with what a sale costs them (`sellerFees`): the pay-now
+  // commission, and per business model the rates a plan of that model charges.
+  const planFees = {
+    type: 'object',
+    properties: { mdr_bps: { type: 'integer' }, reserve_bps: { type: 'integer' } },
+  };
+  models.MerchantProfile = {
+    allOf: [
+      { $ref: '#/components/schemas/Merchant' },
+      {
+        type: 'object',
+        properties: {
+          fees: {
+            type: 'object',
+            properties: {
+              pay_now_commission_bps: { type: 'integer' },
+              plans: {
+                type: 'object',
+                properties: {
+                  bnpl: planFees,
+                  layaway: planFees,
+                  hybrid: planFees,
+                  rent_to_own: planFees,
+                },
+              },
+              mdr_negotiated: { type: 'boolean' },
+              reserve_negotiated: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    ],
+  } as SchemaObject;
+
   // The merchant catalogue's own read models. They differ from the admin ones
   // by exactly one thing: keys are resolved to URLs server-side, so the portal
   // never rebuilds a bucket path and never has to change when storage does.

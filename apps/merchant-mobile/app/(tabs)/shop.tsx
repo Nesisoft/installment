@@ -31,6 +31,7 @@ import {
   useReturnCounts,
   useUpdateMerchantStore,
 } from '../../src/features/merchant';
+import { feeSentence } from '../../src/lib/fees';
 import { compact, initials, pluralise } from '../../src/lib/format';
 import { deregisterThisHandset } from '../../src/lib/push';
 import { color, font, radius, space } from '../../src/theme/tokens';
@@ -422,7 +423,11 @@ function Settings(): React.ReactElement {
             merchant_id, so a settings row that opened an editor would be a
             control over nothing. */}
         {`Delivery is priced from one national rate card, the same for every shop — there is no per-shop table to edit. Returns are not a policy either: each request comes to you to accept or refuse, one at a time.${
-          profile.data ? ` Ejua's fee on your sales is ${profile.data.default_mdr_bps / 100}%.` : ''
+          // `default_mdr_bps` printed a flat 4% that nothing charges: a
+          // paid-in-full order takes the marketplace commission, and a plan
+          // its own type's rate unless this seller has a deal. Optional
+          // because an app build can reach an API that predates `fees`.
+          profile.data?.fees ? ` ${feeSentence(profile.data.fees)}` : ''
         }`}
       </Note>
     </View>

@@ -101,11 +101,12 @@ export type MerchantSignupVerifyCodeInput = z.infer<typeof merchantSignupVerifyC
  * Step 3: the ticket from step 2, plus the business. This is what creates the
  * merchant, its login and its shopfront.
  *
- * Note what is NOT here, and cannot be: `default_mdr_bps`, `default_reserve_bps`
- * and `default_business_model`. Those are the commercial terms the marketplace
- * charges — a merchant setting their own take-rate at signup is the whole
- * business model handed over in a request body. They come from the platform
- * defaults, and only an admin can change them afterwards.
+ * Note what is NOT here, and cannot be: `mdr_bps_override`,
+ * `reserve_bps_override` (the rates activation charges), the display-only
+ * `default_*` columns, and `default_business_model`. Those are the commercial
+ * terms — a merchant setting their own take-rate at signup is the whole
+ * business model handed over in a request body. A new merchant pays each
+ * plan's model rate, and only an admin can negotiate anything else.
  *
  * `slug` is absent too. It is the shopfront's public URL, derived server-side
  * from the shop name: letting a stranger claim one at signup is how "melcom"

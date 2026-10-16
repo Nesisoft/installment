@@ -22,6 +22,7 @@ import {
   attachPaystackRecipientSchema,
   formatBps,
   formatGhs,
+  type MerchantProfile,
   type MerchantStatus,
   type MerchantTransitionEvent,
   type Store,
@@ -41,8 +42,10 @@ import {
   useReviewMerchantKyc,
   useTransitionMerchant,
   useTransitionStore,
+  useUpdateMerchantTerms,
   type MerchantKycDocument,
 } from '../../lib/merchants-api';
+import { describeRates, parseBpsOverride } from '../../lib/terms';
 import { formatDate, formatDateTime } from '../../lib/format';
 import { PageHeader } from '../../components/page-header';
 import { EmptyState, ErrorState, LoadingState } from '../../components/data-states';
@@ -66,6 +69,104 @@ function Field({ label, value }: { label: string; value: string }) {
       <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-sm font-medium">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * What this merchant is charged, and the one place staff change it.
+ *
+ * Reads `fees`, which the API computes with the code that charges it. The
+ * Profile card printed `default_mdr_bps` / `default_reserve_bps`, display-only
+ * since migration 0009 — so a layaway merchant charged 3% showed 4% — and no
+ * screen could enter a deal at all: nothing wrote the override columns.
+ */
+function TermsCard({ merchant }: { merchant: MerchantProfile }) {
+  const update = useUpdateMerchantTerms(merchant.id);
+  const [editing, setEditing] = useState(false);
+  const [mdr, setMdr] = useState('');
+  const [reserve, setReserve] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const fees = merchant.fees;
+
+  function startEditing() {
+    setMdr(merchant.mdr_bps_override === null ? '' : String(merchant.mdr_bps_override));
+    setReserve(merchant.reserve_bps_override === null ? '' : String(merchant.reserve_bps_override));
+    setError(null);
+    setEditing(true);
+  }
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    const nextMdr = parseBpsOverride(mdr, 2000);
+    if (!nextMdr.ok) return setError(`MDR: ${nextMdr.message}`);
+    const nextReserve = parseBpsOverride(reserve, 5000);
+    if (!nextReserve.ok) return setError(`Reserve: ${nextReserve.message}`);
+    setError(null);
+    update.mutate(
+      { mdr_bps_override: nextMdr.value, reserve_bps_override: nextReserve.value },
+      { onSuccess: () => setEditing(false) },
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Settlement terms</CardTitle>
+        <CardDescription>
+          A change prices plans activated after it. Plans already running keep the rate frozen onto
+          them at activation.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {fees ? (
+          <dl className="grid gap-4 sm:grid-cols-3">
+            <Field label="Paid-in-full commission" value={formatBps(fees.pay_now_commission_bps)} />
+            <Field label="MDR on a plan" value={describeRates(fees, 'mdr')} />
+            <Field label="Reserve on a plan" value={describeRates(fees, 'reserve')} />
+          </dl>
+        ) : null}
+        {editing ? (
+          <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Negotiated MDR (bps)</Label>
+              <Input
+                inputMode="numeric"
+                value={mdr}
+                onChange={(e) => setMdr(e.target.value)}
+                placeholder="Blank: each plan's own rate"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Negotiated reserve (bps)</Label>
+              <Input
+                inputMode="numeric"
+                value={reserve}
+                onChange={(e) => setReserve(e.target.value)}
+                placeholder="Blank: each plan's own rate"
+              />
+            </div>
+            <div className="sm:col-span-2 space-y-2">
+              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+              {update.isError ? (
+                <p className="text-sm text-destructive">{apiErrorMessage(update.error)}</p>
+              ) : null}
+              <div className="flex gap-2">
+                <Button type="submit" disabled={update.isPending}>
+                  {update.isPending ? 'Saving…' : 'Save terms'}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </form>
+        ) : (
+          <Button variant="outline" size="sm" onClick={startEditing}>
+            Change terms
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -155,8 +256,6 @@ export function MerchantDetailPage() {
             <Field label="Email" value={m.email} />
             <Field label="Phone" value={m.phone} />
             <Field label="Business model" value={m.default_business_model} />
-            <Field label="MDR" value={formatBps(m.default_mdr_bps)} />
-            <Field label="Reserve" value={formatBps(m.default_reserve_bps)} />
             <Field label="TIN" value={m.tin ?? '—'} />
             <Field label="Registration no." value={m.registration_number ?? '—'} />
             <Field label="Onboarded" value={formatDate(m.onboarded_at)} />
@@ -169,6 +268,8 @@ export function MerchantDetailPage() {
           </dl>
         </CardContent>
       </Card>
+
+      <TermsCard merchant={m} />
 
       <Card>
         <CardHeader>

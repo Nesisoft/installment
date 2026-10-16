@@ -13,6 +13,7 @@ import {
   Icon,
   Line,
   Note,
+  SaleSplits,
   Screen,
   SectionLabel,
   Segmented,
@@ -20,7 +21,6 @@ import {
   Stepper,
   Text,
   ToggleRow,
-  Total,
 } from '../../src/components';
 import {
   useCreateProduct,
@@ -30,6 +30,7 @@ import {
   useUploadImage,
   type PickedImage,
 } from '../../src/features/merchant';
+import { saleSplits } from '../../src/lib/fees';
 import { ghs, parseGhsToPesewas, pluralise } from '../../src/lib/format';
 import { color, radius, space } from '../../src/theme/tokens';
 
@@ -112,14 +113,26 @@ export default function NewProductScreen(): React.ReactElement {
     );
   }, [pesewas, templates.data]);
 
-  const mdrBps = profile.data?.default_mdr_bps ?? 0;
-  const reserveBps = profile.data?.default_reserve_bps ?? 0;
   const offering = instalments && eligible.length > 0;
-  // Rounded the way the settlement engine rounds: integer pesewas, floor of the
-  // basis-point share, so this preview cannot be a cedi off what is booked.
-  const mdr = pesewas === null ? 0 : Math.floor((pesewas * mdrBps) / 10_000);
-  const reserve = pesewas === null || !offering ? 0 : Math.floor((pesewas * reserveBps) / 10_000);
-  const net = pesewas === null ? 0 : pesewas - mdr - reserve;
+  /**
+   * Each way this item can be bought, at the rates that sale is charged.
+   *
+   * This read `default_mdr_bps` / `default_reserve_bps` — a flat 4% and 5% —
+   * which nothing has charged since migration 0009. A paid-in-full order takes
+   * the marketplace commission; a plan takes its own model's rates or the
+   * seller's deal. The rates are the server's (`fees`), not worked out here.
+   */
+  const fees = profile.data?.fees;
+  const splits =
+    fees && pesewas !== null
+      ? saleSplits(pesewas, fees, offering ? eligible.map((t) => t.business_model) : [])
+      : null;
+  const nets = splits?.map((s) => s.net) ?? [];
+  const keep = nets.length
+    ? Math.min(...nets) === Math.max(...nets)
+      ? ghs(nets[0])
+      : `${ghs(Math.min(...nets))}–${ghs(Math.max(...nets))}`
+    : null;
 
   const totalStock = options.length ? options.reduce((sum, o) => sum + o.quantity, 0) : singleStock;
 
@@ -231,7 +244,9 @@ export default function NewProductScreen(): React.ReactElement {
           back
           title="New product"
           subtitle={
-            priceTyped && pesewas !== null ? `${ghs(pesewas)} · you keep ${ghs(net)}` : undefined
+            priceTyped && pesewas !== null && keep
+              ? `${ghs(pesewas)} · you keep ${keep}`
+              : undefined
           }
         />
 
@@ -420,29 +435,21 @@ export default function NewProductScreen(): React.ReactElement {
               WHAT YOU RECEIVE PER SALE
             </Text>
             <Line label="Order total" value={ghs(pesewas ?? 0)} dark />
-            <Line
-              label="Ejua fee"
-              qualifier={`${mdrBps / 100}%`}
-              value={`−${ghs(mdr)}`}
-              deduction
-              dark
-            />
-            {offering ? (
-              <Line
-                label="Reserve held"
-                qualifier={`${reserveBps / 100}%`}
-                value={`−${ghs(reserve)}`}
-                deduction
-                dark
-              />
-            ) : null}
-            <Total label="Paid to you" value={ghs(net)} dark />
+            {splits ? (
+              <SaleSplits splits={splits} dark />
+            ) : (
+              <Text variant="tiny" tone="onDarkFaint">
+                {pesewas === null ? 'Enter a price to see what you keep.' : 'Checking your rates…'}
+              </Text>
+            )}
             <Text variant="tiny" tone="onDarkFaint" style={styles.lead}>
               {offering
-                ? // The reserve is held per plan and released on the buffer for
-                  // this merchant's model — not on a fixed number of days this
-                  // screen could name without reading the plan.
-                  'On an instalment sale Ejua pays you at approval and collects from the buyer afterwards. The reserve is released once that buyer has finished paying.'
+                ? // Says nothing about WHEN, for the reason the order screen
+                  // gives: MODEL_CONFIG pays BNPL and rent-to-own at approval,
+                  // layaway at completion and hybrid 40/60, and releases each
+                  // reserve on its own schedule. "Paid at approval" was false
+                  // for two of the four rows above it.
+                  'On a plan Ejua lends the buyer the money, collects every payment and carries the risk. When you are credited, and when what is held comes back, depends on the plan type — each order shows its own.'
                 : 'A paid-in-full order settles on the next payout run, with no reserve held.'}
             </Text>
           </Card>
@@ -456,7 +463,7 @@ export default function NewProductScreen(): React.ReactElement {
                   : pesewas === null
                     ? 'Enter a price to see which plans it qualifies for.'
                     : eligible.length > 0
-                      ? `${eligible.map((t) => t.name).join(', ')} — buyers pay over time, Ejua pays you at approval.`
+                      ? `${eligible.map((t) => t.name).join(', ')} — buyers pay over time, and Ejua carries the risk.`
                       : 'No plan covers this price. Ejua sets the floor and ceiling on each one.'
               }
               value={offering}

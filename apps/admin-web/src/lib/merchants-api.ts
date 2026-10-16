@@ -9,9 +9,11 @@ import type {
   MerchantBalances,
   MerchantHeldReserveRow,
   MerchantPayoutsPage,
+  MerchantProfile,
   Store,
   TransitionMerchantInput,
   TransitionStoreInput,
+  UpdateMerchantInput,
 } from '@installment/api-types';
 
 // Re-exported so the pages import their view models from one place.
@@ -34,7 +36,7 @@ export function useMerchant(id: string) {
   return useQuery({
     queryKey: ['merchant', id],
     queryFn: async () => {
-      const { data } = await api.get<Merchant>(`/admin/merchants/${id}`);
+      const { data } = await api.get<MerchantProfile>(`/admin/merchants/${id}`);
       return data;
     },
     enabled: Boolean(id),
@@ -90,6 +92,27 @@ export function useCreateMerchant() {
       return data;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['merchants'] }),
+  });
+}
+
+/**
+ * Sets or clears a merchant's negotiated rates. NULL ends a deal: plans
+ * activated afterwards charge their business model's own rate again.
+ */
+export function useUpdateMerchantTerms(id: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      input: Pick<UpdateMerchantInput, 'mdr_bps_override' | 'reserve_bps_override'>,
+    ) => {
+      const { data } = await api.patch<Merchant>(`/admin/merchants/${id}`, input);
+      return data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['merchant', id] });
+      void qc.invalidateQueries({ queryKey: ['merchants'] });
+    },
   });
 }
 

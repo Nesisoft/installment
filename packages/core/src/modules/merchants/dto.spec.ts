@@ -41,11 +41,55 @@ describe('createMerchantSchema', () => {
   });
 });
 
+describe('negotiated rates', () => {
+  // These, not `default_*`, are what activation freezes onto a plan. Zod strips
+  // unknown keys, so before they were declared here an admin sending one got a
+  // 200 and a merchant charged the model rate regardless.
+  it('accepts a negotiated rate, and leaves it absent when none is sent', () => {
+    const parsed = createMerchantSchema.parse({ ...valid, mdr_bps_override: 250 });
+    expect(parsed.mdr_bps_override).toBe(250);
+    expect(createMerchantSchema.parse(valid).mdr_bps_override).toBeUndefined();
+  });
+
+  it('accepts null, which is how a deal ends', () => {
+    expect(updateMerchantSchema.parse({ mdr_bps_override: null })).toEqual({
+      mdr_bps_override: null,
+    });
+    expect(updateMerchantSchema.parse({ reserve_bps_override: null })).toEqual({
+      reserve_bps_override: null,
+    });
+  });
+
+  it('accepts 0%, which is a rate and not the absence of one', () => {
+    expect(createMerchantSchema.parse({ ...valid, mdr_bps_override: 0 }).mdr_bps_override).toBe(0);
+  });
+
+  it('holds the same bounds as the column CHECKs', () => {
+    for (const [field, max] of [
+      ['mdr_bps_override', 2000],
+      ['reserve_bps_override', 5000],
+    ] as const) {
+      expect(createMerchantSchema.safeParse({ ...valid, [field]: max }).success).toBe(true);
+      expect(createMerchantSchema.safeParse({ ...valid, [field]: max + 1 }).success).toBe(false);
+      expect(createMerchantSchema.safeParse({ ...valid, [field]: -1 }).success).toBe(false);
+      expect(createMerchantSchema.safeParse({ ...valid, [field]: 2.5 }).success).toBe(false);
+    }
+  });
+});
+
 describe('updateMerchantSchema', () => {
   it('accepts a partial patch', () => {
     expect(updateMerchantSchema.parse({ business_name: 'Renamed' })).toEqual({
       business_name: 'Renamed',
     });
+  });
+
+  it('does not reset negotiated terms a patch never mentioned', () => {
+    // A `.default()` that fired inside `.partial()` would write the model-
+    // agnostic 400/500 over a deal on every rename.
+    expect(updateMerchantSchema.parse({ business_name: 'Renamed' })).not.toHaveProperty(
+      'mdr_bps_override',
+    );
   });
 });
 

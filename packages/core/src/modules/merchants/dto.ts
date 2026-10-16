@@ -10,12 +10,28 @@ export const createMerchantSchema = z.object({
   tin: z.string().trim().min(1).optional(),
   registration_number: z.string().trim().min(1).optional(),
   default_business_model: z.enum(BUSINESS_MODELS).default('bnpl'),
+  /**
+   * Display only since migration 0009, and charged by nothing. Kept so existing
+   * callers still validate; a negotiated rate goes in the `*_override` fields.
+   */
   default_mdr_bps: z.number().int().min(0).max(2000).default(400),
   default_reserve_bps: z.number().int().min(0).max(5000).default(500),
+  /**
+   * A negotiated rate — what activation freezes onto every plan this merchant
+   * sells from here on. Absent or NULL means no deal: each plan charges its
+   * business model's own rate (MDR 3–5%, reserve 2–12%; see MODEL_CONFIG).
+   * NULL is also how a deal ends. Bounds match the column CHECKs.
+   */
+  mdr_bps_override: z.number().int().min(0).max(2000).nullable().optional(),
+  reserve_bps_override: z.number().int().min(0).max(5000).nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
 });
 export type CreateMerchantInput = z.infer<typeof createMerchantSchema>;
 
+/**
+ * Every field optional, and `.partial()` keeps the `.default()`s above from
+ * firing — a rename must not reset terms it never mentioned.
+ */
 export const updateMerchantSchema = createMerchantSchema.partial();
 export type UpdateMerchantInput = z.infer<typeof updateMerchantSchema>;
 

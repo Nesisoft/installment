@@ -11,10 +11,18 @@ export const createMerchantSchema = z.object({
   tin: z.string().trim().min(1).optional(),
   registration_number: z.string().trim().min(1).optional(),
   default_business_model: z.enum(BUSINESS_MODELS).default('bnpl'),
+  /** Display only; charged by nothing. A negotiated rate is an `*_override`. */
   default_mdr_bps: z.number().int().min(0).max(2000).default(400),
   default_reserve_bps: z.number().int().min(0).max(5000).default(500),
+  /** A negotiated rate. Absent or NULL: each plan charges its model's own rate. */
+  mdr_bps_override: z.number().int().min(0).max(2000).nullable().optional(),
+  reserve_bps_override: z.number().int().min(0).max(5000).nullable().optional(),
 });
 export type CreateMerchantInput = z.infer<typeof createMerchantSchema>;
+
+/** A partial patch; NULL on an `*_override` ends the deal. */
+export const updateMerchantSchema = createMerchantSchema.partial();
+export type UpdateMerchantInput = z.infer<typeof updateMerchantSchema>;
 
 export const transitionMerchantSchema = z.object({
   event: z.enum(['activate', 'suspend', 'reactivate', 'offboard']),
