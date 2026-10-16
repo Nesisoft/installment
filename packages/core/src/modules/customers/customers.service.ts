@@ -229,14 +229,18 @@ export class CustomersService {
 
   async attachGhanaCard(id: string, rawInput: unknown, actor: CustomerActor): Promise<Customer> {
     const input: AttachGhanaCardInput = attachGhanaCardSchema.parse(rawInput);
-    const current = await this.get(id);
+    await this.get(id); // not-found before anything is written
     // Re-attaching withdraws the verification, so it has to withdraw the tier
     // that verification bought — exactly as `rejectGhanaCard` does, and for the
-    // reason stated there: nothing but this card raises the tier to 1. Without
-    // this, a customer whose card was approved and who then sent a different
-    // one kept the tier while `ghana_card_verified` was false, and the scoring
-    // engine went on paying them 50 points for a card nobody had looked at.
-    const newTier = current.kyc_tier === 1 ? 0 : current.kyc_tier;
+    // reason stated there: every tier is earned by this card. Without this, a
+    // customer whose card was approved and who then sent a different one kept
+    // the tier while `ghana_card_verified` was false, and the scoring engine
+    // went on paying them for a card nobody had looked at.
+    //
+    // To 0 from any tier. This read `kyc_tier === 1 ? 0 : kyc_tier`, written
+    // when nothing could produce tier 2 — so once the NIA check could, a
+    // replaced card would have kept the NIA's confirmation of the old one.
+    const newTier = 0;
 
     return runInTransaction(this.db, async (tx) => {
       const rows = await tx
@@ -304,8 +308,14 @@ export class CustomersService {
 
     return runInTransaction(this.db, async (tx) => {
       const nowIso = new Date().toISOString();
+      // Tier 1 for a card a person has checked; tier 2 when the NIA's records
+      // confirm it. Never lower than the card already holds: a person
+      // re-checking an NIA-confirmed card does not undo the NIA's answer.
+      // (Attaching or rejecting resets to 0 first, so `previousTier` always
+      // describes this same card.)
       const previousTier = current.kyc_tier;
-      const newTier = previousTier < 1 ? 1 : previousTier;
+      const earned = result.authority === 'nia' ? 2 : 1;
+      const newTier = Math.max(previousTier, earned);
 
       const rows = await tx
         .update(c)
@@ -345,8 +355,8 @@ export class CustomersService {
    * closed the tab, and the next reviewer started from the same blank slate.
    *
    * Rejecting withdraws any verification the card had won and takes the KYC tier
-   * back down with it, because that tier was raised by this card and nothing
-   * else raises it. The number and image key stay on the row: they are what was
+   * back to 0 with it, because every tier is raised by this card and nothing
+   * else. The number and image key stay on the row: they are what was
    * rejected, and re-attaching is what replaces them.
    */
   async rejectGhanaCard(id: string, rawInput: unknown, actor: CustomerActor): Promise<Customer> {
@@ -358,7 +368,9 @@ export class CustomersService {
 
     return runInTransaction(this.db, async (tx) => {
       const previousTier = current.kyc_tier;
-      const newTier = previousTier === 1 ? 0 : previousTier;
+      // To 0 from any tier: every tier is earned by this card. See
+      // `attachGhanaCard` for why this no longer stops at tier 1.
+      const newTier = 0;
 
       const rows = await tx
         .update(c)
