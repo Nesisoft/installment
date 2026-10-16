@@ -49,8 +49,13 @@ export interface Merchant {
   tin: string | null;
   registration_number: string | null;
   default_business_model: BusinessModel;
+  /** Display only since migration 0009 — charged by nothing. Read `fees` or the overrides. */
   default_mdr_bps: number;
   default_reserve_bps: number;
+  /** A negotiated MDR, in bps. NULL: each plan charges its business model's own rate. */
+  mdr_bps_override: number | null;
+  /** A negotiated reserve, in bps. NULL: each plan holds its business model's own rate. */
+  reserve_bps_override: number | null;
   /**
    * The payout floor. A settlement run below this rolls into the next one
    * instead of paying out — no row is written and nothing is queued, so the
@@ -69,6 +74,34 @@ export interface Merchant {
   suspension_reason: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
+}
+
+/** One plan type's cost to the seller, in basis points of the sale. */
+export interface PlanFees {
+  mdr_bps: number;
+  reserve_bps: number;
+}
+
+/**
+ * What a sale costs this seller, computed server-side from the rules that
+ * charge it. Paid in full: the marketplace commission, no reserve. On a plan:
+ * the rates of the plan the BUYER picks — so every business model is listed,
+ * and a negotiated rate shows as the same figure in each.
+ */
+export interface SellerFees {
+  pay_now_commission_bps: number;
+  plans: Record<BusinessModel, PlanFees>;
+  mdr_negotiated: boolean;
+  reserve_negotiated: boolean;
+}
+
+/**
+ * `GET /merchant/me` and `GET /admin/merchants/:id`: the merchant, plus `fees`.
+ * Optional on purpose: a mobile build can be talking to an API deployed before
+ * `fees` existed, and the type should make every reader say what it shows then.
+ */
+export interface MerchantProfile extends Merchant {
+  fees?: SellerFees;
 }
 
 export interface Customer {

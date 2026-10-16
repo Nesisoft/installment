@@ -18,6 +18,7 @@ import type {
   MerchantPayoutsPage,
   MerchantPlanBucket,
   MerchantPlanCounts,
+  MerchantProfile,
   MerchantPlanDetail,
   MerchantPlanPage,
   MerchantProductDetails,
@@ -64,7 +65,7 @@ export function useMerchantProfile() {
   const api = useApi();
   return useQuery({
     queryKey: ['merchant', 'me'],
-    queryFn: async () => (await api.get<Merchant>('/merchant/me')).data,
+    queryFn: async () => (await api.get<MerchantProfile>('/merchant/me')).data,
     staleTime: 5 * 60_000,
   });
 }

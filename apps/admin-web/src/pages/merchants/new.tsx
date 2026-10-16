@@ -5,9 +5,16 @@ import { createMerchantSchema, formatBps, type BusinessModel } from '@installmen
 import { apiErrorMessage } from '@installment/web-kit';
 import { ArrowLeft } from 'lucide-react';
 import { useCreateMerchant } from '../../lib/merchants-api';
+import { parseBpsOverride } from '../../lib/terms';
 import { PageHeader } from '../../components/page-header';
 
 const MODELS: BusinessModel[] = ['bnpl', 'layaway', 'hybrid', 'rent_to_own'];
+
+/** " (2.50%)" beside a field holding a valid rate; nothing beside a blank or bad one. */
+function previewBps(input: string): string {
+  const parsed = parseBpsOverride(input, 5000);
+  return parsed.ok && parsed.value !== null ? ` (${formatBps(parsed.value)})` : '';
+}
 
 export function MerchantNewPage() {
   const navigate = useNavigate();
@@ -20,8 +27,9 @@ export function MerchantNewPage() {
     tin: '',
     registration_number: '',
     default_business_model: 'bnpl' as BusinessModel,
-    default_mdr_bps: '400',
-    default_reserve_bps: '500',
+    // Blank means no deal: each plan charges its business model's own rate.
+    mdr_bps_override: '',
+    reserve_bps_override: '',
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -32,6 +40,13 @@ export function MerchantNewPage() {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    // These were "MDR bps" / "Reserve bps" writing `default_mdr_bps` and
+    // `default_reserve_bps`, which nothing has charged since migration 0009:
+    // whatever was typed, the merchant paid the model rate.
+    const mdr = parseBpsOverride(form.mdr_bps_override, 2000);
+    if (!mdr.ok) return setError(`MDR: ${mdr.message}`);
+    const reserve = parseBpsOverride(form.reserve_bps_override, 5000);
+    if (!reserve.ok) return setError(`Reserve: ${reserve.message}`);
     const payload = {
       business_name: form.business_name,
       legal_name: form.legal_name,
@@ -40,8 +55,8 @@ export function MerchantNewPage() {
       ...(form.tin ? { tin: form.tin } : {}),
       ...(form.registration_number ? { registration_number: form.registration_number } : {}),
       default_business_model: form.default_business_model,
-      default_mdr_bps: Number(form.default_mdr_bps),
-      default_reserve_bps: Number(form.default_reserve_bps),
+      mdr_bps_override: mdr.value,
+      reserve_bps_override: reserve.value,
     };
     const parsed = createMerchantSchema.safeParse(payload);
     if (!parsed.success) {
@@ -114,18 +129,20 @@ export function MerchantNewPage() {
                 </select>
               </Field>
               <div className="grid grid-cols-2 gap-4">
-                <Field label={`MDR bps (${formatBps(Number(form.default_mdr_bps) || 0)})`}>
+                <Field label={`Negotiated MDR bps${previewBps(form.mdr_bps_override)}`}>
                   <Input
-                    type="number"
-                    value={form.default_mdr_bps}
-                    onChange={(e) => set('default_mdr_bps', e.target.value)}
+                    inputMode="numeric"
+                    value={form.mdr_bps_override}
+                    onChange={(e) => set('mdr_bps_override', e.target.value)}
+                    placeholder="Blank: each plan's own rate"
                   />
                 </Field>
-                <Field label={`Reserve bps (${formatBps(Number(form.default_reserve_bps) || 0)})`}>
+                <Field label={`Negotiated reserve bps${previewBps(form.reserve_bps_override)}`}>
                   <Input
-                    type="number"
-                    value={form.default_reserve_bps}
-                    onChange={(e) => set('default_reserve_bps', e.target.value)}
+                    inputMode="numeric"
+                    value={form.reserve_bps_override}
+                    onChange={(e) => set('reserve_bps_override', e.target.value)}
+                    placeholder="Blank: each plan's own rate"
                   />
                 </Field>
               </div>

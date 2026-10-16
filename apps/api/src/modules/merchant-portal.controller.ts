@@ -30,6 +30,7 @@ import {
   markOutForDeliverySchema,
   markShippedSchema,
   rejectReturnSchema,
+  sellerFees,
 } from '@installment/commerce';
 import {
   CustomerPlansService,
@@ -259,10 +260,18 @@ export class MerchantPortalController {
     return { actorId: merchantId, actorType: 'merchant' as const };
   }
 
+  /**
+   * With `fees`: what a sale actually costs this seller. Every fee the app
+   * showed was read from `default_mdr_bps`, which nothing has charged since
+   * migration 0009 — so the rule is computed here, once, from the code that
+   * charges it, rather than re-derived on a handset.
+   */
   @Get('me')
-  @ApiOperation({ summary: 'The authenticated merchant profile' })
-  me(@CurrentMerchantId() merchantId: string) {
-    return this.merchants.get(merchantId);
+  @ApiOperation({ summary: 'The authenticated merchant profile, with the fees a sale carries' })
+  @ApiModel('MerchantProfile')
+  async me(@CurrentMerchantId() merchantId: string) {
+    const merchant = await this.merchants.get(merchantId);
+    return { ...merchant, fees: sellerFees(merchant) };
   }
 
   // --- Push devices ---------------------------------------------------------

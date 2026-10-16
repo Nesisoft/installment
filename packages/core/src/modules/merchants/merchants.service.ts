@@ -108,6 +108,8 @@ export class MerchantsService {
         default_business_model: input.default_business_model,
         default_mdr_bps: input.default_mdr_bps,
         default_reserve_bps: input.default_reserve_bps,
+        mdr_bps_override: input.mdr_bps_override ?? null,
+        reserve_bps_override: input.reserve_bps_override ?? null,
         metadata: input.metadata ?? {},
       });
       if (!row) throw new Error('merchant insert returned no row');
@@ -119,11 +121,19 @@ export class MerchantsService {
         toState: row.status,
         actorId: actor.actorId,
         actorType: actor.actorType,
-        metadata: { email: row.email },
+        metadata: { email: row.email, terms: MerchantsService.terms(row) },
       });
 
       return row;
     });
+  }
+
+  /** The negotiated terms as they now stand, for the audit trail. */
+  private static terms(row: Merchant) {
+    return {
+      mdr_bps_override: row.mdr_bps_override,
+      reserve_bps_override: row.reserve_bps_override,
+    };
   }
 
   // ---------------------------------------------------------------------- list
@@ -159,6 +169,11 @@ export class MerchantsService {
   async update(id: string, rawPatch: unknown, actor: MerchantActor): Promise<Merchant> {
     const patch: UpdateMerchantInput = updateMerchantSchema.parse(rawPatch);
 
+    // Zod strips keys it does not know, so a body can arrive here empty — and
+    // drizzle throws a bare "No values to set" on an empty SET, which reached
+    // the caller as a 500. Nothing to change is not a failure.
+    if (Object.values(patch).every((v) => v === undefined)) return this.get(id);
+
     return runInTransaction(this.db, async (tx) => {
       const rows = await tx
         .update(m)
@@ -177,7 +192,15 @@ export class MerchantsService {
         eventType: 'merchant.updated',
         actorId: actor.actorId,
         actorType: actor.actorType,
-        metadata: { fields: Object.keys(patch) },
+        // What the terms became, not merely that a field moved: a rate change
+        // reprices every plan sold after it, and "who agreed 2.5%, and when"
+        // is a question this row has to answer.
+        metadata: {
+          fields: Object.keys(patch),
+          ...('mdr_bps_override' in patch || 'reserve_bps_override' in patch
+            ? { terms: MerchantsService.terms(row) }
+            : {}),
+        },
       });
 
       return row;

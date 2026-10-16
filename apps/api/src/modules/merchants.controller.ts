@@ -29,6 +29,7 @@ import {
   transitionMerchantSchema,
   attachPaystackRecipientSchema,
 } from '@installment/core';
+import { sellerFees } from '@installment/commerce';
 import { ApiZodBody } from '../common/api-zod';
 import { ApiModel } from '../common/api-model';
 
@@ -83,10 +84,13 @@ export class MerchantsController {
   }
 
   @Get(':id')
-  @ApiModel('Merchant')
+  @ApiModel('MerchantProfile')
   @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
-  get(@Param('id') id: string) {
-    return this.merchants.get(id);
+  async get(@Param('id') id: string) {
+    // `fees` so the console shows what the merchant is charged, not the
+    // display-only `default_*` columns.
+    const merchant = await this.merchants.get(id);
+    return { ...merchant, fees: sellerFees(merchant) };
   }
 
   @Patch(':id')

@@ -142,9 +142,9 @@ export const merchantSignupVerifyCodeSchema = z.object({
 export type MerchantSignupVerifyCodeInput = z.infer<typeof merchantSignupVerifyCodeSchema>;
 
 /**
- * Note what a merchant cannot send: `default_mdr_bps`, `default_reserve_bps`
- * and `default_business_model` are the marketplace's commercial terms and come
- * from the platform defaults, and `slug` is derived server-side from the shop
+ * Note what a merchant cannot send: the negotiated `*_override` rates, the
+ * display-only `default_*` columns and `default_business_model` are the
+ * marketplace's commercial terms, and `slug` is derived server-side from the shop
  * name — letting a stranger claim one at signup is how well-known names get
  * squatted.
  */

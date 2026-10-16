@@ -64,3 +64,29 @@ export const MODEL_CONFIG: Record<BusinessModel, ModelConfig> = {
     reserveReleasePolicy: { type: 'rolling_monthly', months: 12 },
   },
 };
+
+/** A merchant's negotiated terms. NULL means no deal: the model's own rate applies. */
+export interface NegotiatedRates {
+  mdrBpsOverride: number | null;
+  reserveBpsOverride: number | null;
+}
+
+/**
+ * What a plan of `model` charges this merchant: their deal, else the model's
+ * own risk-based rate.
+ *
+ * The one statement of the rule. Activation freezes it onto the plan and the
+ * seller is shown it, so the number on the screen and the number on the books
+ * cannot come from two expressions that drift. `??`, never `||` — a negotiated
+ * 0% is a rate, not the absence of one.
+ */
+export function effectiveRates(
+  model: BusinessModel,
+  negotiated: NegotiatedRates,
+): { mdrBps: number; reserveBps: number } {
+  const config = MODEL_CONFIG[model];
+  return {
+    mdrBps: negotiated.mdrBpsOverride ?? config.mdrBps,
+    reserveBps: negotiated.reserveBpsOverride ?? config.reserveBps,
+  };
+}

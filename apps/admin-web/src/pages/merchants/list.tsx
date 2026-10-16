@@ -100,7 +100,11 @@ export function MerchantsListPage() {
                   <TableCell className="font-medium">{m.business_name}</TableCell>
                   <TableCell className="text-muted-foreground">{m.email}</TableCell>
                   <TableCell>{formatStatusLabel(m.default_business_model)}</TableCell>
-                  <TableCell className="tabular-nums">{formatBps(m.default_mdr_bps)}</TableCell>
+                  <TableCell className="tabular-nums">
+                    {/* The negotiated rate, or the plan's own: `default_mdr_bps`
+                        is display-only and charged by nothing. */}
+                    {m.mdr_bps_override === null ? 'Plan rate' : formatBps(m.mdr_bps_override)}
+                  </TableCell>
                   <TableCell>
                     <StatusBadge status={m.status} />
                   </TableCell>

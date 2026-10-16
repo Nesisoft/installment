@@ -201,11 +201,18 @@ describe.skipIf(!RUN_DB)('merchant self-signup (integration)', () => {
       // Not in the schema, so stripped rather than honoured.
       default_mdr_bps: 0,
       default_reserve_bps: 0,
+      // The columns activation actually charges, now that the admin schema
+      // accepts them. Signup builds the create call field by field, so these
+      // must never reach it.
+      mdr_bps_override: 0,
+      reserve_bps_override: 0,
     } as never);
 
     const merchant = await merchantOf(result.userId);
     expect(merchant.default_mdr_bps).toBe(400);
     expect(merchant.default_reserve_bps).toBe(500);
+    expect(merchant.mdr_bps_override).toBeNull();
+    expect(merchant.reserve_bps_override).toBeNull();
   });
 
   it('sends no code to a phone that already has a login', async () => {
