@@ -14,10 +14,11 @@ import { SYSTEM_ACTORS } from '../constants/system-actors';
  * agree with `ghana_card_status`, and a verified card needs a card.
  *
  * The second is worse, and is why this helper drives the real service instead
- * of just adding the missing columns. **`kyc_tier: 2` is not a state this
- * system can produce.** `verifyGhanaCard` raises the tier to 1 and nothing
- * anywhere raises it to 2, so `score.kyc_tier`'s 100-point band was only ever
- * reachable by a fixture asserting it into existence — including the arithmetic
+ * of just adding the missing columns. **`kyc_tier: 2` is not a state
+ * production can produce yet.** Tier 2 is an NIA-confirmed card, and production
+ * binds a manual-review verifier until the NIA client exists, so
+ * `score.kyc_tier`'s 100-point band was only ever reachable by a fixture
+ * asserting it into existence — including the arithmetic
  * in PLATFORM-ROADMAP.md, which counts "KYC tier 2 100" toward a first-timer's
  * ceiling of 325. The real ceiling is 50 lower. Going through the service means
  * a fixture cannot claim a tier the product cannot grant.

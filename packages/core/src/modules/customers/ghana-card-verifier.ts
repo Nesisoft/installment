@@ -15,6 +15,16 @@ export interface GhanaCardVerificationResult {
   reason?: string;
   /** Opaque provider payload, persisted to audit metadata when present. */
   raw?: unknown;
+  /**
+   * Who confirmed the identity, when an authoritative source was consulted.
+   * `'nia'`: the National Identification Authority's records matched — that
+   * is what earns KYC tier 2. Absent when nothing authoritative was asked (a
+   * person reviewing the scan, or the mock), which earns tier 1.
+   *
+   * Only a client that actually queried the NIA may set it. The tier it buys is
+   * the one identity signal scoring has that a forged scan cannot fake.
+   */
+  authority?: 'nia';
 }
 
 export interface GhanaCardVerifier {
@@ -61,7 +71,9 @@ export class MockGhanaCardVerifier implements GhanaCardVerifier {
  * actually looked.
  *
  * When the NIA client lands it replaces this binding, and the reviewer's press
- * becomes a second opinion rather than the only one.
+ * becomes a second opinion rather than the only one. That client — and only
+ * that client — reports `authority: 'nia'`, which is what earns KYC tier 2.
+ * This class never does: a person looking at a scan is tier 1.
  */
 export class ManualReviewGhanaCardVerifier implements GhanaCardVerifier {
   verify(_input: GhanaCardVerificationInput): Promise<GhanaCardVerificationResult> {

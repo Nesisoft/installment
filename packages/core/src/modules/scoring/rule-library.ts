@@ -305,17 +305,18 @@ export const RULE_LIBRARY: RuleBlueprint[] = [
     /**
      * Higher KYC tier = more trust.
      *
-     * `tier2` is currently unreachable: no code path writes `kyc_tier = 2`.
-     * Approving a Ghana card caps the value at 1
-     * (`previousTier < 1 ? 1 : previousTier` in CustomersService), rejection
-     * demotes, and the only other mention of 2 is a list filter. The value is
-     * permitted by the DB CHECK and priced here, and produced nowhere — so the
-     * 50-point uplift from tier 1 to tier 2 cannot be earned.
+     *   tier 1  a Ghana Card a person has checked against the details on file
+     *   tier 2  a Ghana Card the National Identification Authority confirms
      *
-     * Left priced rather than removed because what tier 2 *means* is an open
-     * product question (enhanced KYC? proof of address? income verification?),
-     * and the rule is where that answer will land. `reachable-ceiling.spec.ts`
-     * pins the gap so it cannot widen unnoticed; deciding tier 2 closes it.
+     * Tier 2 is the NIA check because it is the one identity signal nothing
+     * else here already counts — employment and repayment history are scored
+     * by their own rules — and the one a forged scan cannot pass.
+     *
+     * Defined, and still unreachable in production: tier 2 is earned only by a
+     * verifier that reports `authority: 'nia'`, and production binds
+     * `ManualReviewGhanaCardVerifier` until the NIA client exists. Binding that
+     * client is all that is left; `reachable-ceiling.spec.ts` pins the 50-point
+     * gap until then.
      */
     description: 'Higher KYC tier = more trust',
     defaultConfig: { tier1: 50, tier2: 100 },

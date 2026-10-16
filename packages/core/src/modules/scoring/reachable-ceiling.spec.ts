@@ -18,18 +18,17 @@ import type { FeatureVector } from './types';
  *                                TenureCollector hardcodes to `false` — device
  *                                telemetry is not captured. The rule's first
  *                                line short-circuits to 0 points for everyone.
- *   score.kyc_tier tier 2 (+50)  no code path anywhere writes `kyc_tier = 2`.
- *                                Tier 1 pays 50 and tier 2 pays 100, so the
- *                                unreachable part is the 50-point uplift.
- *                                Approving a Ghana card caps at 1
- *                                (`previousTier < 1 ? 1 : previousTier`),
- *                                rejection demotes, and the only other mention
- *                                is a list *filter*. The value exists in the DB
- *                                CHECK and in this rule, and nowhere else.
+ *   score.kyc_tier tier 2 (+50)  tier 2 is an NIA-confirmed Ghana Card, earned
+ *                                only from a verifier reporting
+ *                                `authority: 'nia'`. Production binds
+ *                                `ManualReviewGhanaCardVerifier`, which never
+ *                                does, until the NIA client exists. Tier 1 pays
+ *                                50 and tier 2 pays 100, so the unreachable part
+ *                                is the 50-point uplift.
  *
  * So the scale reads 0..1000 and tops out at 900 in production. These tests
- * pin both numbers. If a collector starts producing one of those signals, or a
- * promotion path to tier 2 is built, the reachable figure moves and this fails
+ * pin both numbers. If a collector starts producing one of those signals, or the
+ * NIA client is bound, the reachable figure moves and this fails
  * — which is the point: the gap should never widen quietly again.
  */
 describe('scoring reachable ceiling', () => {
@@ -99,7 +98,7 @@ describe('scoring reachable ceiling', () => {
     const f = perfect();
     f.identity.phoneVerified = false; // IdentityCollector: hardcoded
     f.identity.addressProofUploaded = false; // IdentityCollector: hardcoded
-    f.identity.kycTier = 1; // nothing writes 2
+    f.identity.kycTier = 1; // tier 2 needs the NIA client, which is not bound
     f.tenure.loginsLast30Days = 0; // TenureCollector: hardcoded
     f.tenure.deviceFingerprintKnown = false; // TenureCollector: hardcoded
     f.tenure.distinctDevicesLast90Days = 0; // TenureCollector: hardcoded
