@@ -11,6 +11,7 @@ import { ReminderCron } from './reminder.cron';
 import { LateFeeCron } from './late-fee.cron';
 import { ReturnWindowCron } from './return-window.cron';
 import { TelcoAlertCron } from './telco-alert.cron';
+import { DeclineReasonAlertCron } from './decline-reason-alert.cron';
 import { StuckScheduleCron } from './stuck-schedule.cron';
 import { ApplicationExpiryCron } from './application-expiry.cron';
 import { OrderExpiryCron } from './order-expiry.cron';
@@ -41,6 +42,7 @@ import { RetryWorker } from './retry.worker';
     LateFeeCron,
     ReturnWindowCron,
     TelcoAlertCron,
+    DeclineReasonAlertCron,
     StuckScheduleCron,
     ApplicationExpiryCron,
     OrderExpiryCron,

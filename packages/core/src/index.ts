@@ -115,9 +115,16 @@ export {
 } from './modules/receipts/receipt';
 export {
   classifyFailure,
+  declineReasonSource,
+  INTERNAL_FAILURE_REASONS,
   PAYSTACK_DECLINE_MAP,
+  type DeclineReasonSource,
   type FailureClass,
 } from './modules/payments/failure-classifier';
+export {
+  DeclineReasonReport,
+  type DeclineReasonRow,
+} from './modules/payments/decline-reason-report';
 export {
   RETRY_POLICY,
   MAX_ATTEMPTS,
