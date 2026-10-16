@@ -26,6 +26,7 @@ import { ScoringController } from './modules/scoring.controller';
 import { PlansController } from './modules/plans.controller';
 import { ApplicationsController } from './modules/applications.controller';
 import { TelcoHealthController } from './modules/telco-health.controller';
+import { DeclineReasonsController } from './modules/decline-reasons.controller';
 import { InstallmentsController } from './modules/installments.controller';
 import { OrdersController } from './modules/orders.controller';
 import { SettlementsController } from './modules/settlements.controller';
@@ -88,6 +89,7 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
     PlansController,
     ApplicationsController,
     TelcoHealthController,
+    DeclineReasonsController,
     InstallmentsController,
     OrdersController,
     SettlementsController,

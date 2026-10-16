@@ -34,3 +34,32 @@ export function classifyFailure(reason: string | undefined | null): FailureClass
   if (!reason) return 'ambiguous';
   return PAYSTACK_DECLINE_MAP[reason.toLowerCase()] ?? 'ambiguous';
 }
+
+/**
+ * Reasons this codebase writes itself when Paystack returned no
+ * `gateway_response`. They carry nothing to map, so a report of what the map
+ * is missing must not count them.
+ */
+export const INTERNAL_FAILURE_REASONS: readonly string[] = [
+  'charge_failed',
+  'verify_returned_failed',
+];
+
+export type DeclineReasonSource = 'mapped' | 'internal_fallback' | 'unrecognised';
+
+/**
+ * Whether the map recognised a reason — not what to do about it.
+ *
+ * `classifyFailure` cannot tell "Paystack said something we don't know" from
+ * "Paystack said nothing": both are `ambiguous`, and both are retried. Whether
+ * real declines arrive as the snake_case tokens the map is keyed on, or as
+ * prose like "Insufficient Funds", has never been checked against a real
+ * decline. If prose, every decline is `unrecognised` here, and the decline
+ * report and its alert say so instead of the retry ladder quietly absorbing it.
+ */
+export function declineReasonSource(reason: string): DeclineReasonSource {
+  const key = reason.toLowerCase();
+  if (key in PAYSTACK_DECLINE_MAP) return 'mapped';
+  if (INTERNAL_FAILURE_REASONS.includes(key)) return 'internal_fallback';
+  return 'unrecognised';
+}

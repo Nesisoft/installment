@@ -57,6 +57,7 @@ import {
   TelcoHealthMonitor,
   UsersService,
   WebhookService,
+  DeclineReasonReport,
   type PushSender,
   type SmsSender,
   CardAuthorizationService,
@@ -613,6 +614,11 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
       inject: [DRIZZLE],
     },
     {
+      provide: DeclineReasonReport,
+      useFactory: (db: Database) => new DeclineReasonReport(db),
+      inject: [DRIZZLE],
+    },
+    {
       provide: PaymentService,
       useFactory: (
         plans: CustomerPlansService,
@@ -901,6 +907,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
     CardAuthorizationService,
     ReminderRunner,
     TelcoHealthMonitor,
+    DeclineReasonReport,
     WebhookService,
   ],
 })
