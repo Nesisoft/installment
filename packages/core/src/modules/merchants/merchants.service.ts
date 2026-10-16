@@ -110,6 +110,7 @@ export class MerchantsService {
         default_reserve_bps: input.default_reserve_bps,
         mdr_bps_override: input.mdr_bps_override ?? null,
         reserve_bps_override: input.reserve_bps_override ?? null,
+        commission_bps_override: input.commission_bps_override ?? null,
         metadata: input.metadata ?? {},
       });
       if (!row) throw new Error('merchant insert returned no row');
@@ -128,11 +129,19 @@ export class MerchantsService {
     });
   }
 
+  /** The fields that are a merchant's negotiated terms. */
+  private static readonly TERM_FIELDS = [
+    'mdr_bps_override',
+    'reserve_bps_override',
+    'commission_bps_override',
+  ] as const;
+
   /** The negotiated terms as they now stand, for the audit trail. */
   private static terms(row: Merchant) {
     return {
       mdr_bps_override: row.mdr_bps_override,
       reserve_bps_override: row.reserve_bps_override,
+      commission_bps_override: row.commission_bps_override,
     };
   }
 
@@ -197,7 +206,7 @@ export class MerchantsService {
         // is a question this row has to answer.
         metadata: {
           fields: Object.keys(patch),
-          ...('mdr_bps_override' in patch || 'reserve_bps_override' in patch
+          ...(MerchantsService.TERM_FIELDS.some((f) => f in patch)
             ? { terms: MerchantsService.terms(row) }
             : {}),
         },

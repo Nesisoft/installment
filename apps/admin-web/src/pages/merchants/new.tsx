@@ -30,6 +30,7 @@ export function MerchantNewPage() {
     // Blank means no deal: each plan charges its business model's own rate.
     mdr_bps_override: '',
     reserve_bps_override: '',
+    commission_bps_override: '',
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +48,8 @@ export function MerchantNewPage() {
     if (!mdr.ok) return setError(`MDR: ${mdr.message}`);
     const reserve = parseBpsOverride(form.reserve_bps_override, 5000);
     if (!reserve.ok) return setError(`Reserve: ${reserve.message}`);
+    const commission = parseBpsOverride(form.commission_bps_override, 2000);
+    if (!commission.ok) return setError(`Commission: ${commission.message}`);
     const payload = {
       business_name: form.business_name,
       legal_name: form.legal_name,
@@ -57,6 +60,7 @@ export function MerchantNewPage() {
       default_business_model: form.default_business_model,
       mdr_bps_override: mdr.value,
       reserve_bps_override: reserve.value,
+      commission_bps_override: commission.value,
     };
     const parsed = createMerchantSchema.safeParse(payload);
     if (!parsed.success) {
@@ -146,6 +150,16 @@ export function MerchantNewPage() {
                   />
                 </Field>
               </div>
+              <Field
+                label={`Negotiated paid-in-full commission bps${previewBps(form.commission_bps_override)}`}
+              >
+                <Input
+                  inputMode="numeric"
+                  value={form.commission_bps_override}
+                  onChange={(e) => set('commission_bps_override', e.target.value)}
+                  placeholder="Blank: the platform default"
+                />
+              </Field>
             </div>
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}

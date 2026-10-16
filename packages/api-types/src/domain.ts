@@ -56,6 +56,8 @@ export interface Merchant {
   mdr_bps_override: number | null;
   /** A negotiated reserve, in bps. NULL: each plan holds its business model's own rate. */
   reserve_bps_override: number | null;
+  /** A negotiated commission on paid-in-full orders, in bps. NULL: the platform default. */
+  commission_bps_override: number | null;
   /**
    * The payout floor. A settlement run below this rolls into the next one
    * instead of paying out — no row is written and nothing is queued, so the
@@ -93,6 +95,7 @@ export interface SellerFees {
   plans: Record<BusinessModel, PlanFees>;
   mdr_negotiated: boolean;
   reserve_negotiated: boolean;
+  commission_negotiated: boolean;
 }
 
 /**

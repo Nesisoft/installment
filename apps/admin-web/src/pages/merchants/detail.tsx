@@ -20,7 +20,6 @@ import {
 } from '@installment/ui';
 import {
   attachPaystackRecipientSchema,
-  formatBps,
   formatGhs,
   type MerchantProfile,
   type MerchantStatus,
@@ -45,7 +44,7 @@ import {
   useUpdateMerchantTerms,
   type MerchantKycDocument,
 } from '../../lib/merchants-api';
-import { describeRates, parseBpsOverride } from '../../lib/terms';
+import { describeCommission, describeRates, parseBpsOverride } from '../../lib/terms';
 import { formatDate, formatDateTime } from '../../lib/format';
 import { PageHeader } from '../../components/page-header';
 import { EmptyState, ErrorState, LoadingState } from '../../components/data-states';
@@ -85,12 +84,16 @@ function TermsCard({ merchant }: { merchant: MerchantProfile }) {
   const [editing, setEditing] = useState(false);
   const [mdr, setMdr] = useState('');
   const [reserve, setReserve] = useState('');
+  const [commission, setCommission] = useState('');
   const [error, setError] = useState<string | null>(null);
   const fees = merchant.fees;
 
   function startEditing() {
     setMdr(merchant.mdr_bps_override === null ? '' : String(merchant.mdr_bps_override));
     setReserve(merchant.reserve_bps_override === null ? '' : String(merchant.reserve_bps_override));
+    setCommission(
+      merchant.commission_bps_override === null ? '' : String(merchant.commission_bps_override),
+    );
     setError(null);
     setEditing(true);
   }
@@ -101,9 +104,15 @@ function TermsCard({ merchant }: { merchant: MerchantProfile }) {
     if (!nextMdr.ok) return setError(`MDR: ${nextMdr.message}`);
     const nextReserve = parseBpsOverride(reserve, 5000);
     if (!nextReserve.ok) return setError(`Reserve: ${nextReserve.message}`);
+    const nextCommission = parseBpsOverride(commission, 2000);
+    if (!nextCommission.ok) return setError(`Commission: ${nextCommission.message}`);
     setError(null);
     update.mutate(
-      { mdr_bps_override: nextMdr.value, reserve_bps_override: nextReserve.value },
+      {
+        mdr_bps_override: nextMdr.value,
+        reserve_bps_override: nextReserve.value,
+        commission_bps_override: nextCommission.value,
+      },
       { onSuccess: () => setEditing(false) },
     );
   }
@@ -120,13 +129,22 @@ function TermsCard({ merchant }: { merchant: MerchantProfile }) {
       <CardContent className="space-y-4">
         {fees ? (
           <dl className="grid gap-4 sm:grid-cols-3">
-            <Field label="Paid-in-full commission" value={formatBps(fees.pay_now_commission_bps)} />
+            <Field label="Paid-in-full commission" value={describeCommission(fees)} />
             <Field label="MDR on a plan" value={describeRates(fees, 'mdr')} />
             <Field label="Reserve on a plan" value={describeRates(fees, 'reserve')} />
           </dl>
         ) : null}
         {editing ? (
-          <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
+          <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-2">
+              <Label>Negotiated commission (bps)</Label>
+              <Input
+                inputMode="numeric"
+                value={commission}
+                onChange={(e) => setCommission(e.target.value)}
+                placeholder="Blank: the platform default"
+              />
+            </div>
             <div className="space-y-2">
               <Label>Negotiated MDR (bps)</Label>
               <Input
@@ -145,7 +163,7 @@ function TermsCard({ merchant }: { merchant: MerchantProfile }) {
                 placeholder="Blank: each plan's own rate"
               />
             </div>
-            <div className="sm:col-span-2 space-y-2">
+            <div className="sm:col-span-3 space-y-2">
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
               {update.isError ? (
                 <p className="text-sm text-destructive">{apiErrorMessage(update.error)}</p>

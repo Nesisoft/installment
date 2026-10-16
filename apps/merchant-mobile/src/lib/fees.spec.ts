@@ -21,6 +21,7 @@ const MODEL_RATES: SellerFees = {
   },
   mdr_negotiated: false,
   reserve_negotiated: false,
+  commission_negotiated: false,
 };
 
 const NEGOTIATED: SellerFees = {

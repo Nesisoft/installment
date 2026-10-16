@@ -66,6 +66,16 @@ export interface OrderWithItems extends Order {
 export const DEFAULT_MARKETPLACE_COMMISSION_BPS = 500;
 
 /**
+ * The commission a paid-in-full order from this merchant carries: their deal,
+ * else the platform default. The one statement of the rule — checkout stamps
+ * it and `sellerFees` shows it, so the seller is quoted what the order books.
+ * `??`, never `||`: a negotiated 0% is a rate.
+ */
+export function payNowCommissionBps(commissionBpsOverride: number | null): number {
+  return commissionBpsOverride ?? DEFAULT_MARKETPLACE_COMMISSION_BPS;
+}
+
+/**
  * Category label handed to the engine on an installment application. Deriving it
  * from the catalog (product category → scoring eligibility) is a later
  * refinement; a non-empty default keeps the hand-off honest for now.
@@ -257,6 +267,7 @@ export class OrdersService {
           store_deleted: st.deleted_at,
           merchant_status: merch.status,
           merchant_deleted: merch.deleted_at,
+          merchant_commission_override: merch.commission_bps_override,
         })
         .from(ci)
         .innerJoin(pv, eq(pv.id, ci.variant_id))
@@ -361,7 +372,6 @@ export class OrdersService {
         else byStore.set(l.store_id, [l]);
       }
 
-      const commissionBps = input.payment_type === 'full' ? DEFAULT_MARKETPLACE_COMMISSION_BPS : 0;
       const status: OrderStatus =
         input.payment_type === 'full' ? 'pending_payment' : 'pending_approval';
 
@@ -369,6 +379,13 @@ export class OrdersService {
       for (const group of byStore.values()) {
         const storeId = group[0]!.store_id;
         const merchantId = group[0]!.merchant_id;
+        // Per order, because a multi-vendor cart splits into one order per
+        // merchant and each may have its own deal. Instalment orders carry 0:
+        // the plan's MDR is their fee, and a second charge would double it.
+        const commissionBps =
+          input.payment_type === 'full'
+            ? payNowCommissionBps(group[0]!.merchant_commission_override)
+            : 0;
         const subtotal = group.reduce((s, l) => s + l.unit_price_pesewas * l.quantity, 0);
         const total = subtotal + shippingPerOrder;
 

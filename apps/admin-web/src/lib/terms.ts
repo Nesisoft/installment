@@ -38,3 +38,9 @@ export function describeRates(fees: SellerFees, which: 'mdr' | 'reserve'): strin
     ? `${formatBps(lo)} on every plan type`
     : `${formatBps(lo)}–${formatBps(hi)} by plan type`;
 }
+
+/** The paid-in-full commission, and whether it is a deal or the default. */
+export function describeCommission(fees: SellerFees): string {
+  const rate = formatBps(fees.pay_now_commission_bps);
+  return fees.commission_negotiated ? `${rate} (negotiated)` : `${rate} (platform default)`;
+}

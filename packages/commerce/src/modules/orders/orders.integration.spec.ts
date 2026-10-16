@@ -731,6 +731,72 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
     );
   });
 
+  describe('a negotiated pay-now commission', () => {
+    // The 5% marketplace commission was a constant stamped onto every full
+    // order: no merchant could be given a different one. It is now a
+    // per-merchant override, NULL meaning the platform default. Separate from
+    // the negotiated MDR on purpose: the MDR prices Ejua fronting the money on a
+    // plan, the commission is the marketplace's cut of a cash sale.
+    it("stamps the merchant's own commission on a paid-in-full order and books it", async () => {
+      const customerId = await freshCustomer();
+      const { merchantId, storeId } = await merchantWithStore();
+      await merchants.update(merchantId, { commission_bps_override: 300 }, ACTOR);
+      const v = await variant(storeId, 2000);
+      await cart.addItem(customerId, { variant_id: v, quantity: 3 }); // total 6000
+      const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+      expect(order!.commission_bps).toBe(300);
+
+      const revenueBefore = await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF);
+      await orders.confirmPayment(order!.id, { provider_reference: `ps_${randomUUID()}` }, ACTOR);
+      // 6000 @ 3% → commission 180, merchant net 5820 — not 300 / 5700.
+      expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(5820);
+      expect(await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF)).toBe(revenueBefore + 180);
+    });
+
+    it("prices each order of a multi-vendor cart at its own merchant's commission", async () => {
+      const customerId = await freshCustomer();
+      const dealt = await merchantWithStore();
+      const standard = await merchantWithStore();
+      await merchants.update(dealt.merchantId, { commission_bps_override: 250 }, ACTOR);
+      await cart.addItem(customerId, {
+        variant_id: await variant(dealt.storeId, 1000),
+        quantity: 1,
+      });
+      await cart.addItem(customerId, {
+        variant_id: await variant(standard.storeId, 1000),
+        quantity: 1,
+      });
+
+      const created = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+      const byMerchant = new Map(created.map((ord) => [ord.merchant_id, ord]));
+      expect(byMerchant.get(dealt.merchantId)!.commission_bps).toBe(250);
+      expect(byMerchant.get(standard.merchantId)!.commission_bps).toBe(500);
+    });
+
+    it("leaves an instalment order at no commission — the plan's MDR is its fee", async () => {
+      const customerId = await freshCustomer();
+      const { merchantId, storeId } = await merchantWithStore();
+      await merchants.update(merchantId, { commission_bps_override: 300 }, ACTOR);
+      await cart.addItem(customerId, { variant_id: await variant(storeId, 5000), quantity: 1 });
+      const [order] = await orders.checkout(
+        customerId,
+        { payment_type: 'installment', plan_template_id: await bnplTemplate() },
+        ACTOR,
+      );
+      expect(order!.commission_bps).toBe(0);
+    });
+
+    it('goes back to the platform default once the deal is cleared', async () => {
+      const customerId = await freshCustomer();
+      const { merchantId, storeId } = await merchantWithStore();
+      await merchants.update(merchantId, { commission_bps_override: 300 }, ACTOR);
+      await merchants.update(merchantId, { commission_bps_override: null }, ACTOR);
+      await cart.addItem(customerId, { variant_id: await variant(storeId, 1000), quantity: 1 });
+      const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+      expect(order!.commission_bps).toBe(500);
+    });
+  });
+
   it('splits a multi-vendor cart into one order per merchant', async () => {
     const customerId = await freshCustomer();
     const a = await merchantWithStore();

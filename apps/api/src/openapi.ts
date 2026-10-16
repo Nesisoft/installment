@@ -142,6 +142,7 @@ function domainComponentSchemas(): Record<string, SchemaObject> {
               },
               mdr_negotiated: { type: 'boolean' },
               reserve_negotiated: { type: 'boolean' },
+              commission_negotiated: { type: 'boolean' },
             },
           },
         },

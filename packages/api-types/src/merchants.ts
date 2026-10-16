@@ -17,6 +17,8 @@ export const createMerchantSchema = z.object({
   /** A negotiated rate. Absent or NULL: each plan charges its model's own rate. */
   mdr_bps_override: z.number().int().min(0).max(2000).nullable().optional(),
   reserve_bps_override: z.number().int().min(0).max(5000).nullable().optional(),
+  /** A negotiated commission on paid-in-full orders. Absent or NULL: the platform default. */
+  commission_bps_override: z.number().int().min(0).max(2000).nullable().optional(),
 });
 export type CreateMerchantInput = z.infer<typeof createMerchantSchema>;
 

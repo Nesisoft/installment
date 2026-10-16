@@ -180,6 +180,16 @@ describe.skipIf(!RUN_DB)('negotiated merchant rates (integration)', () => {
     await expect(merchants.update(m.id, { mdr_bps_override: 2.5 }, ACTOR)).rejects.toThrow();
   });
 
+  it('records a negotiated pay-now commission, and clears it with NULL', async () => {
+    const m = await merchant({ commission_bps_override: 300 });
+    expect(m.commission_bps_override).toBe(300);
+    const cleared = await merchants.update(m.id, { commission_bps_override: null }, ACTOR);
+    expect(cleared.commission_bps_override).toBeNull();
+    await expect(
+      merchants.update(m.id, { commission_bps_override: 2_001 }, ACTOR),
+    ).rejects.toThrow();
+  });
+
   it('records what the terms were changed to, not just that something changed', async () => {
     const m = await merchant();
     await merchants.update(m.id, { mdr_bps_override: 275 }, ACTOR);
@@ -193,6 +203,8 @@ describe.skipIf(!RUN_DB)('negotiated merchant rates (integration)', () => {
           eq(schema.audit_events.event_type, 'merchant.updated'),
         ),
       );
-    expect(event?.metadata).toMatchObject({ terms: { mdr_bps_override: 275 } });
+    expect(event?.metadata).toMatchObject({
+      terms: { mdr_bps_override: 275, commission_bps_override: null },
+    });
   });
 });

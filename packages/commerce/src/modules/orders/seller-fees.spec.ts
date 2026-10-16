@@ -13,7 +13,11 @@ import { sellerFees } from './seller-fees';
  * real 2–12%.
  */
 describe('sellerFees', () => {
-  const NO_DEAL = { mdr_bps_override: null, reserve_bps_override: null };
+  const NO_DEAL = {
+    mdr_bps_override: null,
+    reserve_bps_override: null,
+    commission_bps_override: null,
+  };
 
   it('quotes the commission a paid-in-full order is actually charged', () => {
     // The constant `checkout` stamps onto every full order's `commission_bps`.
@@ -34,7 +38,7 @@ describe('sellerFees', () => {
   });
 
   it('quotes one flat MDR across every plan for a merchant with a deal', () => {
-    const fees = sellerFees({ mdr_bps_override: 250, reserve_bps_override: null });
+    const fees = sellerFees({ ...NO_DEAL, mdr_bps_override: 250 });
     expect(Object.values(fees.plans).map((p) => p.mdr_bps)).toEqual([250, 250, 250, 250]);
     // The reserve was not part of the deal, so it still follows the plan.
     expect(Object.values(fees.plans).map((p) => p.reserve_bps)).toEqual([500, 200, 700, 1200]);
@@ -42,12 +46,19 @@ describe('sellerFees', () => {
     expect(fees.reserve_negotiated).toBe(false);
   });
 
-  it('leaves the pay-now commission where checkout charges it, deal or no deal', () => {
-    // A negotiated MDR prices instalment sales only: `checkout` stamps the
-    // commission constant on full orders and never reads the merchant. Showing
-    // the deal here would promise a rate the order will not carry.
-    expect(
-      sellerFees({ mdr_bps_override: 250, reserve_bps_override: 0 }).pay_now_commission_bps,
-    ).toBe(500);
+  it('keeps the pay-now commission apart from a negotiated MDR', () => {
+    // The MDR prices Ejua fronting the money on a plan; the commission is the
+    // marketplace's cut of a cash sale. A deal on one says nothing about the other.
+    const fees = sellerFees({ ...NO_DEAL, mdr_bps_override: 250, reserve_bps_override: 0 });
+    expect(fees.pay_now_commission_bps).toBe(500);
+    expect(fees.commission_negotiated).toBe(false);
+  });
+
+  it('quotes a negotiated pay-now commission, which is what checkout stamps', () => {
+    const fees = sellerFees({ ...NO_DEAL, commission_bps_override: 300 });
+    expect(fees.pay_now_commission_bps).toBe(300);
+    expect(fees.commission_negotiated).toBe(true);
+    // The instalment side is untouched by a commission deal.
+    expect(fees.plans.bnpl.mdr_bps).toBe(400);
   });
 });
