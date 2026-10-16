@@ -4,9 +4,52 @@ import {
   countdown,
   daysBetween,
   parseApiDate,
+  toIsoDateTime,
   relativeDate,
   shortDate,
 } from './dates';
+
+/**
+ * The string `parseApiDate` hands to `new Date()`.
+ *
+ * Asserted on the STRING, not the parsed Date, and that is deliberate. vitest
+ * runs on V8, and V8 parses the raw API timestamp unaided — so the parse test
+ * below passes against a `parseApiDate` that normalises nothing at all. It
+ * guards a Hermes trap on an engine that does not have it.
+ *
+ * What does mean the same thing on every engine is whether the string is in
+ * ECMA-262's Date Time String Format: a conformant engine must parse that
+ * shape, and anything else is implementation-defined. Postgres emits
+ * microseconds — six fractional digits — and the format specifies three.
+ */
+describe('toIsoDateTime', () => {
+  const ECMA_262 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{3})?)?(Z|[+-]\d{2}:\d{2})$/;
+
+  it('produces ECMA-262 Date Time String Format for every shape the API emits', () => {
+    for (const raw of [
+      '2026-08-28 11:51:27.239902+00',
+      '2026-08-28 11:51:27.483433+00',
+      '2026-08-28 11:51:27.5+00',
+      '2026-08-28 11:51:27+00',
+      '2026-08-28 11:51:27.239902-05',
+      '2026-08-28T11:51:27.000Z',
+    ]) {
+      expect(toIsoDateTime(raw)).toMatch(ECMA_262);
+    }
+  });
+
+  it('truncates microseconds to the three digits the format allows', () => {
+    expect(toIsoDateTime('2026-08-28 11:51:27.239902+00')).toBe('2026-08-28T11:51:27.239+00:00');
+  });
+
+  it('pads a short fraction rather than leaving it non-conformant', () => {
+    expect(toIsoDateTime('2026-08-28 11:51:27.5+00')).toBe('2026-08-28T11:51:27.500+00:00');
+  });
+
+  it('leaves an already-conformant string alone', () => {
+    expect(toIsoDateTime('2026-08-28T11:51:27.000Z')).toBe('2026-08-28T11:51:27.000Z');
+  });
+});
 
 describe('parseApiDate', () => {
   it("parses the API's actual timestamp format", () => {
