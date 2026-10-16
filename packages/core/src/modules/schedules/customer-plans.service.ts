@@ -28,11 +28,11 @@ import type { PayoutRecorder, RecordPayoutAccrualInput } from '../settlements/pa
 import type { ReserveReleaseService } from '../settlements/reserve-release.service';
 import type { DefaultService } from '../settlements/default.service';
 import { effectiveRates, type BusinessModel } from '../settlements/model-config';
+import { planTermsSchema } from '../applications/plan-terms';
 
 const cp = schema.customer_plans;
 const sched = schema.installment_schedule;
 const apps = schema.applications;
-const templates = schema.plan_templates;
 const merchants = schema.merchants;
 const customers = schema.customers;
 
@@ -158,16 +158,17 @@ export class CustomerPlansService {
       );
     }
 
-    const template = (
-      await this.db
-        .select()
-        .from(templates)
-        .where(eq(templates.id, application.plan_template_id))
-        .limit(1)
-    )[0];
-    if (!template) {
-      throw new PlanActivationError(`Plan template ${application.plan_template_id} not found`);
+    // The terms the customer applied under, locked at submit — never the
+    // template's current ones. A template's interest, fees and grace period are
+    // editable while it is live; reading them here priced an application that
+    // waited in manual review by whatever staff had since set. Withdrawing the
+    // template does not stop this either: the customer already applied, and
+    // nothing would release an approved order that could not activate.
+    const parsed = planTermsSchema.safeParse(application.plan_terms);
+    if (!parsed.success) {
+      throw new PlanActivationError(`Application ${applicationId} has no valid locked plan terms`);
     }
+    const terms = parsed.data;
 
     const merchant = (
       await this.db
@@ -187,21 +188,21 @@ export class CustomerPlansService {
     // Snapshotting rather than re-reading means changing a merchant's terms can
     // never retroactively alter accruals already booked on an append-only book.
     const { mdrBps: effectiveMdrBps, reserveBps: effectiveReserveBps } = effectiveRates(
-      template.business_model as BusinessModel,
+      terms.business_model as BusinessModel,
       { mdrBpsOverride: merchant.mdrOverride, reserveBpsOverride: merchant.reserveOverride },
     );
 
-    // Schedule is derived from the template's terms. (Accepted counter-offer
+    // Schedule is derived from the locked terms. (Accepted counter-offer
     // amounts on the application are honoured in a later refinement.)
     const generated = this.generator.generate({
-      businessModel: template.business_model as ScheduleBusinessModel,
+      businessModel: terms.business_model as ScheduleBusinessModel,
       orderAmountPesewas: application.order_amount_pesewas,
-      downPaymentBps: template.down_payment_bps,
-      interestRateBps: template.interest_rate_bps,
-      serviceFeeFlatPesewas: template.service_fee_flat_pesewas,
-      numberOfInstallments: template.number_of_installments,
-      installmentFrequencyDays: template.installment_frequency_days,
-      gracePeriodDays: template.grace_period_days,
+      downPaymentBps: terms.down_payment_bps,
+      interestRateBps: terms.interest_rate_bps,
+      serviceFeeFlatPesewas: terms.service_fee_flat_pesewas,
+      numberOfInstallments: terms.number_of_installments,
+      installmentFrequencyDays: terms.installment_frequency_days,
+      gracePeriodDays: terms.grace_period_days,
       startDate: now,
     });
 
@@ -228,10 +229,10 @@ export class CustomerPlansService {
             merchant_id: application.merchant_id,
             plan_template_id: application.plan_template_id,
             application_id: applicationId,
-            business_model: template.business_model,
-            number_of_installments: template.number_of_installments,
-            installment_frequency_days: template.installment_frequency_days,
-            grace_period_days: template.grace_period_days,
+            business_model: terms.business_model,
+            number_of_installments: terms.number_of_installments,
+            installment_frequency_days: terms.installment_frequency_days,
+            grace_period_days: terms.grace_period_days,
             mdr_bps: effectiveMdrBps,
             reserve_bps: effectiveReserveBps,
             // The plan is the contract: snapshot the late-fee terms here so
@@ -239,8 +240,8 @@ export class CustomerPlansService {
             // agreed to. LateFeeService reads these columns and nothing else,
             // so omitting them (as this insert did) left every plan at the
             // column default of 0 and made accrual unreachable.
-            late_fee_bps_per_week: template.late_fee_bps_per_week,
-            late_fee_cap_bps: template.late_fee_cap_bps,
+            late_fee_bps_per_week: terms.late_fee_bps_per_week,
+            late_fee_cap_bps: terms.late_fee_cap_bps,
             order_amount_pesewas: application.order_amount_pesewas,
             down_payment_pesewas: generated.downPaymentPesewas,
             financed_amount_pesewas: generated.financedAmountPesewas,
@@ -297,7 +298,7 @@ export class CustomerPlansService {
           customerPlanId: plan.id,
           merchantId: application.merchant_id,
           orderAmountPesewas: application.order_amount_pesewas,
-          model: template.business_model as BusinessModel,
+          model: terms.business_model as BusinessModel,
           trigger: 'order_approved',
         },
         now,

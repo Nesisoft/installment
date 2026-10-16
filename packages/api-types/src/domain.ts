@@ -154,11 +154,26 @@ export interface PlanTemplate {
   created_at: string;
 }
 
+/** The plan terms an application locked at submit; activation prices the plan from these. */
+export interface PlanTerms {
+  business_model: BusinessModel;
+  number_of_installments: number;
+  installment_frequency_days: number;
+  down_payment_bps: number;
+  interest_rate_bps: number;
+  service_fee_flat_pesewas: number;
+  grace_period_days: number;
+  late_fee_bps_per_week: number;
+  late_fee_cap_bps: number;
+}
+
 export interface Application {
   id: string;
   customer_id: string;
   merchant_id: string;
   plan_template_id: string;
+  /** The terms the customer applied under — not the template's current ones. */
+  plan_terms: PlanTerms;
   order_reference: string;
   order_amount_pesewas: number;
   merchant_category: string;

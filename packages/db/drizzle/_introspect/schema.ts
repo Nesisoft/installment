@@ -134,6 +134,7 @@ export const applications = pgTable("applications", {
 	expires_at: timestamp({ withTimezone: true, mode: 'string' }).default(sql`(now() + '24:00:00'::interval)`).notNull(),
 	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	plan_terms: jsonb().notNull(),
 }, (table) => [
 	index("applications_customer_idx").using("btree", table.customer_id.asc().nullsLast().op("timestamptz_ops"), table.created_at.desc().nullsFirst().op("uuid_ops")),
 	index("applications_merchant_idx").using("btree", table.merchant_id.asc().nullsLast().op("uuid_ops"), table.created_at.desc().nullsFirst().op("timestamptz_ops")),
