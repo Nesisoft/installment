@@ -346,6 +346,7 @@ export {
 export * from './modules/webhooks/errors';
 export * from './modules/applications/dto';
 export * from './modules/applications/errors';
+export * from './modules/applications/plan-terms';
 export {
   ApplicationsService,
   type Application,

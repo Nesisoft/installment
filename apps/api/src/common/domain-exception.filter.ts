@@ -80,6 +80,7 @@ export const NAME_STATUS: Record<string, number> = {
   ReturnNotFoundError: HttpStatus.NOT_FOUND,
   DuplicateEmploymentError: HttpStatus.CONFLICT,
   DuplicateApplicationError: HttpStatus.CONFLICT,
+  PlanNotOfferedError: HttpStatus.UNPROCESSABLE_ENTITY,
   IllegalMerchantTransitionError: HttpStatus.CONFLICT,
   IllegalEmployerTransitionError: HttpStatus.CONFLICT,
   IllegalEmploymentTransitionError: HttpStatus.CONFLICT,

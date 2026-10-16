@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, inArray, lte, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
@@ -10,7 +10,8 @@ import {
   type RecordDecisionInput,
   type SubmitApplicationInput,
 } from './dto';
-import { ApplicationNotFoundError, DuplicateApplicationError } from './errors';
+import { ApplicationNotFoundError, DuplicateApplicationError, PlanNotOfferedError } from './errors';
+import { termsOf, type PlanTerms } from './plan-terms';
 import {
   nextApplicationStatus,
   type ApplicationEvent,
@@ -18,6 +19,7 @@ import {
 } from './state-machine';
 
 const a = schema.applications;
+const pt = schema.plan_templates;
 
 export type Application = typeof schema.applications.$inferSelect;
 
@@ -68,6 +70,8 @@ export class ApplicationsService {
     input: SubmitApplicationInput,
     actor: ApplicationActor,
   ): Promise<Application> {
+    const terms = await this.offeredTerms(tx, input.plan_template_id);
+
     let row: Application;
     try {
       const inserted = await tx
@@ -76,6 +80,7 @@ export class ApplicationsService {
           customer_id: input.customer_id,
           merchant_id: input.merchant_id,
           plan_template_id: input.plan_template_id,
+          plan_terms: terms,
           order_reference: input.order_reference,
           order_amount_pesewas: input.order_amount_pesewas,
           merchant_category: input.merchant_category,
@@ -100,6 +105,36 @@ export class ApplicationsService {
       metadata: { merchant_id: row.merchant_id, order_reference: row.order_reference },
     });
     return row;
+  }
+
+  /**
+   * The template's terms, if the plan is on offer right now.
+   *
+   * `PlanTemplatesService.checkEligibility` was written to answer this and had
+   * no caller, so an application could be submitted against a plan staff had
+   * withdrawn, or one whose window had closed. Amount and category are not
+   * checked here: those are credit-decision gates, and scoring records them as
+   * a decline with a reason.
+   *
+   * The window is compared with the database's clock on both sides —
+   * `effective_from` defaults to `NOW()` — so skew between this process and
+   * Postgres cannot make a plan created a moment ago look not yet open.
+   */
+  private async offeredTerms(tx: TransactionalTx, templateId: string): Promise<PlanTerms> {
+    const [offer] = await tx
+      .select({
+        ...getTableColumns(pt),
+        started: sql<boolean>`${pt.effective_from} <= now()`,
+        ended: sql<boolean>`${pt.effective_to} IS NOT NULL AND ${pt.effective_to} <= now()`,
+      })
+      .from(pt)
+      .where(eq(pt.id, templateId))
+      .limit(1);
+    if (!offer) throw new PlanNotOfferedError(templateId, 'not_found');
+    if (!offer.is_active) throw new PlanNotOfferedError(templateId, 'inactive');
+    if (!offer.started) throw new PlanNotOfferedError(templateId, 'not_yet_effective');
+    if (offer.ended) throw new PlanNotOfferedError(templateId, 'expired');
+    return termsOf(offer);
   }
 
   async get(id: string): Promise<Application> {
