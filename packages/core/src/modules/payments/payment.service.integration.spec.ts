@@ -293,6 +293,76 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
     expect((await plans.getInstallment(scheduleId)).status).toBe('failed');
   });
 
+  /**
+   * What a decline actually looks like on the wire.
+   *
+   * Captured from Paystack test mode with the repo's own client (2026-10-19):
+   * a declined `/charge` answers **HTTP 400**, `status: false`, with the
+   * outcome in `data.status` and the reason as prose in `data.message`. The
+   * client throws on any 400, so the charge paths parked a definite decline as
+   * `unknown` with the reason "Charge attempted", and the verify poll only
+   * recognised it 15-20 minutes later. The test above models a decline as a
+   * 200 with a snake_case `gateway_response` — a shape Paystack never sent.
+   */
+  function paystack400Decline(reference: string, message: string): Error {
+    return Object.assign(new Error('Charge attempted'), {
+      name: 'PaystackError',
+      status: 400,
+      cause: {
+        status: false,
+        message: 'Charge attempted',
+        data: { reference, status: 'failed', message },
+        type: 'api_error',
+        code: 'unprocessed_transaction',
+      },
+    });
+  }
+  const OBSERVED =
+    'Declined. Please use the test mobile money number since you are doing a test transaction.';
+
+  it("records a MoMo decline Paystack returns as HTTP 400 at once, with Paystack's reason", async () => {
+    const { scheduleId } = await freshPlan();
+    const svc = service(fakePaystack({ momo: paystack400Decline('ps_momo_400', OBSERVED) }));
+    const result = await svc.chargeMobileMoney(
+      { scheduleId, email: 'kofi@x.gh', phone: '+233244000111', provider: 'mtn' },
+      ACTOR,
+    );
+    expect(result.status).toBe('failed');
+    expect(result.attempt.status).toBe('failed');
+    expect(result.attempt.failure_reason).toBe(OBSERVED);
+    expect((await plans.getInstallment(scheduleId)).status).toBe('failed');
+  });
+
+  it('records a card decline Paystack returns as HTTP 400 the same way', async () => {
+    const { scheduleId } = await freshPlan();
+    const svc = service(
+      fakePaystack({ card: paystack400Decline('ps_card_400', 'Insufficient Funds') }),
+    );
+    const result = await svc.chargeCard(
+      { scheduleId, authorizationCode: 'AUTH_x', email: 'kofi@x.gh' },
+      ACTOR,
+    );
+    expect(result.status).toBe('failed');
+    expect(result.attempt.failure_reason).toBe('Insufficient Funds');
+  });
+
+  it('still parks a 400 that says nothing about the charge as unknown', async () => {
+    // A rejected request (bad parameters) carries no `data.status`: nothing in
+    // it says whether a charge exists, so it is left for verify to resolve.
+    const { scheduleId } = await freshPlan();
+    const bad = Object.assign(new Error('Invalid phone'), {
+      status: 400,
+      cause: { status: false, message: 'Invalid phone' },
+    });
+    const svc = service(fakePaystack({ momo: bad }));
+    const result = await svc.chargeMobileMoney(
+      { scheduleId, email: 'kofi@x.gh', phone: '+233244000111', provider: 'mtn' },
+      ACTOR,
+    );
+    expect(result.status).toBe('unknown');
+    expect((await plans.getInstallment(scheduleId)).status).toBe('processing');
+  });
+
   // ----------------------------------------------------------- verify path
 
   it('verify resolves a stuck attempt as succeeded (schedule paid, outstanding reduced)', async () => {

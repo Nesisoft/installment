@@ -47,9 +47,19 @@ describe('declineReasonSource', () => {
   });
 
   it('reports a reason the map does not know as unrecognised, prose included', () => {
-    expect(declineReasonSource('Insufficient Funds')).toBe('unrecognised');
+    // Paystack's real decline sentence from test mode: no words the map has.
+    expect(
+      declineReasonSource(
+        'Declined. Please use the test mobile money number since you are doing a test transaction.',
+      ),
+    ).toBe('unrecognised');
     expect(declineReasonSource('Declined')).toBe('unrecognised');
     expect(declineReasonSource('some_new_code')).toBe('unrecognised');
+  });
+
+  it('never answers a property of Object.prototype', () => {
+    expect(classifyFailure('constructor')).toBe('ambiguous');
+    expect(declineReasonSource('constructor')).toBe('unrecognised');
   });
 
   it('agrees with classifyFailure: only a mapped reason is ever acted on', () => {
@@ -58,5 +68,34 @@ describe('declineReasonSource', () => {
         declineReasonSource(reason) !== 'mapped',
       );
     }
+  });
+});
+
+/**
+ * Paystack sends prose. Confirmed against Paystack test mode (2026-10-19):
+ * success is `gateway_response: "Approved"`, a decline is a sentence. The map's
+ * keys are snake_case, so before matching ignored case and punctuation not one
+ * real reason could match it and every decline was `ambiguous`.
+ *
+ * Normalising is not guessing: it makes the map's own words match their prose
+ * form, and adds no wording of its own. Which prose Paystack uses for which
+ * outcome is learnt from real traffic (`DeclineReasonReport`).
+ */
+describe('matching the prose Paystack actually sends', () => {
+  it('matches a mapped reason written as prose', () => {
+    expect(classifyFailure('Insufficient Funds')).toBe('retryable');
+    expect(classifyFailure('Blocked card.')).toBe('non_retryable');
+    expect(declineReasonSource('Insufficient Funds')).toBe('mapped');
+  });
+
+  it('leaves a real sentence it has no entry for ambiguous', () => {
+    const observed =
+      'Declined. Please use the test mobile money number since you are doing a test transaction.';
+    expect(classifyFailure(observed)).toBe('ambiguous');
+    expect(declineReasonSource(observed)).toBe('unrecognised');
+  });
+
+  it("counts the verify poll's own placeholder as ours, not as a gap in the map", () => {
+    expect(declineReasonSource('no_reference_issued')).toBe('internal_fallback');
   });
 });
