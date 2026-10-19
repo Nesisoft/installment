@@ -18,6 +18,7 @@ import {
 import { MAX_VERIFY_POLLS } from './retry-policy';
 import type { RetryScheduler } from './retry-scheduler';
 import { ChargeFailureEscalator, type ChargeReceiptNotifier } from './charge-failure-escalator';
+import { declineFromChargeError } from './provider-decline';
 import { LockAcquisitionError, type RedisLock } from '../../shared/lock/redis-lock';
 
 /**
@@ -218,6 +219,17 @@ export class PaymentService {
           metadata: { schedule_id: input.scheduleId, attempt_id: attempt.id },
         });
       } catch (err) {
+        // A decline arrives as a 400 the client throws — see provider-decline.
+        const declined = declineFromChargeError(err);
+        if (declined) {
+          return this.recordFailure(
+            attempt.id,
+            installment.id,
+            declined.reason,
+            declined.body,
+            actor,
+          );
+        }
         return this.markAttemptUnknown(attempt.id, err);
       }
 
@@ -254,6 +266,18 @@ export class PaymentService {
           metadata: { schedule_id: input.scheduleId, attempt_id: attempt.id },
         });
       } catch (err) {
+        // A decline arrives as a 400 the client throws — see provider-decline.
+        const declined = declineFromChargeError(err);
+        if (declined) {
+          this.recordTelco(input.provider, false);
+          return this.recordFailure(
+            attempt.id,
+            installment.id,
+            declined.reason,
+            declined.body,
+            actor,
+          );
+        }
         return this.markAttemptUnknown(attempt.id, err);
       }
 
@@ -458,10 +482,21 @@ export class PaymentService {
     actor: PlanActor,
   ): Promise<ChargeResult> {
     const reason = response.data.gateway_response ?? 'charge_failed';
+    return this.recordFailure(attemptId, scheduleId, reason, response, actor);
+  }
+
+  /** A charge Paystack answered as declined: record it and escalate, now. */
+  private async recordFailure(
+    attemptId: string,
+    scheduleId: string,
+    reason: string,
+    rawResponse: unknown,
+    actor: PlanActor,
+  ): Promise<ChargeResult> {
     const failed = await this.attempts.update(attemptId, {
       status: 'failed',
       failureReason: reason,
-      rawResponse: response,
+      rawResponse,
       failedAt: new Date(),
     });
     await this.escalator.apply(scheduleId, reason, actor);
