@@ -32,6 +32,7 @@ import {
 } from '../../src/features/merchant';
 import { saleSplits } from '../../src/lib/fees';
 import { ghs, parseGhsToPesewas, pluralise } from '../../src/lib/format';
+import { skusFor } from '../../src/lib/sku';
 import { color, radius, space } from '../../src/theme/tokens';
 
 const MAX_PHOTOS = 6;
@@ -200,16 +201,17 @@ export default function NewProductScreen(): React.ReactElement {
       return setError(`Two ${optionName.trim() || 'options'} have the same name.`);
     }
 
+    const skus = skusFor(title, named.length ? named.map((o) => o.value) : ['default']);
     const variants = named.length
-      ? named.map((o) => ({
-          sku: skuFor(title, o.value),
+      ? named.map((o, i) => ({
+          sku: skus[i]!,
           option_values: { [optionName.trim() || 'Option']: o.value.trim() },
           quantity_available: o.quantity,
         }))
       : // A product must have at least one variant to be buyable at all: the
         // cart holds variant ids, not product ids. A listing with no options
         // still gets one, unnamed.
-        [{ sku: skuFor(title, 'default'), quantity_available: singleStock }];
+        [{ sku: skus[0]!, quantity_available: singleStock }];
 
     create.mutate(
       {
@@ -513,24 +515,6 @@ export default function NewProductScreen(): React.ReactElement {
       </StickyFooter>
     </>
   );
-}
-
-/**
- * A stock-keeping code, since the schema requires one and the canvas never asks.
- *
- * Unique per product (`product_variants` is UNIQUE on `(product_id, sku)`), not
- * globally — so deriving it from the title and the option value is enough, and
- * two shops selling "Ankara Wrap Dress · M" do not collide.
- */
-function skuFor(title: string, value: string): string {
-  const base = `${title}-${value}`
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  // 64 is the column's ceiling; a title alone can exceed it.
-  return (base || 'ITEM').slice(0, 64);
 }
 
 const styles = StyleSheet.create({

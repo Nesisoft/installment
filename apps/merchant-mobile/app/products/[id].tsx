@@ -35,6 +35,7 @@ import {
   type PickedImage,
 } from '../../src/features/merchant';
 import { cedis, ghs, parseGhsToPesewas, pluralise } from '../../src/lib/format';
+import { skusFor } from '../../src/lib/sku';
 import { color, radius, space, tintFor } from '../../src/theme/tokens';
 
 /**
@@ -514,13 +515,14 @@ function AddVariantSheet({
     }
     add.mutate(
       {
-        // Unique per product only, so the value alone is enough here — unlike
-        // at creation, where the title disambiguates nothing yet.
-        sku: value
-          .toUpperCase()
-          .replace(/[^A-Z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '')
-          .slice(0, 64),
+        // Clear of the codes the listing already has: the value alone collided
+        // ("Red/Blue" beside "Red Blue") or slugged to nothing ("ɔ"), and the
+        // seller got a 409 about a SKU they had never typed.
+        sku: skusFor(
+          productTitle,
+          [value],
+          existing.map((v) => v.sku),
+        )[0]!,
         option_values: { [optionName || 'Option']: value },
         quantity_available: quantity,
       },
