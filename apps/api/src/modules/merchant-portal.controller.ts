@@ -39,6 +39,7 @@ import {
   MerchantKycService,
   MerchantsService,
   PayoutAccountService,
+  payoutsForSeller,
   PlanTemplatesService,
   registerDeviceSchema,
   resolvePayoutAccountSchema,
@@ -467,13 +468,20 @@ export class MerchantPortalController {
     return this.stats.forMerchant(merchantId, q.days === undefined ? {} : { days: q.days });
   }
 
+  /**
+   * The seller's payout history. `lastError` is a sentence written for the
+   * seller — what happened and where the money is — not the provider's text,
+   * which the admin console's `/merchants/:id/payouts` keeps for operations.
+   */
   @Get('payouts')
-  payouts(@CurrentMerchantId() merchantId: string, @Query() q: Record<string, string>) {
-    return this.dashboard.listPayouts(merchantId, {
-      status: q.status,
-      limit: numOrUndefined(q.limit),
-      offset: numOrUndefined(q.offset),
-    });
+  async payouts(@CurrentMerchantId() merchantId: string, @Query() q: Record<string, string>) {
+    return payoutsForSeller(
+      await this.dashboard.listPayouts(merchantId, {
+        status: q.status,
+        limit: numOrUndefined(q.limit),
+        offset: numOrUndefined(q.offset),
+      }),
+    );
   }
 
   /**

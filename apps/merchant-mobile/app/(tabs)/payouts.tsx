@@ -279,13 +279,18 @@ function PayoutRow({
   // beside it will reconcile against a MoMo statement that does not agree.
   const failed = row.status === 'failed' || row.status === 'reversed';
   const settled = row.status === 'settled';
+  // `unknown` is not "on its way": the transfer call broke and nobody yet
+  // knows whether Paystack took it. Reconciliation settles it either way.
+  const confirming = row.status === 'unknown';
   const title = failed
     ? row.status === 'reversed'
       ? 'Payout reversed'
       : 'Payout failed'
     : settled
       ? 'Payout'
-      : 'Payout on its way';
+      : confirming
+        ? 'Payout being confirmed'
+        : 'Payout on its way';
   return (
     <View style={[styles.row, divided && styles.divided]}>
       <View style={[styles.payoutIcon, failed && styles.payoutIconFailed]}>
@@ -302,8 +307,10 @@ function PayoutRow({
         <Text variant="tiny" tone="faint" numberOfLines={1}>
           {dateTime(row.settledAt ?? row.failedAt ?? row.initiatedAt)}
         </Text>
-        {failed && row.lastError ? (
-          <Text variant="tiny" tone="accent" numberOfLines={2}>
+        {/* The server writes this note for the seller (`payoutsForSeller`);
+            it is never the provider's error text. */}
+        {(failed || confirming) && row.lastError ? (
+          <Text variant="tiny" tone={failed ? 'accent' : 'faint'} numberOfLines={4}>
             {row.lastError}
           </Text>
         ) : null}

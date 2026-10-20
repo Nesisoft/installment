@@ -287,6 +287,7 @@ export {
   type MerchantHeldReserveRow,
   type PlanSettlementView,
 } from './modules/settlements/merchant-dashboard.service';
+export { payoutsForSeller, sellerPayoutNote } from './modules/settlements/payout-seller-view';
 export {
   buildMerchantStatement,
   renderMerchantStatementCsv,
