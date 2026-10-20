@@ -1,7 +1,8 @@
 import { and, asc, eq, inArray, isNotNull, or } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { SettlementService, type PayoutStatus } from './settlement.service';
-import type { RefundService, RefundStatus } from '../refunds/refund.service';
+import type { Refund, RefundService, RefundStatus } from '../refunds/refund.service';
+import { toRef } from '../refunds/provider-refund-rejection';
 
 const payouts = schema.payouts;
 const refunds = schema.refunds;
@@ -22,6 +23,17 @@ export interface TransferVerifyClient {
  */
 export interface RefundVerifyClient {
   verifyRefund(refundId: string): Promise<{ data: { status: string } }>;
+  /**
+   * Both optional, and used together, to find the refund behind a row that
+   * never learnt its provider id. `verifyTransaction` turns the charge
+   * reference into Paystack's numeric transaction id; the refund list is only
+   * searchable by that id — by reference it answers an empty list, which
+   * would read as "no refund exists" and invite a second one.
+   */
+  verifyTransaction?(reference: string): Promise<{ data: { id?: number | string } }>;
+  listRefundsForTransaction?(
+    transactionId: string,
+  ): Promise<{ data: Array<{ id: number | string; amount?: number; status?: string }> }>;
 }
 
 export interface RefundReconciliationResult {
@@ -268,19 +280,24 @@ export class ReconciliationService {
       };
       summary.checked += 1;
 
-      if (!row.paystack_refund_id) {
-        summary.unresolved += 1;
-        summary.results.push({
-          ...base,
-          outcome: 'unresolved',
-          reason: 'no provider refund id — cannot verify or safely re-send',
-        });
-        continue;
+      let providerRefundId = row.paystack_refund_id;
+      if (!providerRefundId) {
+        const found = await this.findProviderRefund(row);
+        if ('reason' in found) {
+          summary.unresolved += 1;
+          summary.results.push({ ...base, outcome: 'unresolved', reason: found.reason });
+          continue;
+        }
+        providerRefundId = found.id;
+        await this.db
+          .update(refunds)
+          .set({ paystack_refund_id: providerRefundId })
+          .where(eq(refunds.id, row.id));
       }
 
       let status: string;
       try {
-        const res = await this.refundVerifier.verifyRefund(row.paystack_refund_id);
+        const res = await this.refundVerifier.verifyRefund(providerRefundId);
         status = (res.data?.status ?? '').toLowerCase();
       } catch (err) {
         summary.unresolved += 1;
@@ -322,5 +339,49 @@ export class ReconciliationService {
     }
 
     return summary;
+  }
+
+  /**
+   * The refund at Paystack behind a row that never learnt its provider id —
+   * a lost response, or a crash between submit and record.
+   *
+   * Without this such a row could neither be verified nor safely re-sent, and
+   * waited for a person indefinitely. Paystack lists a charge's refunds by its
+   * numeric transaction id (only); exactly one unclaimed refund of the same
+   * amount is this one. Anything else stays unresolved, with a reason that
+   * says what Paystack actually holds.
+   */
+  private async findProviderRefund(row: Refund): Promise<{ id: string } | { reason: string }> {
+    const verifier = this.refundVerifier!;
+    if (!verifier.verifyTransaction || !verifier.listRefundsForTransaction) {
+      return { reason: 'no provider refund id — cannot verify or safely re-send' };
+    }
+    if (!row.provider_transaction_reference) {
+      return { reason: 'no provider refund id and no charge reference to look it up by' };
+    }
+    try {
+      const charge = await verifier.verifyTransaction(row.provider_transaction_reference);
+      const transactionId = charge.data?.id;
+      if (transactionId === undefined || transactionId === null || transactionId === '') {
+        return { reason: 'Paystack returned no transaction id for the charge' };
+      }
+      const listed = await verifier.listRefundsForTransaction(String(transactionId));
+      const candidates = (listed.data ?? []).map(toRef).filter((r) => r !== null);
+      if (candidates.length === 0) {
+        return {
+          reason:
+            'no refund at Paystack for this charge — it was never created; check, then re-send',
+        };
+      }
+      const match = await this.refundService!.matchProviderRefund(row, candidates);
+      if (!match) {
+        return {
+          reason: `${candidates.length} refund(s) at Paystack for this charge, none an unclaimed match for this amount`,
+        };
+      }
+      return { id: match.id };
+    } catch (err) {
+      return { reason: err instanceof Error ? err.message : String(err) };
+    }
   }
 }

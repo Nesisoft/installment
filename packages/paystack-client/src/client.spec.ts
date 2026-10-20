@@ -215,6 +215,29 @@ describe('PaystackClient HTTP methods', () => {
     expect(() => client.verifyRefund('')).toThrow(PaystackError);
   });
 
+  it("lists a charge's refunds by its numeric transaction id", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      status: true,
+      message: 'Refunds retrieved',
+      data: [{ id: 18758414, amount: 200, status: 'pending', transaction: 6675930705 }],
+    });
+    const client = new PaystackClient({ secretKey: SECRET, fetchImpl });
+
+    const res = await client.listRefundsForTransaction(6675930705);
+
+    expect(calls[0]!.url).toBe('https://api.paystack.co/refund?transaction=6675930705');
+    expect(calls[0]!.method).toBe('GET');
+    expect(res.data[0]!.id).toBe(18758414);
+  });
+
+  it('refuses to list refunds by a reference, which Paystack answers with nothing', () => {
+    // Captured from test mode: `?transaction=<reference>` returns `status: true`
+    // and an empty list — read as "no refund exists", it invites a second one.
+    const client = new PaystackClient({ secretKey: SECRET });
+    expect(() => client.listRefundsForTransaction('INSTL-abc-1')).toThrow(PaystackError);
+    expect(() => client.listRefundsForTransaction('')).toThrow(PaystackError);
+  });
+
   it('respects a custom baseUrl', async () => {
     const { fetchImpl, calls } = makeFetch({ status: true, message: 'ok', data: {} });
     const client = new PaystackClient({

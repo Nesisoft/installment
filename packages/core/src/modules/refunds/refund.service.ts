@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction } from '../../shared/event-bus/transaction';
 import { LedgerService, type LedgerExecutor } from '../../shared/ledger/ledger.service';
 import { PROVIDER_CASH_REF } from '../schedules/plan-cash-ledger';
+import { refundRejection, type ProviderRefundRef } from './provider-refund-rejection';
 
 const refunds = schema.refunds;
 const attempts = schema.payment_attempts;
@@ -312,10 +313,26 @@ export class RefundService {
       status = (res.data?.status ?? '').toLowerCase();
       providerRefundId = res.data?.id !== undefined ? String(res.data.id) : undefined;
     } catch (err) {
-      // The call may or may not have reached Paystack. Park it as `unknown` and
-      // leave the liability standing — reconciliation resolves it. Never assume
-      // failure here: assuming failure and re-sending is how a customer gets
-      // refunded twice.
+      // Paystack answered, and declined. A validation refusal means no refund
+      // was created: say so, with Paystack's words — the liability stays
+      // standing either way, but `unknown` claimed we did not know.
+      const rejection = refundRejection(err);
+      if (rejection?.kind === 'refused') {
+        await this.confirmRefund(reference, 'failed', { error: rejection.message });
+        return { refundId: row.id, reference, outcome: 'failed', reason: rejection.message };
+      }
+      // "A refund already exists": take that one on if it is unmistakably
+      // this refund, so the reconciler can follow it instead of a person.
+      if (rejection?.kind === 'exists') {
+        const match = await this.matchProviderRefund(row, rejection.existing);
+        if (match) return this.takeOnProviderRefund(row, match);
+        await this.markUnknown(row, rejection.message);
+        return { refundId: row.id, reference, outcome: 'unknown', reason: rejection.message };
+      }
+      // Otherwise the call may or may not have reached Paystack. Park it as
+      // `unknown` and leave the liability standing — reconciliation resolves
+      // it. Never assume failure here: assuming failure and re-sending is how
+      // a customer gets refunded twice.
       const message = err instanceof Error ? err.message : String(err);
       await this.markUnknown(row, message);
       return { refundId: row.id, reference, outcome: 'unknown', reason: message };
@@ -523,6 +540,59 @@ export class RefundService {
   }
 
   /** Parks a refund whose provider call gave no usable answer. */
+  /**
+   * The one refund at Paystack that is this row, if there is exactly one.
+   *
+   * Same amount, and not already the provider refund of another of our rows —
+   * two equal refunds of one charge are two refunds, and adopting a refund
+   * some other row accounts for would book one payment out twice.
+   */
+  async matchProviderRefund(
+    row: Refund,
+    candidates: ProviderRefundRef[],
+  ): Promise<ProviderRefundRef | null> {
+    const sameAmount = candidates.filter((c) => c.amount === row.amount_pesewas);
+    if (sameAmount.length !== 1) return null;
+    const candidate = sameAmount[0]!;
+    const claimed = await this.db
+      .select({ id: refunds.id })
+      .from(refunds)
+      .where(and(eq(refunds.paystack_refund_id, candidate.id), ne(refunds.id, row.id)))
+      .limit(1);
+    return claimed[0] ? null : candidate;
+  }
+
+  /** Records `provider` as this row's refund at Paystack and applies its status. */
+  async takeOnProviderRefund(row: Refund, provider: ProviderRefundRef): Promise<DisburseResult> {
+    const status = (provider.status ?? '').toLowerCase();
+    if (status === 'processed' || status === 'success') {
+      await this.confirmRefund(row.reference, 'succeeded', { providerRefundId: provider.id });
+      return { refundId: row.id, reference: row.reference, outcome: 'succeeded' };
+    }
+    if (status === 'failed') {
+      await this.confirmRefund(row.reference, 'failed', {
+        providerRefundId: provider.id,
+        error: 'provider reported the refund failed',
+      });
+      return {
+        refundId: row.id,
+        reference: row.reference,
+        outcome: 'failed',
+        reason: 'provider rejected',
+      };
+    }
+    await this.db
+      .update(refunds)
+      .set({ status: 'pending_confirmation', paystack_refund_id: provider.id })
+      .where(eq(refunds.id, row.id));
+    return {
+      refundId: row.id,
+      reference: row.reference,
+      outcome: 'pending_confirmation',
+      reason: status || 'pending',
+    };
+  }
+
   private async markUnknown(row: Refund, error: string): Promise<void> {
     await this.db
       .update(refunds)
