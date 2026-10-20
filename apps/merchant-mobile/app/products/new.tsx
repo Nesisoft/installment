@@ -451,7 +451,7 @@ export default function NewProductScreen(): React.ReactElement {
                   // layaway at completion and hybrid 40/60, and releases each
                   // reserve on its own schedule. "Paid at approval" was false
                   // for two of the four rows above it.
-                  'On a plan Ejua lends the buyer the money, collects every payment and carries the risk. When you are credited, and when what is held comes back, depends on the plan type — each order shows its own.'
+                  'On a plan Ejua lends the buyer the money and collects every payment. If a buyer stops paying for good, the reserve covers the loss first; on hybrid and rent to own plans, the rest comes off your future payouts. When you are credited, and when what is held comes back, depends on the plan type — each order shows its own.'
                 : 'A paid-in-full order settles on the next payout run, with no reserve held.'}
             </Text>
           </Card>
@@ -465,7 +465,7 @@ export default function NewProductScreen(): React.ReactElement {
                   : pesewas === null
                     ? 'Enter a price to see which plans it qualifies for.'
                     : eligible.length > 0
-                      ? `${eligible.map((t) => t.name).join(', ')} — buyers pay over time, and Ejua carries the risk.`
+                      ? `${eligible.map((t) => t.name).join(', ')} — buyers pay over time, and Ejua collects every payment.`
                       : 'No plan covers this price. Ejua sets the floor and ceiling on each one.'
               }
               value={offering}

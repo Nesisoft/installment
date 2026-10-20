@@ -142,7 +142,7 @@ export default function PayoutsScreen(): React.ReactElement {
             tone="info"
             eyebrow="Active plans"
             value={String(balances.data.activePlans)}
-            sub="Ejua carries the risk"
+            sub="Ejua collects every payment"
           />
         </View>
 
