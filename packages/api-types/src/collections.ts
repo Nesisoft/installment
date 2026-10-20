@@ -24,8 +24,9 @@ export type RecordActionInput = z.infer<typeof recordActionSchema>;
 export const assignCaseSchema = z.object({ agent_id: z.string().uuid() });
 export type AssignCaseInput = z.infer<typeof assignCaseSchema>;
 
+/** No `restructured` until restructuring exists — see the core schema. */
 export const closeCaseSchema = z.object({
-  resolution: z.enum(['paid', 'waived', 'restructured']),
+  resolution: z.enum(['paid', 'waived']),
   notes: z.string().trim().max(2000).optional(),
 });
 export type CloseCaseInput = z.infer<typeof closeCaseSchema>;
