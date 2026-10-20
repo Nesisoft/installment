@@ -2,9 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
-import { SettlementService } from '@installment/core';
+import { SettlementService, type DailySettlementSummary } from '@installment/core';
 import type { Env } from '../config/env.validation';
-import { captureWorkerError } from '../common/alerting';
+import { captureAlert, captureWorkerError } from '../common/alerting';
 
 /**
  * Daily merchant payout batch (06:00 UTC). Each merchant we owe gets settled
@@ -42,10 +42,63 @@ export class SettlementCron {
         },
         'daily settlement run complete',
       );
+      this.alertOnPayoutsThatDidNotGoOut(summary);
     } catch (err) {
       // Cron must never throw — the next tick will retry. Pager logs the error.
       this.logger.error({ err }, 'daily settlement run failed');
       captureWorkerError(err, 'settlement');
     }
+  }
+
+  /**
+   * A payout that did not go out has to be heard about, with the reason.
+   *
+   * Checked against Paystack test mode (2026-10-20): on this account every
+   * transfer is refused with "You cannot initiate third party payouts as a
+   * starter business". Each is parked `unknown` and reversed by
+   * reconciliation, and this run only logged counts — so no merchant would be
+   * paid, night after night, and nothing would say so.
+   *
+   * Error level when not one payout went out: every attempt refused is an
+   * account or configuration problem, not one merchant's bad account number.
+   */
+  private alertOnPayoutsThatDidNotGoOut(summary: DailySettlementSummary): void {
+    const attempted = summary.results.filter((r) => r.status !== 'skipped');
+    const troubled = attempted.filter((r) => r.status === 'failed' || r.status === 'unknown');
+    if (troubled.length === 0) return;
+
+    const byReason = new Map<string, { reason: string; payouts: number; pesewas: number }>();
+    for (const r of troubled) {
+      const reason = r.reason ?? 'no reason recorded';
+      const entry = byReason.get(reason) ?? { reason, payouts: 0, pesewas: 0 };
+      entry.payouts += 1;
+      entry.pesewas += r.amountPesewas;
+      byReason.set(reason, entry);
+    }
+    const reasons = [...byReason.values()].sort((a, b) => b.payouts - a.payouts);
+    const extra = {
+      asOfDate: summary.asOfDate,
+      reasons,
+      payouts: troubled.map((r) => ({
+        merchantId: r.merchantId,
+        status: r.status,
+        amountPesewas: r.amountPesewas,
+        reference: r.reference,
+      })),
+    };
+
+    if (troubled.length === attempted.length) {
+      captureAlert(
+        `No merchant payout went out on ${summary.asOfDate} — ${troubled.length} refused or unconfirmed, most often: "${reasons[0]!.reason}"`,
+        'error',
+        extra,
+      );
+      return;
+    }
+    captureAlert(
+      `${troubled.length} merchant payout${troubled.length === 1 ? '' : 's'} did not go out on ${summary.asOfDate}`,
+      'warning',
+      extra,
+    );
   }
 }

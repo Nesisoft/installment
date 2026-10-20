@@ -172,6 +172,32 @@ describe.skipIf(!RUN_DB)('ReconciliationService (integration)', () => {
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(30_000);
   });
 
+  it('keeps why the transfer was refused when it reverses the payout', async () => {
+    // Paystack's real refusal on this account (test mode, 2026-10-20). The
+    // reversal used to overwrite it with "transfer not found at Paystack" —
+    // true, and no help to anyone asking why a merchant was not paid.
+    const STARTER = 'You cannot initiate third party payouts as a starter business';
+    const refusing: PayoutTransferClient = {
+      async initiateTransfer() {
+        throw Object.assign(new Error(STARTER), {
+          status: 400,
+          cause: { status: false, message: STARTER, code: 'transfer_unavailable' },
+        });
+      },
+    };
+    const merchantId = await merchantOwed(12_000);
+    const settlement = new SettlementService(db, ledger, audit, refusing);
+    const unknown = await settlement.settleMerchant(merchantId, new Date('2026-08-06'));
+    expect(unknown.status).toBe('unknown');
+
+    await new ReconciliationService(db, settlement, verifier({})).reconcilePendingPayouts();
+
+    const payout = (await loadPayout(unknown.reference!))!;
+    expect(payout.status).toBe('failed');
+    expect(payout.last_error).toContain('not found at Paystack');
+    expect(payout.last_error).toContain(STARTER);
+  });
+
   it('promotes an unknown payout to settled when verify finds it succeeded', async () => {
     const merchantId = await merchantOwed(18_000);
     const settlement = new SettlementService(db, ledger, audit, throwingTransfers);

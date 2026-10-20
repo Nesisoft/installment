@@ -136,6 +136,7 @@ export class ReconciliationService {
           id: payout.id,
           reference: payout.reference,
           status: payout.status as PayoutStatus,
+          lastError: payout.last_error,
         });
       } catch (err) {
         result = {
@@ -162,6 +163,8 @@ export class ReconciliationService {
     id: string;
     reference: string;
     status: PayoutStatus;
+    /** Why initiating the transfer failed, if it did — kept on reversal. */
+    lastError?: string | null;
   }): Promise<ReconciliationResult> {
     const base = { payoutId: payout.id, reference: payout.reference, from: payout.status };
 
@@ -173,10 +176,15 @@ export class ReconciliationService {
       // A definitive not-found on an `unknown` payout means the transfer never
       // reached Paystack — safe to reverse. Everything else is transient.
       if (isNotFound(err) && payout.status === 'unknown') {
+        // Keep why initiating it failed. On its own "not found" is true and
+        // no help to anyone asking why a merchant was not paid — the cause is
+        // usually Paystack's own refusal, e.g. payouts not enabled on the
+        // account.
+        const error = payout.lastError
+          ? `transfer not found at Paystack — initiating it failed: ${payout.lastError}`
+          : 'transfer not found at Paystack';
         return this.resolve(base, 'failed', 'not found at Paystack', () =>
-          this.settlement.confirmPayout(payout.reference, 'failed', {
-            error: 'transfer not found at Paystack',
-          }),
+          this.settlement.confirmPayout(payout.reference, 'failed', { error }),
         );
       }
       const message = err instanceof Error ? err.message : String(err);
