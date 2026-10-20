@@ -190,6 +190,9 @@ export const INTENTIONALLY_UNMAPPED: readonly string[] = [
   'IdempotencyError',
   'NotificationTemplateError',
   'ScheduleGenerationError',
+  // Thrown only by the `repair:money` CLI, never over HTTP. If one ever
+  // reached a request it would be our bug, and should alarm.
+  'MoneyRepairError',
 ];
 
 interface ErrorBody {

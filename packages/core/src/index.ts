@@ -289,6 +289,16 @@ export {
 } from './modules/settlements/merchant-dashboard.service';
 export { payoutsForSeller, sellerPayoutNote } from './modules/settlements/payout-seller-view';
 export {
+  MoneyRepairsService,
+  MoneyRepairError,
+  type MoneyRepairReport,
+  type OversizedDefault,
+  type IgnoredPayoutReversal,
+  type StrandedCollectionsCase,
+  type RepairActor,
+} from './modules/repairs/money-repairs.service';
+export { REPAIR_QUERIES } from './modules/repairs/queries';
+export {
   buildMerchantStatement,
   renderMerchantStatementCsv,
   renderMerchantStatementHtml,

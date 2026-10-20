@@ -26,6 +26,7 @@
     "db:seed:dev": "pnpm --filter @installment/db seed:dev",
     "db:clean:fixtures": "./scripts/clean-dev-fixtures.sh",
     "create-admin": "pnpm --filter @installment/api build && pnpm --filter @installment/api create:admin",
+    "repair:money": "pnpm --filter @installment/api build && pnpm --filter @installment/api repair:money",
     "db:introspect": "pnpm --filter @installment/db introspect",
     "db:up": "docker compose --env-file .env -f infra/docker/docker-compose.yml up -d",
     "db:down": "docker compose --env-file .env -f infra/docker/docker-compose.yml down",

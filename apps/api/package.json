@@ -11,7 +11,8 @@
     "lint": "eslint src",
     "test": "vitest run",
     "openapi:emit": "node dist/tools/emit-openapi.js",
-    "create:admin": "node --env-file-if-exists=../../.env dist/tools/create-admin.js"
+    "create:admin": "node --env-file-if-exists=../../.env dist/tools/create-admin.js",
+    "repair:money": "node --env-file-if-exists=../../.env dist/tools/money-repairs.js"
   },
   "dependencies": {
     "@installment/commerce": "workspace:*",
