@@ -18,7 +18,7 @@ import {
 import { MAX_VERIFY_POLLS } from './retry-policy';
 import type { RetryScheduler } from './retry-scheduler';
 import { ChargeFailureEscalator, type ChargeReceiptNotifier } from './charge-failure-escalator';
-import { declineFromChargeError } from './provider-decline';
+import { declineFromChargeError, isNotFoundAtProvider } from './provider-decline';
 import { LockAcquisitionError, type RedisLock } from '../../shared/lock/redis-lock';
 
 /**
@@ -333,6 +333,15 @@ export class PaymentService {
     try {
       response = await this.paystack.verifyTransaction(attempt.provider_reference);
     } catch (err) {
+      // Paystack has no transaction under this reference, and the attempt is
+      // old enough that a request still in flight is no longer possible: no
+      // money moved. Every other throw stays `unknown`. Before this, a charge
+      // Paystack refused without creating a transaction — a saved card it no
+      // longer honours — sat `unknown` for good, and its instalment in
+      // `processing`, out of reach of retries and collections alike.
+      if (isNotFoundAtProvider(err) && olderThan(attempt.initiated_at, NOT_FOUND_SETTLE_MS)) {
+        return this.recordVerifyFailure(attempt, 'not_found_at_paystack', null, actor);
+      }
       const updated = await this.attempts.update(attempt.id, {
         status: 'unknown',
         lastVerifiedAt: new Date(),
@@ -346,7 +355,11 @@ export class PaymentService {
     if (data.status === 'success') {
       return this.recordVerifySuccess(attempt, data.reference, response, actor);
     }
-    if (data.status === 'failed') {
+    // `abandoned` is how a declined card charge verifies (captured from test
+    // mode): nothing was taken. It used to fall through to
+    // `unknown_status:abandoned`, which failed the attempt but threw away
+    // Paystack's reason.
+    if (data.status === 'failed' || data.status === 'abandoned') {
       return this.recordVerifyFailure(
         attempt,
         data.gateway_response ?? 'verify_returned_failed',
@@ -598,4 +611,18 @@ export class PaymentService {
         throw new InstallmentNotChargeableError(id, installment.status);
     }
   }
+}
+
+/**
+ * How long a charge reference must have existed before Paystack's "not found"
+ * is taken as proof that no transaction exists. A request that timed out on our
+ * side may still be landing at Paystack; a quarter of an hour later it has
+ * either arrived or never will. Matches the verify poll's own staleness window.
+ */
+const NOT_FOUND_SETTLE_MS = 15 * 60_000;
+
+/** Whether `iso` is at least `ms` in the past. Unparseable reads as "not yet". */
+function olderThan(iso: string, ms: number): boolean {
+  const at = new Date(iso).getTime();
+  return Number.isFinite(at) && Date.now() - at >= ms;
 }

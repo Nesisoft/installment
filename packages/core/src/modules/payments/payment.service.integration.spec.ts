@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestDb } from '@installment/db';
+import { eq } from 'drizzle-orm';
+import { createTestDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { EventBus } from '../../shared/event-bus/event-bus';
 import { RedisLock } from '../../shared/lock/redis-lock';
@@ -361,6 +362,107 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
     );
     expect(result.status).toBe('unknown');
     expect((await plans.getInstallment(scheduleId)).status).toBe('processing');
+  });
+
+  // ------------------------------------------- verify: what Paystack answers
+  //
+  // Captured from Paystack test mode with the repo's own client (2026-10-20).
+  // A saved card Paystack no longer honours is refused with a 400 that carries
+  // no `data`, so the charge is (rightly) parked `unknown`. Verifying its
+  // reference then answers 400 `transaction_not_found` — and verify treated
+  // every throw as "still unknown", so the instalment sat in `processing` for
+  // good: no retry, no payment-link fallback, no collections.
+
+  const INVALID_AUTH = Object.assign(new Error('Authorization code is invalid'), {
+    status: 400,
+    cause: {
+      status: false,
+      message: 'Authorization code is invalid',
+      type: 'validation_error',
+      code: 'invalid_authorization_code',
+    },
+  });
+  const NOT_FOUND_400 = Object.assign(new Error('Transaction reference not found.'), {
+    status: 400,
+    cause: {
+      status: false,
+      message: 'Transaction reference not found.',
+      type: 'validation_error',
+      code: 'transaction_not_found',
+    },
+  });
+
+  /** A card charge Paystack refused without creating a transaction. */
+  async function unknownCardAttempt(ageMinutes: number) {
+    const { scheduleId } = await freshPlan();
+    const charged = await service(fakePaystack({ card: INVALID_AUTH })).chargeCard(
+      { scheduleId, authorizationCode: 'AUTH_revoked', email: 'kofi@x.gh' },
+      ACTOR,
+    );
+    expect(charged.attempt.status).toBe('unknown');
+    await db
+      .update(schema.payment_attempts)
+      .set({ initiated_at: new Date(Date.now() - ageMinutes * 60_000).toISOString() })
+      .where(eq(schema.payment_attempts.id, charged.attempt.id));
+    return { scheduleId, attemptId: charged.attempt.id };
+  }
+
+  it('closes a charge Paystack has no record of, once it is old enough to be sure', async () => {
+    const { scheduleId, attemptId } = await unknownCardAttempt(20);
+    const svc = service(fakePaystack({ verify: NOT_FOUND_400 }));
+
+    const result = await svc.verifyAttempt(attemptId, VERIFY_ACTOR);
+
+    expect(result.status).toBe('failed');
+    expect(result.failureReason).toBe('not_found_at_paystack');
+    // Out of `processing`, so the retry ladder and collections can see it.
+    expect((await plans.getInstallment(scheduleId)).status).toBe('failed');
+  });
+
+  it('reads a 404 as not found too', async () => {
+    const { attemptId } = await unknownCardAttempt(20);
+    const svc = service(
+      fakePaystack({ verify: Object.assign(new Error('Not found'), { status: 404 }) }),
+    );
+    expect((await svc.verifyAttempt(attemptId, VERIFY_ACTOR)).status).toBe('failed');
+  });
+
+  it('waits on a fresh attempt Paystack does not know yet', async () => {
+    // A request that timed out on our side may still be landing at Paystack;
+    // "not found" a minute later is not yet proof that no charge exists.
+    const { scheduleId, attemptId } = await unknownCardAttempt(1);
+    const svc = service(fakePaystack({ verify: NOT_FOUND_400 }));
+
+    expect((await svc.verifyAttempt(attemptId, VERIFY_ACTOR)).status).toBe('unknown');
+    expect((await plans.getInstallment(scheduleId)).status).toBe('processing');
+  });
+
+  it('keeps an attempt unknown when verify fails for any other reason', async () => {
+    const { attemptId } = await unknownCardAttempt(20);
+    const svc = service(
+      fakePaystack({ verify: Object.assign(new Error('Bad gateway'), { status: 502 }) }),
+    );
+    expect((await svc.verifyAttempt(attemptId, VERIFY_ACTOR)).status).toBe('unknown');
+  });
+
+  it("treats an abandoned transaction as a decline, keeping Paystack's reason", async () => {
+    // A declined card charge verifies as `abandoned`, not `failed`.
+    const { scheduleId, attemptId, reference } = await inflightMomoAttempt();
+    const svc = service(
+      fakePaystack({
+        verify: {
+          reference,
+          status: 'abandoned',
+          gateway_response: 'Transaction declined. Please use the test card.',
+        },
+      }),
+    );
+
+    const result = await svc.verifyAttempt(attemptId, VERIFY_ACTOR);
+
+    expect(result.status).toBe('failed');
+    expect(result.failureReason).toBe('Transaction declined. Please use the test card.');
+    expect((await plans.getInstallment(scheduleId)).status).toBe('failed');
   });
 
   // ----------------------------------------------------------- verify path

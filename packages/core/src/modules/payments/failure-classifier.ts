@@ -69,6 +69,8 @@ export const INTERNAL_FAILURE_REASONS: readonly string[] = [
   'verify_returned_failed',
   // The verify poll's own, for an attempt that never had a reference to verify.
   'no_reference_issued',
+  // The verify poll's own, for a reference Paystack has no transaction under.
+  'not_found_at_paystack',
 ];
 
 export type DeclineReasonSource = 'mapped' | 'internal_fallback' | 'unrecognised';

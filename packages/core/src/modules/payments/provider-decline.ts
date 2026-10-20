@@ -40,3 +40,23 @@ export function declineFromChargeError(err: unknown): ProviderDecline | null {
     'charge_failed';
   return { reason, body: cause };
 }
+
+/**
+ * Paystack saying it has no record of a reference at all.
+ *
+ * Verifying a transaction Paystack never created answers **HTTP 400** with
+ * `code: "transaction_not_found"` (captured from test mode, 2026-10-20) — not
+ * a 404. Transfers do answer 404, which is what the payout reconciler already
+ * keys on. Both mean the same thing: no money moved under that reference.
+ */
+export function isNotFoundAtProvider(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const { status, cause } = err as { status?: unknown; cause?: unknown };
+  if (status === 404) return true;
+  return (
+    status === 400 &&
+    !!cause &&
+    typeof cause === 'object' &&
+    (cause as { code?: unknown }).code === 'transaction_not_found'
+  );
+}
