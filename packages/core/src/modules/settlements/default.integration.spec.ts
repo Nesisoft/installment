@@ -10,6 +10,7 @@ import { MockGhanaCardVerifier } from '../customers/ghana-card-verifier';
 import { PlanTemplatesService } from '../plans/plan-templates.service';
 import { ApplicationsService } from '../applications/applications.service';
 import { CustomerPlansService } from '../schedules/customer-plans.service';
+import { PlanCashLedger } from '../schedules/plan-cash-ledger';
 import { PlanDefaultError } from '../schedules/errors';
 import { LedgerService } from '../../shared/ledger/ledger.service';
 import { PayoutRecorder } from './payout-recorder';
@@ -29,11 +30,25 @@ describe.skipIf(!RUN_DB)('DefaultService (integration)', () => {
   const customers = new CustomersService(db, audit, new MockGhanaCardVerifier());
   const planTemplates = new PlanTemplatesService(db, audit);
   const apps = new ApplicationsService(db, audit);
-  const plans = new CustomerPlansService(db, audit, undefined, payouts, reserves, defaults);
+  // Wired as production wires it: with the cash ledger, a customer's payments
+  // retire the receivable, which is what bounds a default's loss.
+  const plans = new CustomerPlansService(
+    db,
+    audit,
+    undefined,
+    payouts,
+    reserves,
+    defaults,
+    new PlanCashLedger(ledger),
+  );
   const ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 
   let bnplTemplateId: string;
   let rtoTemplateId: string;
+  /** Hybrid with a 40% deposit — the same share its first payout slice books. */
+  let hybridTemplateId: string;
+  /** Hybrid with a 20% deposit — less than the 40% slice the deposit releases. */
+  let thinDepositHybridTemplateId: string;
 
   beforeAll(async () => {
     const suffix = randomUUID();
@@ -63,6 +78,27 @@ describe.skipIf(!RUN_DB)('DefaultService (integration)', () => {
         ACTOR,
       )
     ).id;
+    for (const [bps, set] of [
+      [4_000, (id: string) => (hybridTemplateId = id)],
+      [2_000, (id: string) => (thinDepositHybridTemplateId = id)],
+    ] as const) {
+      set(
+        (
+          await planTemplates.create(
+            {
+              name: `HYB-def ${bps} ${suffix}`,
+              business_model: 'hybrid',
+              down_payment_bps: bps,
+              number_of_installments: 3,
+              installment_frequency_days: 30,
+              min_amount_pesewas: 1_000,
+              max_amount_pesewas: 10_000_000,
+            },
+            ACTOR,
+          )
+        ).id,
+      );
+    }
   });
 
   afterAll(async () => {
@@ -176,6 +212,63 @@ describe.skipIf(!RUN_DB)('DefaultService (integration)', () => {
     )[0];
     expect(held!.consumed_for_default_pesewas).toBe(12_000);
     expect(held!.fully_released_at).not.toBeNull();
+  });
+
+  // Hybrid books 40% of the order at the deposit and 60% at completion, so a
+  // hybrid plan that defaults has had at most 40% fronted — and the customer's
+  // own deposit paid for some or all of it. The loss was sized as the whole
+  // unpaid balance, which charged the merchant for the 60% nobody ever paid
+  // them. 4% MDR and 7% reserve on a 40,000 slice: 35,600 credited, 2,800 held.
+
+  it('hybrid default after a 40% deposit: nothing fronted is unpaid, so nothing is clawed', async () => {
+    const merchantId = await freshMerchant();
+    const { plan, schedule } = await activate(hybridTemplateId, merchantId, await freshCustomer());
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(35_600);
+
+    await plans.markPlanDefaulted(plan.id, {}, ACTOR);
+
+    // Was −21,600: 57,200 clawed for a balance never credited to the merchant.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(35_600);
+    // The reserve was not needed, so it stays the merchant's, on the release
+    // clock the default starts.
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(2_800);
+    const rows = await db
+      .select()
+      .from(schema.ledger_entries)
+      .where(eq(schema.ledger_entries.transaction_id, `default:${plan.id}`));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('hybrid default before the deposit: nothing was credited, so nothing is clawed', async () => {
+    const merchantId = await freshMerchant();
+    const { plan } = await activate(hybridTemplateId, merchantId, await freshCustomer());
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
+
+    await plans.markPlanDefaulted(plan.id, {}, ACTOR);
+
+    // Was −100,000 — a merchant never paid a pesewa on this plan.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
+  });
+
+  it('hybrid default after a thinner deposit: only what was fronted beyond it is the loss', async () => {
+    const merchantId = await freshMerchant();
+    const { plan, schedule } = await activate(
+      thinDepositHybridTemplateId,
+      merchantId,
+      await freshCustomer(),
+    );
+    // A 20,000 deposit releases the 40,000 slice: 20,000 of it is the
+    // platform's money, on the merchant's account.
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(35_600);
+
+    await plans.markPlanDefaulted(plan.id, {}, ACTOR);
+
+    // 20,000 lost: the 2,800 reserve first, then 17,200 from the merchant —
+    // hybrid shares the risk, as designed. Not the 80,000 balance.
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(0);
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(35_600 - 17_200);
   });
 
   it('rent_to_own default caps the reserve draw at what is still held', async () => {
