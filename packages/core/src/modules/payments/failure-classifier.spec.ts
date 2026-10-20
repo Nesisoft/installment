@@ -97,5 +97,6 @@ describe('matching the prose Paystack actually sends', () => {
 
   it("counts the verify poll's own placeholder as ours, not as a gap in the map", () => {
     expect(declineReasonSource('no_reference_issued')).toBe('internal_fallback');
+    expect(declineReasonSource('not_found_at_paystack')).toBe('internal_fallback');
   });
 });
