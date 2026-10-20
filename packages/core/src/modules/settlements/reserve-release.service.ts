@@ -80,6 +80,13 @@ export class ReserveReleaseService {
    * Records the held-reserve tracking row for one accrual. No-op (returns null)
    * when nothing was withheld. Runs in the caller's transaction so it commits
    * atomically with the accrual that booked the reserve.
+   *
+   * The row starts with whatever release triggers the plan has already fired.
+   * Delivery, completion and default stamp the rows that exist when they
+   * happen, and a staged model creates rows later: layaway withholds its whole
+   * reserve at completion, so a delivery recorded before then stamped nothing,
+   * and recording it again is a no-op on a plan already marked delivered. That
+   * row waited on a trigger that had fired already, and was held for good.
    */
   async recordHeldReserve(
     input: RecordHeldReserveInput,
@@ -87,6 +94,17 @@ export class ReserveReleaseService {
   ): Promise<HeldReserve | null> {
     if (input.amountPesewas <= 0) return null;
     const exec: ReserveExecutor = tx ?? this.db;
+    const plan = (
+      await exec
+        .select({
+          delivered: schema.customer_plans.product_delivered_at,
+          completed: schema.customer_plans.completed_at,
+          defaulted: schema.customer_plans.defaulted_at,
+        })
+        .from(schema.customer_plans)
+        .where(eq(schema.customer_plans.id, input.customerPlanId))
+        .limit(1)
+    )[0];
     const [row] = await exec
       .insert(held)
       .values({
@@ -95,6 +113,9 @@ export class ReserveReleaseService {
         business_model: input.model,
         amount_pesewas: input.amountPesewas,
         held_at: (input.heldAt ?? new Date()).toISOString(),
+        delivered_at: plan?.delivered ?? null,
+        plan_completed_at: plan?.completed ?? null,
+        plan_defaulted_at: plan?.defaulted ?? null,
       })
       .returning();
     return row ?? null;
