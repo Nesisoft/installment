@@ -40,7 +40,7 @@ export interface PayoutConfirmer {
     reference: string,
     outcome: 'settled' | 'failed' | 'reversed',
     opts?: { transferId?: string; error?: string },
-  ): Promise<void>;
+  ): Promise<unknown>;
 }
 
 /** The slice of RefundService this needs to apply a refund outcome. */

@@ -1,4 +1,17 @@
-import { and, asc, count, desc, eq, gte, isNotNull, isNull, lt, sql, sum } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  sql,
+  sum,
+} from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { LedgerService } from '../../shared/ledger/ledger.service';
 import { reserveReleaseDate } from './reserve-policy';
@@ -217,27 +230,28 @@ export class MerchantDashboardService {
     const plan = (await this.db.select().from(cp).where(eq(cp.id, customerPlanId)).limit(1))[0];
     if (!plan) return null;
 
-    const defaultTxId = `default:${customerPlanId}`;
+    // The default, and the compensation that resized it (`repair:money`, #114).
+    const defaultTxIds = [`default:${customerPlanId}`, `compensate:default:${customerPlanId}`];
     const [accrued, refunded, reserve, defaultRows] = await Promise.all([
       this.sumLedgerByPrefix('receivable', customerPlanId, 'debit', `accrue:${customerPlanId}:`),
       this.sumLedgerByPrefix('receivable', customerPlanId, 'credit', `refund:`),
       this.ledger.balanceOf('reserve_held', customerPlanId),
-      this.db
-        .select()
-        .from(ledgerTbl)
-        .where(and(eq(ledgerTbl.transaction_id, defaultTxId))),
+      this.db.select().from(ledgerTbl).where(inArray(ledgerTbl.transaction_id, defaultTxIds)),
     ]);
 
     let defaultWrittenOff = 0;
     let defaultFromMerchant = 0;
     let defaultFromReserve = 0;
+    // Net of direction: the default credits the receivable and debits the
+    // absorbers; a compensation posts the opposite to give the excess back.
     for (const r of defaultRows) {
       const amt = Number(r.amount_pesewas);
-      if (r.account_type === 'receivable' && r.direction === 'credit') defaultWrittenOff += amt;
-      else if (r.account_type === 'merchant_payable' && r.direction === 'debit')
-        defaultFromMerchant += amt;
-      else if (r.account_type === 'reserve_held' && r.direction === 'debit')
-        defaultFromReserve += amt;
+      if (r.account_type === 'receivable')
+        defaultWrittenOff += r.direction === 'credit' ? amt : -amt;
+      else if (r.account_type === 'merchant_payable')
+        defaultFromMerchant += r.direction === 'debit' ? amt : -amt;
+      else if (r.account_type === 'reserve_held')
+        defaultFromReserve += r.direction === 'debit' ? amt : -amt;
     }
 
     return {
