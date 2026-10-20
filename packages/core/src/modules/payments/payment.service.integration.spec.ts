@@ -14,6 +14,7 @@ import { ApplicationsService } from '../applications/applications.service';
 import { CustomerPlansService } from '../schedules/customer-plans.service';
 import { ScheduleStateService } from '../schedules/schedule-state.service';
 import { AttemptRepository } from './attempt-repository';
+import { CardAuthorizationService } from './card-authorization.service';
 import { PaymentService, type PaystackChargeClient } from './payment.service';
 import { MAX_VERIFY_POLLS } from './retry-policy';
 import type { RetryJob, RetryScheduler } from './retry-scheduler';
@@ -367,11 +368,12 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
   // ------------------------------------------- verify: what Paystack answers
   //
   // Captured from Paystack test mode with the repo's own client (2026-10-20).
-  // A saved card Paystack no longer honours is refused with a 400 that carries
-  // no `data`, so the charge is (rightly) parked `unknown`. Verifying its
-  // reference then answers 400 `transaction_not_found` — and verify treated
-  // every throw as "still unknown", so the instalment sat in `processing` for
-  // good: no retry, no payment-link fallback, no collections.
+  // Verifying a reference Paystack never created answers 400
+  // `transaction_not_found` — and verify treated every throw as "still
+  // unknown", so a charge that never reached Paystack (a request lost in
+  // transit) sat `unknown` for good and its instalment in `processing`: no
+  // retry, no payment-link fallback, no collections. (A dead saved card used to
+  // reach here too; it is now failed at charge time — see below.)
 
   const INVALID_AUTH = Object.assign(new Error('Authorization code is invalid'), {
     status: 400,
@@ -392,10 +394,11 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
     },
   });
 
-  /** A card charge Paystack refused without creating a transaction. */
+  /** A card charge whose request never reached Paystack. */
   async function unknownCardAttempt(ageMinutes: number) {
     const { scheduleId } = await freshPlan();
-    const charged = await service(fakePaystack({ card: INVALID_AUTH })).chargeCard(
+    const lost = new Error('socket hang up');
+    const charged = await service(fakePaystack({ card: lost })).chargeCard(
       { scheduleId, authorizationCode: 'AUTH_revoked', email: 'kofi@x.gh' },
       ACTOR,
     );
@@ -463,6 +466,107 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
     expect(result.status).toBe('failed');
     expect(result.failureReason).toBe('Transaction declined. Please use the test card.');
     expect((await plans.getInstallment(scheduleId)).status).toBe('failed');
+  });
+
+  // ------------------------------------- a saved card Paystack won't honour
+  //
+  // `CardAuthorizationService.revoke` was written for exactly this — "retires
+  // an authorization the provider has told us can never work again" — and
+  // nothing called it. So a dead card stayed `active`, `findUsable` picked it
+  // for every debit, and the debit runner never reached its Mobile Money
+  // fallback: each instalment burned an attempt on a card Paystack had already
+  // refused, and then sat `unknown` for the verify poll to untangle.
+
+  describe('a saved card Paystack no longer honours', () => {
+    const cards = new CardAuthorizationService(db);
+    const withCards = (paystack: PaystackChargeClient) =>
+      new PaymentService(
+        plans,
+        scheduleState,
+        attempts,
+        paystack,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        cards,
+      );
+
+    async function savedCard(): Promise<string> {
+      const code = `AUTH_${randomUUID().slice(0, 12)}`;
+      await cards.record(customerId, {
+        authorization_code: code,
+        reusable: true,
+        last4: '4081',
+        brand: 'visa',
+        exp_month: '12',
+        exp_year: '2030',
+      });
+      return code;
+    }
+
+    async function cardRow(code: string) {
+      return (
+        await db
+          .select()
+          .from(schema.customer_card_authorizations)
+          .where(eq(schema.customer_card_authorizations.authorization_code, code))
+      )[0]!;
+    }
+
+    it('retires the card, and records the attempt failed at once', async () => {
+      const code = await savedCard();
+      const { scheduleId } = await freshPlan();
+
+      const result = await withCards(fakePaystack({ card: INVALID_AUTH })).chargeCard(
+        { scheduleId, authorizationCode: code, email: 'kofi@x.gh' },
+        ACTOR,
+      );
+
+      // Paystack refused the request and created no transaction, so there is
+      // nothing for the verify poll to find: a failure now, not `unknown`.
+      expect(result.status).toBe('failed');
+      expect(result.failureReason).toBe('Authorization code is invalid');
+      expect((await plans.getInstallment(scheduleId)).status).toBe('failed');
+
+      const card = await cardRow(code);
+      expect(card.status).toBe('revoked');
+      expect(card.revoked_reason).toContain('invalid_authorization_code');
+      // So the next debit cannot pick it, and falls back to Mobile Money.
+      expect((await cards.findUsable(customerId))?.authorization_code).not.toBe(code);
+    });
+
+    it('leaves the card alone when a charge on it is merely declined', async () => {
+      const code = await savedCard();
+      const { scheduleId } = await freshPlan();
+      const declined = Object.assign(new Error('Charge attempted'), {
+        status: 400,
+        cause: {
+          status: false,
+          message: 'Charge attempted',
+          data: { reference: 'x', status: 'failed', message: 'Insufficient Funds' },
+        },
+      });
+
+      const result = await withCards(fakePaystack({ card: declined })).chargeCard(
+        { scheduleId, authorizationCode: code, email: 'kofi@x.gh' },
+        ACTOR,
+      );
+
+      expect(result.status).toBe('failed');
+      // An empty account is not a dead card: it may well work next week.
+      expect((await cardRow(code)).status).toBe('active');
+    });
+
+    it('leaves the card alone when the charge could not be sent', async () => {
+      const code = await savedCard();
+      const { scheduleId } = await freshPlan();
+      const result = await withCards(
+        fakePaystack({ card: new Error('socket hang up') }),
+      ).chargeCard({ scheduleId, authorizationCode: code, email: 'kofi@x.gh' }, ACTOR);
+      expect(result.status).toBe('unknown');
+      expect((await cardRow(code)).status).toBe('active');
+    });
   });
 
   // ----------------------------------------------------------- verify path

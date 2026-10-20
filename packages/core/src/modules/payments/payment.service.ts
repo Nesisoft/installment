@@ -18,7 +18,11 @@ import {
 import { MAX_VERIFY_POLLS } from './retry-policy';
 import type { RetryScheduler } from './retry-scheduler';
 import { ChargeFailureEscalator, type ChargeReceiptNotifier } from './charge-failure-escalator';
-import { declineFromChargeError, isNotFoundAtProvider } from './provider-decline';
+import {
+  declineFromChargeError,
+  invalidAuthorizationFrom,
+  isNotFoundAtProvider,
+} from './provider-decline';
 import { LockAcquisitionError, type RedisLock } from '../../shared/lock/redis-lock';
 
 /**
@@ -219,6 +223,21 @@ export class PaymentService {
           metadata: { schedule_id: input.scheduleId, attempt_id: attempt.id },
         });
       } catch (err) {
+        // The card itself is dead, not this one charge declined: retire it so
+        // the next debit falls back to Mobile Money, and fail the attempt now —
+        // Paystack created no transaction, so the verify poll has nothing to
+        // find.
+        const deadCard = invalidAuthorizationFrom(err);
+        if (deadCard) {
+          await this.retireCard(input.authorizationCode, deadCard.reason);
+          return this.recordFailure(
+            attempt.id,
+            installment.id,
+            deadCard.reason,
+            deadCard.body,
+            actor,
+          );
+        }
         // A decline arrives as a 400 the client throws — see provider-decline.
         const declined = declineFromChargeError(err);
         if (declined) {
@@ -496,6 +515,24 @@ export class PaymentService {
   ): Promise<ChargeResult> {
     const reason = response.data.gateway_response ?? 'charge_failed';
     return this.recordFailure(attemptId, scheduleId, reason, response, actor);
+  }
+
+  /**
+   * Takes a saved card Paystack will no longer charge off the rotation.
+   *
+   * `CardAuthorizationService.revoke` existed for this and had no caller, so a
+   * dead card stayed `active`, `findUsable` chose it for every debit, and the
+   * runner never reached its Mobile Money fallback. Best-effort: if this write
+   * fails the attempt is still recorded, and the next charge on the same card
+   * gets the same answer and retires it then.
+   */
+  private async retireCard(authorizationCode: string, reason: string): Promise<void> {
+    if (!this.cards) return;
+    try {
+      await this.cards.revoke(authorizationCode, `invalid_authorization_code: ${reason}`);
+    } catch {
+      // See above: never let bookkeeping on the card mask the charge outcome.
+    }
   }
 
   /** A charge Paystack answered as declined: record it and escalate, now. */
