@@ -73,6 +73,8 @@ export interface ChargeData {
 }
 
 export interface VerifyTransactionData {
+  /** Paystack's numeric id for the transaction — what its refund list is keyed by. */
+  id?: number;
   reference: string;
   status: 'success' | 'failed' | 'pending' | 'ongoing' | string;
   gateway_response?: string;
@@ -196,7 +198,11 @@ export interface RefundData {
   status: string;
   amount?: number;
   currency?: string;
-  transaction?: { reference?: string; id?: number | string };
+  /**
+   * The refunded charge. An object when a refund is created; a bare numeric id
+   * when one is fetched or listed (both seen in test mode).
+   */
+  transaction?: { reference?: string; id?: number | string } | number;
 }
 
 export class PaystackError extends Error {
@@ -399,6 +405,28 @@ export class PaystackClient {
       bank_code: req.bank_code,
       currency: req.currency,
     });
+  }
+
+  /**
+   * Every refund raised against one charge — how a refund whose response was
+   * lost finds its provider id again.
+   *
+   * By Paystack's NUMERIC transaction id only (from {@link verifyTransaction}).
+   * Checked against test mode: `?transaction=<reference>` answers `status: true`
+   * with an empty list rather than an error, so a lookup by reference reads as
+   * "no refund exists" — and a caller acting on that would refund twice. The
+   * argument is refused unless it is all digits.
+   */
+  listRefundsForTransaction(
+    transactionId: number | string,
+  ): Promise<PaystackResponse<RefundData[]>> {
+    const id = String(transactionId);
+    if (!/^\d+$/.test(id)) {
+      throw new PaystackError(
+        `listRefundsForTransaction: "${id}" is not a numeric Paystack transaction id`,
+      );
+    }
+    return this.request<RefundData[]>('GET', `/refund?transaction=${id}`);
   }
 
   /** Fetches one refund by the id Paystack returned from {@link refund}. */
