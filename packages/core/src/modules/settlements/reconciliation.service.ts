@@ -221,7 +221,7 @@ export class ReconciliationService {
     base: Omit<ReconciliationResult, 'outcome' | 'reason'>,
     outcome: 'settled' | 'failed',
     reason: string | undefined,
-    apply: () => Promise<void>,
+    apply: () => Promise<unknown>,
   ): Promise<ReconciliationResult> {
     try {
       await apply();

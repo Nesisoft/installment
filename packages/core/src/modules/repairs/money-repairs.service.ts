@@ -4,6 +4,7 @@ import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service'
 import { LedgerService, type LedgerEntryInput } from '../../shared/ledger/ledger.service';
 import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
 import { SETTLEMENT_CASH_REF, type SettlementService } from '../settlements/settlement.service';
+import type { PlanCashLedger } from '../schedules/plan-cash-ledger';
 import {
   IGNORED_PAYOUT_REVERSALS_SQL,
   OVERSIZED_DEFAULTS_SQL,
@@ -160,9 +161,9 @@ function toStrandedCase(r: Row): StrandedCollectionsCase {
  * Reading is the default and changes nothing. Each correction goes through the
  * code that owns the thing being corrected — `LedgerService` for entries (it
  * refuses an unbalanced transaction), `SettlementService.confirmPayout` for a
- * reversal — inside one database transaction, recorded in the audit log
- * against a named operator. Each is idempotent: a correction already applied
- * takes the row off the report, and applying it again does nothing.
+ * reversal — and is recorded in the audit log against a named operator. Each is
+ * idempotent: a correction already applied takes the row off the report, and
+ * applying it again does nothing.
  *
  * The ledger is append-only, so nothing here edits an entry. A wrong posting is
  * answered by a compensating one, and both stay visible.
@@ -173,6 +174,7 @@ export class MoneyRepairsService {
     private readonly ledger: LedgerService,
     private readonly audit: AuditLogger,
     private readonly settlement: Pick<SettlementService, 'confirmPayout'>,
+    private readonly cashLedger: Pick<PlanCashLedger, 'sweepFloatToReceivable'>,
   ) {}
 
   async report(): Promise<MoneyRepairReport> {
@@ -210,12 +212,17 @@ export class MoneyRepairsService {
   /**
    * Resizes one oversized default to what the platform had fronted.
    *
-   * Posts `default-correction:{plan}`: a receivable DEBIT for the excess
+   * Posts `compensate:default:{plan}`: a receivable DEBIT for the excess
    * written off, matched by credits giving back what each absorber paid beyond
    * its share — the reserve, then the merchant's payable or the default pool.
    * The reserve given back is also returned to its `held_reserves` rows, with
    * the default's release clock set, so the release sweep pays it to the
    * merchant on the model's buffer like any surviving reserve.
+   *
+   * Cash the customer paid after the default found nothing owed — the oversized
+   * write-off had retired it all — and was held as float. The correction
+   * reopens that receivable, so the float is swept onto it, as an accrual's
+   * sweep would have done had the default been sized right.
    *
    * Returns null when the plan has nothing to correct, including when it has
    * already been corrected.
@@ -249,7 +256,7 @@ export class MoneyRepairsService {
         );
       }
 
-      const transactionId = `default-correction:${plan.id}`;
+      const transactionId = `compensate:default:${plan.id}`;
       const metadata = {
         reason: 'default_correction',
         customer_plan_id: plan.id,
@@ -302,6 +309,7 @@ export class MoneyRepairsService {
       );
 
       await this.restoreReserveRows(tx, plan.id, c.reserve, plan.defaulted_at);
+      await this.cashLedger.sweepFloatToReceivable(plan.id, 'compensate-default', tx);
 
       await this.audit.append(tx, {
         entityType: 'customer_plan',
@@ -373,7 +381,9 @@ export class MoneyRepairsService {
    * Applies one ignored `transfer.reversed` through the fixed confirmation path:
    * the payout becomes `reversed` and the merchant is owed the amount again,
    * exactly as the webhook now does. Returns null when the payout is no longer
-   * listed — already reversed, or never settled.
+   * listed — already reversed, or never settled — and when another call applied
+   * it first: `confirmPayout` decides under its row lock, and only the call that
+   * changed the payout records having done so.
    */
   async applyIgnoredPayoutReversal(
     reference: string,
@@ -384,9 +394,10 @@ export class MoneyRepairsService {
     )[0];
     if (!found) return null;
     const r = toIgnoredReversal(found);
-    await this.settlement.confirmPayout(reference, 'reversed', {
+    const applied = await this.settlement.confirmPayout(reference, 'reversed', {
       error: r.gatewayResponse ?? 'transfer.reversed',
     });
+    if (!applied) return null;
     await this.audit.append(this.db, {
       entityType: 'payout',
       entityId: r.payoutId,
@@ -404,8 +415,15 @@ export class MoneyRepairsService {
   /**
    * Reopens a collections case closed over an instalment nobody settled, so
    * the debt is worked again — or closed properly, as waived, from the admin
-   * console. The stage clock restarts: the case resumes at its stage, not one
-   * escalation further on for the weeks it spent closed.
+   * console.
+   *
+   * It reopens at the start of the ladder, `soft_reminder` from today.
+   * Escalation reads `opened_at`, not the stage: a case reopened with its
+   * original date resumed at whatever stage its age warranted, so one opened
+   * ninety days ago went to `write_off` on the next sweep and defaulted the
+   * whole plan, before anyone could waive it. The customer was told nothing
+   * while it was closed; starting the reminders again from the first is also
+   * the fair thing. The original date and stage go in the audit record.
    */
   async reopenStrandedCase(
     caseId: string,
@@ -428,7 +446,14 @@ export class MoneyRepairsService {
       const nowIso = new Date().toISOString();
       await tx
         .update(cases)
-        .set({ closed_at: null, resolution: null, stage_entered_at: nowIso, updated_at: nowIso })
+        .set({
+          closed_at: null,
+          resolution: null,
+          current_stage: 'soft_reminder',
+          opened_at: nowIso,
+          stage_entered_at: nowIso,
+          updated_at: nowIso,
+        })
         .where(eq(cases.id, caseId));
       await tx.insert(actions).values({
         case_id: caseId,
@@ -443,11 +468,16 @@ export class MoneyRepairsService {
         entityId: caseId,
         eventType: 'collections_case.reopened',
         fromState: c.resolution,
-        toState: c.current_stage,
+        toState: 'soft_reminder',
         actorId: actor.actorId,
         actorType: actor.actorType,
         reason: reason.trim(),
-        metadata: { repair: '#110', schedule_id: c.schedule_id },
+        metadata: {
+          repair: '#110',
+          schedule_id: c.schedule_id,
+          previous_stage: c.current_stage,
+          previously_opened_at: c.opened_at,
+        },
       });
       return stranded;
     });

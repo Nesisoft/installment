@@ -387,12 +387,15 @@ export class SettlementService {
    * nothing. A `failed` reported for a settled payout is still ignored:
    * Paystack does not send that, and crediting the merchant again for money
    * they received would be the opposite mistake.
+   *
+   * Resolves true when this call changed the payout, false for a no-op — so a
+   * caller can tell "I applied it" from "someone already had".
    */
   async confirmPayout(
     reference: string,
     outcome: 'settled' | 'failed' | 'reversed',
     opts: { transferId?: string; error?: string } = {},
-  ): Promise<void> {
+  ): Promise<boolean> {
     // The read, the terminal check and the write all happen under one lock.
     // Previously the row was read outside any transaction and without
     // FOR UPDATE, so the "idempotent" guard was a TOCTOU window: the 30-minute
@@ -400,7 +403,7 @@ export class SettlementService {
     // the same pending payout, both pass the check, and both run
     // reverseAndFail — reversing one payout's ledger entries twice and
     // over-crediting the merchant on an append-only book.
-    await runInTransaction(this.db, async (tx) => {
+    return runInTransaction(this.db, async (tx) => {
       const payout = (
         await tx
           .select()
@@ -411,11 +414,11 @@ export class SettlementService {
       )[0];
       if (!payout) throw new PayoutNotFoundError(reference);
       if (payout.status === 'failed' || payout.status === 'reversed') {
-        return; // terminal — idempotent no-op
+        return false; // terminal — idempotent no-op
       }
       if (payout.status === 'settled') {
         // Only a reversal can follow a settlement; anything else is a no-op.
-        if (outcome !== 'reversed') return;
+        if (outcome !== 'reversed') return false;
         await this.reverseAndFail(
           payout.id,
           payout.merchant_id,
@@ -425,7 +428,7 @@ export class SettlementService {
           tx,
           'reversed',
         );
-        return;
+        return true;
       }
 
       if (outcome === 'settled') {
@@ -441,6 +444,7 @@ export class SettlementService {
           outcome,
         );
       }
+      return true;
     });
   }
 

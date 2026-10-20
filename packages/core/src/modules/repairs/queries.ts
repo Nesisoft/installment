@@ -23,8 +23,8 @@
  * merchant's payable (hybrid, rent_to_own) or Ejua's default pool (bnpl).
  *
  * "At that moment" is every receivable and reserve entry on the plan up to the
- * default's own timestamp, excluding the default itself. A `default-correction`
- * already posted takes the plan off the list.
+ * default's own timestamp, excluding the default itself. A
+ * `compensate:default` already posted takes the plan off the list.
  */
 export const OVERSIZED_DEFAULTS_SQL = `
 WITH d AS (
@@ -76,7 +76,7 @@ FROM split s
 JOIN customer_plans cp ON cp.id::text = s.plan_ref
 WHERE s.written_off > s.should_write_off
   AND NOT EXISTS (
-    SELECT 1 FROM ledger_entries c WHERE c.transaction_id = 'default-correction:' || s.plan_ref
+    SELECT 1 FROM ledger_entries c WHERE c.transaction_id = 'compensate:default:' || s.plan_ref
   )
 ORDER BY s.defaulted_at
 `.trim();
@@ -113,6 +113,10 @@ ORDER BY p.id, w.received_at
  * case-opening reads `overdue` rows, the default path reads open cases. The
  * debt was neither collected, waived nor written off. Which of those it should
  * be is a person's call, so this lists them with what was said at the time.
+ *
+ * A plan that has defaulted since wrote the debt off at plan level, so its
+ * cases are not stranded; reopening one would restart dunning on a written-off
+ * plan.
  */
 export const STRANDED_COLLECTIONS_CASES_SQL = `
 SELECT DISTINCT ON (c.schedule_id)
@@ -144,6 +148,7 @@ LEFT JOIN LATERAL (
 ) closed ON true
 WHERE c.closed_at IS NOT NULL
   AND s.status = 'in_collections'
+  AND cp.status <> 'defaulted'
   AND NOT EXISTS (
     SELECT 1 FROM collections_cases o WHERE o.schedule_id = c.schedule_id AND o.closed_at IS NULL
   )

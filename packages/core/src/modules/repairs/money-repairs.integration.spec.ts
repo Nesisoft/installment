@@ -22,6 +22,7 @@ import {
   type PayoutTransferClient,
 } from '../settlements/settlement.service';
 import { CollectionsService } from '../collections/collections.service';
+import { MerchantDashboardService } from '../settlements/merchant-dashboard.service';
 import { MoneyRepairError, MoneyRepairsService } from './money-repairs.service';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
@@ -67,7 +68,13 @@ describe.skipIf(!RUN_DB)('money repairs (integration)', () => {
     },
   };
   const settlement = new SettlementService(db, ledger, audit, succeeding);
-  const repairs = new MoneyRepairsService(db, ledger, audit, settlement);
+  const repairs = new MoneyRepairsService(
+    db,
+    ledger,
+    audit,
+    settlement,
+    new PlanCashLedger(ledger),
+  );
   const ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 
   const templates = {} as Record<'hybrid' | 'rtoInterest' | 'bnplInterest' | 'bnpl', string>;
@@ -243,7 +250,7 @@ describe.skipIf(!RUN_DB)('money repairs (integration)', () => {
     expect(corrected?.correction.merchant).toBe(57_200);
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(35_600);
     expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(2_800);
-    expect(await transactionBalances(`default-correction:${plan.id}`)).toBe(true);
+    expect(await transactionBalances(`compensate:default:${plan.id}`)).toBe(true);
     expect((await repairs.findOversizedDefaults()).some((d) => d.customerPlanId === plan.id)).toBe(
       false,
     );
@@ -311,7 +318,7 @@ describe.skipIf(!RUN_DB)('money repairs (integration)', () => {
 
     await repairs.correctOversizedDefault(plan.id, ACTOR);
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(before);
-    expect(await transactionBalances(`default-correction:${plan.id}`)).toBe(true);
+    expect(await transactionBalances(`compensate:default:${plan.id}`)).toBe(true);
   });
 
   it('leaves alone a default the fixed code sized', async () => {
@@ -477,6 +484,105 @@ describe.skipIf(!RUN_DB)('money repairs (integration)', () => {
     const listed = await repairs.findStrandedCollectionsCases();
     expect(listed.some((c) => c.caseId === waived.caseId)).toBe(false);
     expect(listed.some((c) => c.caseId === paid.caseId)).toBe(false);
+  });
+
+  // ------------------------------------------------------------ review findings
+
+  it("shows the corrected default on the plan's settlement view", async () => {
+    const merchantId = await freshMerchant();
+    const { plan, schedule } = await activate('hybrid', merchantId);
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    await bookPre114Default(plan.id);
+    await repairs.correctOversizedDefault(plan.id, ACTOR);
+
+    // The admin plan view and the merchant portal read this. Uncorrected it
+    // said 60,000 written off and 57,200 clawed — while ops told the merchant
+    // it had been returned.
+    const view = await new MerchantDashboardService(db, ledger).getPlanSettlement(plan.id);
+    expect(view).toMatchObject({
+      defaultWrittenOffPesewas: 0,
+      defaultClawedFromMerchantPesewas: 0,
+      defaultConsumedFromReservePesewas: 0,
+    });
+  });
+
+  it('leaves receivable and float settled when the deposit was paid after the default', async () => {
+    const merchantId = await freshMerchant();
+    const { plan, schedule } = await activate('hybrid', merchantId);
+    await bookPre114Default(plan.id);
+    // The deposit arrives after the write-off. The oversized credit left
+    // nothing "owed", so the cash went to float and the accrual's sweep found
+    // nothing to retire.
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+
+    await repairs.correctOversizedDefault(plan.id, ACTOR);
+
+    // Where the fixed sizing would have left it: nothing owed, nothing held.
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(0);
+    expect(await ledger.balanceOf('customer_float', plan.id)).toBe(0);
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(35_600);
+  });
+
+  it('reports a reversal applied once when two operators apply it at once', async () => {
+    const { merchantId, reference } = await settledPayout(30_000, '2026-09-12');
+    await storedReversal(reference);
+
+    const results = await Promise.all([
+      repairs.applyIgnoredPayoutReversal(reference, ACTOR),
+      repairs.applyIgnoredPayoutReversal(reference, ACTOR),
+    ]);
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(30_000);
+    const payout = (
+      await db.select().from(schema.payouts).where(eq(schema.payouts.reference, reference))
+    )[0]!;
+    const applied = await db
+      .select()
+      .from(schema.audit_events)
+      .where(eq(schema.audit_events.entity_id, payout.id));
+    expect(applied.filter((e) => e.event_type === 'payout.reversal_applied')).toHaveLength(1);
+  });
+
+  it('reopens an old case at the start of the ladder, not straight into write-off', async () => {
+    const stranded = await caseInCollections();
+    // Opened a hundred days ago and closed at firm_reminder.
+    await db
+      .update(schema.collections_cases)
+      .set({
+        opened_at: new Date(Date.now() - 100 * 86_400_000).toISOString(),
+        current_stage: 'firm_reminder',
+      })
+      .where(eq(schema.collections_cases.id, stranded.caseId));
+    await closedWithoutSettling(stranded.caseId, 'restructured');
+
+    await repairs.reopenStrandedCase(stranded.caseId, 'Nobody decided anything', ACTOR);
+    // The nightly sweep, with a defaulter wired as production wires it.
+    await new CollectionsService(db, audit, plans).runSweep(ACTOR, new Date());
+
+    const [c] = await db
+      .select()
+      .from(schema.collections_cases)
+      .where(eq(schema.collections_cases.id, stranded.caseId));
+    // Escalation reads `opened_at`. Left at a hundred days, the case went to
+    // write_off on this sweep and the whole plan defaulted.
+    expect(c!.closed_at).toBeNull();
+    expect(c!.current_stage).toBe('soft_reminder');
+    const [p] = await db
+      .select()
+      .from(schema.customer_plans)
+      .where(eq(schema.customer_plans.id, stranded.planId));
+    expect(p!.status).toBe('active');
+  });
+
+  it('does not list a case whose plan has since been written off', async () => {
+    const stranded = await caseInCollections();
+    await closedWithoutSettling(stranded.caseId, 'restructured');
+    await plans.markPlanDefaulted(stranded.planId, {}, ACTOR);
+
+    expect(
+      (await repairs.findStrandedCollectionsCases()).some((c) => c.caseId === stranded.caseId),
+    ).toBe(false);
   });
 
   // ------------------------------------------------------------ report

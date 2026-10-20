@@ -66,9 +66,17 @@ Each correction is one balanced transaction, `compensate:default:<plan>`, posted
 - `default_pool` **credit** — pool charge beyond the real loss (BNPL).
 
 The restored reserve goes back on its `held_reserves` row with the default's release clock, so the
-nightly sweep pays it to the merchant on the model's usual buffer. The merchant's restored payable
-goes out on the next settlement run. An audit event `customer_plan.default_corrected` records the
-figures and the operator.
+nightly sweep pays it to the merchant on the model's usual buffer. Cash a customer paid after the
+default — held as float, because the oversized write-off left nothing owed — is swept onto the
+reopened receivable. The merchant's restored payable goes out on the next settlement run. An audit
+event `customer_plan.default_corrected` records the figures and the operator, and the plan's
+settlement view (admin console, merchant portal) shows the corrected default.
+
+**A refused plan** wrote nothing and does not stop the others; the run lists it and exits non-zero.
+It means the old booking does not look like the old code's — most likely a default from before the
+reserve was drawn first, where a correction would have to take more, not give back. Look at its
+`default:<plan>` transaction (section 1 of [ledger-imbalance.md](ledger-imbalance.md)) and decide by
+hand; skip it with `--plan` on the others meanwhile.
 
 **Tell the merchant** (hybrid and rent to own only — a BNPL correction moves Ejua's own pool and no
 merchant money): the amount returned, that it is in their next payout, and that it was our error.
@@ -98,18 +106,25 @@ instalment `in_collections` with no open case. Nothing looks at it again: it is 
 waived, not written off. The report lists each one with the customer, what is unpaid, and the note
 left when it was closed. Decide each one:
 
-| What actually happened                     | Do this                                                                                              |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| The customer paid (cash at a branch, etc.) | Record the payment on the plan in the admin console. The instalment leaves `in_collections`; done.   |
-| The debt was meant to be forgiven          | Reopen the case (below), then close it as **Waived** in the admin console. That records the waiver.  |
-| Nobody decided anything                    | Reopen the case. Collections resumes at the case's stage, with the stage clock restarted from today. |
+| What actually happened                     | Do this                                                                                             |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| The customer paid (cash at a branch, etc.) | Record the payment on the plan in the admin console. The instalment leaves `in_collections`; done.  |
+| The debt was meant to be forgiven          | Reopen the case (below), then close it as **Waived** in the admin console. That records the waiver. |
+| Nobody decided anything                    | Reopen the case. Collections starts again from the first reminder.                                  |
 
 ```bash
 REPAIR_OPERATOR_EMAIL=<your admin email> REPAIR_REASON='<why, in a sentence>' \
   pnpm repair:money -- reopen-case <case-id> [--yes]
 ```
 
-Reopening records a `collections_case.reopened` audit event and a note on the case with the reason.
+A reopened case starts the ladder again: `soft_reminder`, opened today. Escalation counts a case's age
+from `opened_at`, so reopening one with its original date would send a case opened ninety days ago
+straight to write-off on the next nightly sweep — defaulting the whole plan before anyone could waive
+it. The customer heard nothing while it was closed, and starting the reminders from the first is the
+fair course anyway. The original date and stage are kept in the `collections_case.reopened` audit
+event, with the reason.
+
+Cases on a plan that has defaulted since are not listed: the debt was written off with the plan.
 
 ## 5. Unresolved payment attempts (#106)
 
@@ -174,7 +189,7 @@ FROM split s
 JOIN customer_plans cp ON cp.id::text = s.plan_ref
 WHERE s.written_off > s.should_write_off
   AND NOT EXISTS (
-    SELECT 1 FROM ledger_entries c WHERE c.transaction_id = 'default-correction:' || s.plan_ref
+    SELECT 1 FROM ledger_entries c WHERE c.transaction_id = 'compensate:default:' || s.plan_ref
   )
 ORDER BY s.defaulted_at
 ```
@@ -229,6 +244,7 @@ LEFT JOIN LATERAL (
 ) closed ON true
 WHERE c.closed_at IS NOT NULL
   AND s.status = 'in_collections'
+  AND cp.status <> 'defaulted'
   AND NOT EXISTS (
     SELECT 1 FROM collections_cases o WHERE o.schedule_id = c.schedule_id AND o.closed_at IS NULL
   )

@@ -5,6 +5,7 @@ import {
   Money,
   MoneyRepairsService,
   PasswordService,
+  PlanCashLedger,
   REPAIR_QUERIES,
   SettlementService,
   UsersService,
@@ -42,9 +43,73 @@ const USAGE = `Usage:
 
 const ghs = (pesewas: number): string => Money.fromPesewas(pesewas).format();
 
+/**
+ * A `--name value` or `--name=value` argument. Present without a value is an
+ * error, not "no filter": `--plan` with its id lost to a shell typo would
+ * otherwise widen `--yes` from one plan to every one.
+ */
 function flag(args: string[], name: string): string | undefined {
+  const inline = args.find((a) => a.startsWith(`${name}=`));
+  if (inline !== undefined) {
+    const value = inline.slice(name.length + 1).trim();
+    if (!value) refuse(`${name}= needs a value.`);
+    return value;
+  }
   const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : undefined;
+  if (i < 0) return undefined;
+  const value = args[i + 1];
+  if (!value || value.startsWith('--')) refuse(`${name} needs a value.`);
+  return value;
+}
+
+const SWITCHES = new Set(['--yes', '--json']);
+const VALUED = ['--plan', '--reference'];
+
+/**
+ * The command and its operand, with every flag accounted for. An unknown flag
+ * is refused rather than ignored: `--yse` silently dropped would turn a
+ * correction into a dry run nobody noticed, and a misspelt filter into no
+ * filter at all.
+ */
+function positionals(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (!a.startsWith('--')) out.push(a);
+    else if (SWITCHES.has(a) || VALUED.some((v) => a.startsWith(`${v}=`))) continue;
+    else if (VALUED.includes(a)) i += 1;
+    else refuse(`Unknown option "${a}".`);
+  }
+  return out;
+}
+
+function refuse(message: string): never {
+  console.error(`${message}\n\n${USAGE}`);
+  process.exit(1);
+}
+
+/**
+ * Runs one correction per target, carrying on past a refusal. A refused
+ * correction wrote nothing (its transaction rolled back); stopping there would
+ * strand every target after it, and a re-run would meet the same one first.
+ */
+async function eachTarget<T>(
+  targets: T[],
+  label: (t: T) => string,
+  run: (t: T) => Promise<string>,
+): Promise<number> {
+  let refused = 0;
+  for (const t of targets) {
+    try {
+      console.log(`  ${await run(t)}`);
+    } catch (err) {
+      refused += 1;
+      console.error(`  ${label(t)}: REFUSED — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  if (refused)
+    console.error(`\n${refused} refused; nothing was written for those. See the runbook.`);
+  return refused;
 }
 
 function printReport(r: MoneyRepairReport): void {
@@ -99,7 +164,7 @@ async function operator(users: UsersService): Promise<RepairActor> {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const command = args.find((a) => !a.startsWith('--')) ?? 'report';
+  const [command = 'report', operand] = positionals(args);
   const yes = args.includes('--yes');
 
   if (command === 'sql') {
@@ -124,7 +189,13 @@ async function main(): Promise<void> {
         throw new Error('money-repairs never sends a transfer');
       },
     });
-    const repairs = new MoneyRepairsService(db, ledger, audit, settlement);
+    const repairs = new MoneyRepairsService(
+      db,
+      ledger,
+      audit,
+      settlement,
+      new PlanCashLedger(ledger),
+    );
     const users = new UsersService(db, audit, new PasswordService());
 
     switch (command) {
@@ -152,14 +223,17 @@ async function main(): Promise<void> {
           return;
         }
         const actor = await operator(users);
-        for (const d of targets) {
-          const done = await repairs.correctOversizedDefault(d.customerPlanId, actor);
-          console.log(
-            done
-              ? `  corrected plan ${d.customerPlanId}: merchant +${ghs(done.correction.merchant)}, reserve +${ghs(done.correction.reserve)}, pool +${ghs(done.correction.pool)}`
-              : `  plan ${d.customerPlanId}: nothing to correct (already done?)`,
-          );
-        }
+        const refused = await eachTarget(
+          targets,
+          (d) => `plan ${d.customerPlanId}`,
+          async (d) => {
+            const done = await repairs.correctOversizedDefault(d.customerPlanId, actor);
+            return done
+              ? `corrected plan ${d.customerPlanId}: merchant +${ghs(done.correction.merchant)}, reserve +${ghs(done.correction.reserve)}, pool +${ghs(done.correction.pool)}`
+              : `plan ${d.customerPlanId}: nothing to correct (already done?)`;
+          },
+        );
+        if (refused) process.exitCode = 1;
         return;
       }
 
@@ -177,24 +251,24 @@ async function main(): Promise<void> {
           return;
         }
         const actor = await operator(users);
-        for (const p of targets) {
-          const done = await repairs.applyIgnoredPayoutReversal(p.reference, actor);
-          console.log(
-            done
-              ? `  applied ${p.reference}: merchant ${p.merchantId} is owed ${ghs(p.amountPesewas)} again`
-              : `  ${p.reference}: nothing to apply (already done?)`,
-          );
-        }
+        const refused = await eachTarget(
+          targets,
+          (p) => p.reference,
+          async (p) => {
+            const done = await repairs.applyIgnoredPayoutReversal(p.reference, actor);
+            return done
+              ? `applied ${p.reference}: merchant ${p.merchantId} is owed ${ghs(p.amountPesewas)} again`
+              : `${p.reference}: nothing to apply (already done?)`;
+          },
+        );
+        if (refused) process.exitCode = 1;
         return;
       }
 
       case 'reopen-case': {
-        const caseId = args.filter((a) => !a.startsWith('--'))[1];
+        const caseId = operand;
         const reason = (process.env.REPAIR_REASON ?? '').trim();
-        if (!caseId || !reason) {
-          console.error(`reopen-case needs a case id and REPAIR_REASON.\n\n${USAGE}`);
-          process.exit(1);
-        }
+        if (!caseId || !reason) refuse('reopen-case needs a case id and REPAIR_REASON.');
         const target = (await repairs.findStrandedCollectionsCases()).find(
           (c) => c.caseId === caseId,
         );
@@ -213,13 +287,14 @@ async function main(): Promise<void> {
           return;
         }
         await repairs.reopenStrandedCase(caseId, reason, await operator(users));
-        console.log(`\nReopened case ${caseId}. Settle it from the admin console.`);
+        console.log(
+          `\nReopened case ${caseId} at the first reminder stage. Record a payment or waive it from the admin console.`,
+        );
         return;
       }
 
       default:
-        console.error(`Unknown command "${command}".\n\n${USAGE}`);
-        process.exit(1);
+        refuse(`Unknown command "${command}".`);
     }
   } finally {
     await pool.end();
