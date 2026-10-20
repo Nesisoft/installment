@@ -11,7 +11,10 @@ export interface HandleDefaultInput {
   customerPlanId: string;
   merchantId: string;
   model: BusinessModel;
-  /** The customer balance we won't recover (pesewas). */
+  /**
+   * The customer balance we won't recover (pesewas). The loss allocated is at
+   * most what the platform has fronted on the plan — see `handleDefault`.
+   */
   unrecoveredAmountPesewas: number;
 }
 
@@ -41,13 +44,28 @@ export interface DefaultAllocation {
  *   - layaway:     no accrual was ever booked (it pays out only at completion),
  *                  so there's nothing to write off at the settlement layer
  *
+ * The loss is what the platform fronted that the customer has not repaid: the
+ * receivable still open on the plan. Accruals book it as the merchant is
+ * credited; `PlanCashLedger` retires it as the customer's cash arrives. It is
+ * never more than the customer's unpaid balance, and it used to BE that
+ * balance. The two agree for bnpl and rent_to_own, which credit the whole
+ * order at approval. They do not for hybrid, which credits 40% at the deposit
+ * and 60% at completion: a hybrid customer who paid the deposit and stopped
+ * left a 60% balance nobody had ever been credited, and the merchant was
+ * clawed for it — driven to −21,600 on a 100,000 order they had been paid
+ * 35,600 for, and to −100,000 when the customer never paid the deposit and the
+ * merchant had been paid nothing at all. The 60% a merchant never receives is
+ * already their share of a hybrid default; charging it again made them carry
+ * it twice.
+ *
  * Every allocation is a single balanced transaction `default:{plan}` — the
  * receivable write-off (CREDIT) is matched by the debits that absorb it.
  * Idempotent: a replay finds the transaction already booked and no-ops.
  *
- * NOTE: customer cash-in isn't booked to the ledger in this system, so the
- * receivable account isn't fully reconciled by this write-off — it records the
- * loss allocation, which is what settlement cares about.
+ * Cash-in retires the receivable only where `PlanCashLedger` is wired, as it is
+ * in production. Without it — framework-free callers, some tests — the
+ * receivable is never retired, the cap is the whole accrual, and the loss is
+ * sized as before.
  */
 export class DefaultService {
   constructor(
@@ -60,8 +78,8 @@ export class DefaultService {
     input: HandleDefaultInput,
     tx?: ReserveExecutor,
   ): Promise<DefaultAllocation | null> {
-    const { customerPlanId, merchantId, model, unrecoveredAmountPesewas } = input;
-    if (unrecoveredAmountPesewas <= 0) return null;
+    const { customerPlanId, merchantId, model } = input;
+    if (input.unrecoveredAmountPesewas <= 0) return null;
     // Layaway never accrues before completion, so a default has no settlement
     // footprint — forfeiture is handled outside the ledger.
     if (model === 'layaway') return null;
@@ -76,6 +94,14 @@ export class DefaultService {
       .where(eq(ledger.transaction_id, transactionId))
       .limit(1);
     if (existing[0]) return null;
+
+    // Ledger balances are credit-positive, so what is still owed on a
+    // debit-normal receivable reads negative.
+    const fronted = -(await this.ledger.balanceOf('receivable', customerPlanId, tx));
+    const unrecoveredAmountPesewas = Math.min(input.unrecoveredAmountPesewas, Math.max(0, fronted));
+    // Nothing fronted is unpaid: no loss to allocate, and the reserve stays
+    // whole for the release clock `markPlanDefaulted` starts.
+    if (unrecoveredAmountPesewas <= 0) return null;
 
     const metadata = { reason: 'default', model, customer_plan_id: customerPlanId };
     const entries: LedgerEntryInput[] = [
