@@ -329,7 +329,15 @@ export class SettlementService {
         return { merchantId, status: 'settled', amountPesewas: amount, payoutId, reference };
       }
       if (status === 'failed' || status === 'reversed') {
-        await this.reverseAndFail(payoutId, merchantId, amount, `transfer ${status}`, reference);
+        await this.reverseAndFail(
+          payoutId,
+          merchantId,
+          amount,
+          `transfer ${status}`,
+          reference,
+          undefined,
+          status === 'reversed' ? 'reversed' : 'failed',
+        );
         return {
           merchantId,
           status: 'failed',
@@ -367,12 +375,22 @@ export class SettlementService {
 
   /**
    * Async confirmation hook for the transfer webhook / reconciliation poller.
-   * Settles or reverses a payout that was left pending/unknown. Idempotent —
-   * a payout already in a terminal state is left untouched.
+   * Settles or reverses a payout that was left pending/unknown, and reverses a
+   * settled one Paystack has sent back. Idempotent — a payout already failed or
+   * reversed is left untouched.
+   *
+   * `reversed` is the one outcome that applies to a SETTLED payout. Paystack
+   * reverses GHS transfers days after success when the recipient bank or
+   * wallet rejects them; this returned early for any settled payout, so a
+   * reversal was a silent no-op — the payout stayed `settled`, the merchant's
+   * payable stayed cleared, and they were recorded as paid while holding
+   * nothing. A `failed` reported for a settled payout is still ignored:
+   * Paystack does not send that, and crediting the merchant again for money
+   * they received would be the opposite mistake.
    */
   async confirmPayout(
     reference: string,
-    outcome: 'settled' | 'failed',
+    outcome: 'settled' | 'failed' | 'reversed',
     opts: { transferId?: string; error?: string } = {},
   ): Promise<void> {
     // The read, the terminal check and the write all happen under one lock.
@@ -392,12 +410,22 @@ export class SettlementService {
           .limit(1)
       )[0];
       if (!payout) throw new PayoutNotFoundError(reference);
-      if (
-        payout.status === 'settled' ||
-        payout.status === 'failed' ||
-        payout.status === 'reversed'
-      ) {
+      if (payout.status === 'failed' || payout.status === 'reversed') {
         return; // terminal — idempotent no-op
+      }
+      if (payout.status === 'settled') {
+        // Only a reversal can follow a settlement; anything else is a no-op.
+        if (outcome !== 'reversed') return;
+        await this.reverseAndFail(
+          payout.id,
+          payout.merchant_id,
+          payout.amount_pesewas,
+          opts.error ?? 'transfer reversed',
+          payout.reference,
+          tx,
+          'reversed',
+        );
+        return;
       }
 
       if (outcome === 'settled') {
@@ -407,9 +435,10 @@ export class SettlementService {
           payout.id,
           payout.merchant_id,
           payout.amount_pesewas,
-          opts.error ?? 'transfer failed',
+          opts.error ?? `transfer ${outcome}`,
           payout.reference,
           tx,
+          outcome,
         );
       }
     });
@@ -498,6 +527,12 @@ export class SettlementService {
     reference: string,
     /** Join the caller's transaction so the lock covers the write too. */
     caller?: TransactionalTx,
+    /**
+     * `failed`: the transfer never completed. `reversed`: it completed and
+     * Paystack sent it back. Same books either way — the cash is back with
+     * Ejua and the merchant is owed it again — but the seller is told which.
+     */
+    status: 'failed' | 'reversed' = 'failed',
   ): Promise<void> {
     const nowIso = new Date().toISOString();
     await this.inTransaction(caller, async (tx) => {
@@ -509,7 +544,7 @@ export class SettlementService {
             accountRef: SETTLEMENT_CASH_REF,
             direction: 'debit',
             amountPesewas,
-            description: `Reverse cash-out for failed payout ${payoutId}`,
+            description: `Reverse cash-out for ${status} payout ${payoutId}`,
             metadata: { payout_id: payoutId },
           },
           {
@@ -518,7 +553,7 @@ export class SettlementService {
             accountRef: merchantId,
             direction: 'credit',
             amountPesewas,
-            description: `Restore payable for failed payout ${payoutId}`,
+            description: `Restore payable for ${status} payout ${payoutId}`,
             metadata: { payout_id: payoutId },
           },
         ],
@@ -526,13 +561,13 @@ export class SettlementService {
       );
       await tx
         .update(payouts)
-        .set({ status: 'failed', failed_at: nowIso, last_error: reason })
+        .set({ status, failed_at: nowIso, last_error: reason })
         .where(eq(payouts.id, payoutId));
       await this.audit.append(tx, {
         entityType: 'payout',
         entityId: payoutId,
-        eventType: 'payout.failed',
-        toState: 'failed',
+        eventType: `payout.${status}`,
+        toState: status,
         actorId: SETTLEMENT_ACTOR.actorId,
         actorType: SETTLEMENT_ACTOR.actorType,
         reason,

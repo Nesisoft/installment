@@ -38,7 +38,7 @@ export interface WebhookAlertSink {
 export interface PayoutConfirmer {
   confirmPayout(
     reference: string,
-    outcome: 'settled' | 'failed',
+    outcome: 'settled' | 'failed' | 'reversed',
     opts?: { transferId?: string; error?: string },
   ): Promise<void>;
 }
@@ -362,12 +362,16 @@ export class WebhookService {
       return;
     }
 
+    // `reversed` stays distinct from `failed`: a reversal usually arrives
+    // after the payout settled, and only a reversal may undo a settlement.
     const outcome =
       event.event === 'transfer.success'
         ? 'settled'
-        : event.event === 'transfer.failed' || event.event === 'transfer.reversed'
-          ? 'failed'
-          : undefined;
+        : event.event === 'transfer.reversed'
+          ? 'reversed'
+          : event.event === 'transfer.failed'
+            ? 'failed'
+            : undefined;
     if (!outcome) return; // transfer.* we do not act on
 
     try {

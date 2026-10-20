@@ -198,7 +198,7 @@ export class ReconciliationService {
     }
     if (status === 'failed' || status === 'reversed') {
       return this.resolve(base, 'failed', `transfer ${status}`, () =>
-        this.settlement.confirmPayout(payout.reference, 'failed', {
+        this.settlement.confirmPayout(payout.reference, status, {
           error: `transfer ${status}`,
         }),
       );
