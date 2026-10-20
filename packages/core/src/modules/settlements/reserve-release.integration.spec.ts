@@ -232,6 +232,51 @@ describe.skipIf(!RUN_DB)('ReserveReleaseService (integration)', () => {
     expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(0);
   });
 
+  it('releases a layaway reserve when delivery was recorded before the plan completed', async () => {
+    // Layaway withholds its reserve at completion, so a delivery recorded
+    // earlier stamped no row — and recording it again is a no-op on a plan
+    // already marked delivered. The row created at completion waited on a
+    // trigger that had already fired, and was held for good.
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approvedPlan(layawayTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    const deliveredAt = new Date();
+    await plans.markDelivered(plan.id, { deliveredAt }, ACTOR);
+    for (const row of schedule) await plans.recordManualPayment(row.id, {}, ACTOR);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(2_000);
+
+    const matured = await reserves.releaseMaturedReserves(
+      merchantId,
+      new Date(deliveredAt.getTime() + 8 * DAY_MS),
+    );
+    expect(matured.totalReleasedPesewas).toBe(2_000);
+    expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(0);
+  });
+
+  it('gives a reserve recorded after a default the default as its release trigger', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approvedPlan(bnplTemplateId, merchantId, customerId);
+    const { plan } = await plans.activateFromApplication(appId, ACTOR);
+    const defaultedAt = new Date();
+    await db
+      .update(schema.customer_plans)
+      .set({ status: 'defaulted', defaulted_at: defaultedAt.toISOString() })
+      .where(eq(schema.customer_plans.id, plan.id));
+
+    const row = await reserves.recordHeldReserve({
+      merchantId,
+      customerPlanId: plan.id,
+      model: 'bnpl',
+      amountPesewas: 1_000,
+    });
+
+    expect(row?.plan_defaulted_at).not.toBeNull();
+    expect(new Date(row!.plan_defaulted_at!).getTime()).toBe(defaultedAt.getTime());
+  });
+
   it('rolls a rent_to_own reserve out 1/12 per month, flushing dust at term', async () => {
     const merchantId = await freshMerchant();
     const customerId = await freshCustomer();
