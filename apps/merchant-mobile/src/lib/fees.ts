@@ -45,6 +45,11 @@ const MODEL_LABEL: Record<BusinessModel, string> = {
   rent_to_own: 'Rent to own',
 };
 
+/** A business model by the name staff and seller both use. */
+export function modelLabel(model: BusinessModel): string {
+  return MODEL_LABEL[model];
+}
+
 export interface SaleSplit {
   key: 'pay_now' | BusinessModel;
   label: string;

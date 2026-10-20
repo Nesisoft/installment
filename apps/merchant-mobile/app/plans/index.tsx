@@ -21,6 +21,7 @@ import {
 import { useMerchantBalances, usePlanCounts, usePlans } from '../../src/features/merchant';
 import { shortDate } from '../../src/lib/dates';
 import { cedis, ghs, initials, pluralise } from '../../src/lib/format';
+import { DEFAULT_RISK_SUMMARY } from '../../src/lib/risk';
 import { color, font, space } from '../../src/theme/tokens';
 
 const CHIPS: { value: MerchantPlanBucket; label: string }[] = [
@@ -130,8 +131,7 @@ export default function PlansScreen(): React.ReactElement {
 
         {rows.length > 0 ? (
           <Note eyebrow="Who carries the risk">
-            Ejua lends the customer the money and collects every payment. You were credited per your
-            plan type, and a payment the customer misses does not claw that back.
+            {`Ejua lends the customer the money and collects every payment. ${DEFAULT_RISK_SUMMARY}`}
           </Note>
         ) : null}
       </View>

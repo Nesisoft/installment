@@ -23,6 +23,7 @@ import {
 import { usePlan } from '../../src/features/merchant';
 import { shortDate } from '../../src/lib/dates';
 import { cedis, ghs } from '../../src/lib/format';
+import { defaultRiskSentence } from '../../src/lib/risk';
 import { color, font, radius, space } from '../../src/theme/tokens';
 
 export default function PlanScreen(): React.ReactElement {
@@ -151,9 +152,7 @@ export default function PlanScreen(): React.ReactElement {
         </View>
 
         <Note eyebrow="Who carries the risk">
-          Ejua lends the customer the money, collects every payment and carries the loss if they
-          stop paying. What has been credited to you is above; a missed payment does not claw it
-          back.
+          {`Ejua lends the customer the money and collects every payment. ${defaultRiskSentence(p.business_model)}`}
         </Note>
 
         {p.orderId ? (

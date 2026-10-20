@@ -44,6 +44,7 @@ import {
 } from '../../src/features/merchant';
 import { cedis, ghs, phoneLocal } from '../../src/lib/format';
 import { dateTime, dayMonth, shortDate } from '../../src/lib/dates';
+import { defaultRiskSentence } from '../../src/lib/risk';
 import { color, font, radius, space, tintFor } from '../../src/theme/tokens';
 
 /** Room the sticky footer needs: a 54pt button plus the bar's own padding. */
@@ -410,13 +411,14 @@ function PlanCard({ plan }: { plan: MerchantOrderPlan }): React.ReactElement {
           all at completion, hybrid splits 40/60 across the deposit and
           completion — so "you were credited when the plan was approved" is
           false for half of them, and on a layaway order it would contradict
-          the settlement card directly above. What holds for every model is the
-          risk: Ejua lends, Ejua collects, and an arrear never claws back what
-          has already been credited. The settlement card is the single place
-          that states the money, because it reads the ledger. */}
+          the settlement card directly above. The risk is per model too: a
+          write-off draws the plan's reserve first, then Ejua's pool on bnpl and
+          the seller's payable on hybrid and rent_to_own (`DefaultService`) — so
+          "Ejua carries the risk" was false for two of the four. The settlement
+          card is the single place that states the money, because it reads the
+          ledger. */}
       <Text variant="small" tone="soft" style={styles.planBody}>
-        Ejua lends the customer the money, collects every payment and carries the risk. What has
-        been credited to you is above, and a payment the customer misses does not claw it back.
+        {`Ejua lends the customer the money and collects every payment. ${defaultRiskSentence(plan.business_model)}`}
       </Text>
 
       <View style={styles.strip}>
