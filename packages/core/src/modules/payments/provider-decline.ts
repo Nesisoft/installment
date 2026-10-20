@@ -60,3 +60,24 @@ export function isNotFoundAtProvider(err: unknown): boolean {
     (cause as { code?: unknown }).code === 'transaction_not_found'
   );
 }
+
+/**
+ * Paystack refusing a saved card's authorization outright.
+ *
+ * Captured from test mode (2026-10-20): charging an authorization Paystack no
+ * longer honours answers HTTP 400 `{ status: false, message: "Authorization
+ * code is invalid", code: "invalid_authorization_code" }`, with no `data`. No
+ * transaction is created — verifying the reference afterwards finds nothing —
+ * so this is a definite outcome, and it says the card itself is dead rather
+ * than that this one charge was declined.
+ */
+export function invalidAuthorizationFrom(err: unknown): ProviderDecline | null {
+  if (!err || typeof err !== 'object') return null;
+  const { status, cause } = err as { status?: unknown; cause?: unknown };
+  if (status !== 400 || !cause || typeof cause !== 'object') return null;
+  const body = cause as { code?: unknown; message?: unknown };
+  if (body.code !== 'invalid_authorization_code') return null;
+  const reason =
+    (typeof body.message === 'string' && body.message.trim()) || 'invalid_authorization_code';
+  return { reason, body: cause };
+}
