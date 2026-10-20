@@ -47,9 +47,14 @@ export type AssignCaseInput = z.infer<typeof assignCaseSchema>;
  * Manual close resolutions only. `defaulted` / `written_off` are reached through
  * the dunning write-off path (CollectionsService.defaultWrittenOffCases), not a
  * manual close, so they are intentionally excluded here.
+ *
+ * `restructured` is excluded too, until restructuring exists. It means issuing
+ * a replacement plan (`customer_plans.restructured_from_plan_id`) and nothing
+ * does; accepting it closed the case and stranded the instalment, owed and
+ * never looked at again.
  */
 export const closeCaseSchema = z.object({
-  resolution: z.enum(['paid', 'waived', 'restructured']),
+  resolution: z.enum(['paid', 'waived']),
   notes: z.string().trim().max(2000).optional(),
 });
 export type CloseCaseInput = z.infer<typeof closeCaseSchema>;

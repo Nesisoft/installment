@@ -11,6 +11,7 @@ import { PlanTemplatesService } from '../plans/plan-templates.service';
 import { ApplicationsService } from '../applications/applications.service';
 import { CustomerPlansService } from '../schedules/customer-plans.service';
 import { CollectionsService, type PlanDefaulter } from './collections.service';
+import { CaseNotSettledError } from './errors';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
@@ -247,5 +248,65 @@ describe.skipIf(!RUN_DB)('collections after payment (integration)', () => {
       .from(schema.installment_schedule)
       .where(eq(schema.installment_schedule.id, scheduleId));
     expect(s!.status).toBe('defaulted');
+  });
+
+  /**
+   * The two manual closes that stranded an instalment.
+   *
+   * Closing a case sets `closed_at`, and from then on nothing touches the
+   * instalment unless it has already left `in_collections`: the escalation
+   * sweep reads open cases, case-opening reads `overdue` rows, and the default
+   * path reads open cases at `write_off`. So a close that does not settle the
+   * instalment forgives the debt silently — no waiver on record, no default,
+   * never collected again.
+   *
+   * "Restructured" always did that: restructuring means issuing a replacement
+   * plan and no such flow exists. "Paid" did it whenever the payment had not
+   * actually been recorded — a customer who says they paid in cash.
+   */
+  it('refuses to close a case as restructured, which nothing can carry out', async () => {
+    const collections = new CollectionsService(db, audit);
+    const { scheduleId, caseId } = await caseInCollections(collections);
+
+    await expect(
+      collections.closeCase(caseId, { resolution: 'restructured' }, ACTOR),
+    ).rejects.toThrow();
+
+    const [c] = await db
+      .select()
+      .from(schema.collections_cases)
+      .where(eq(schema.collections_cases.id, caseId));
+    expect(c!.closed_at).toBeNull();
+    const [s] = await db
+      .select()
+      .from(schema.installment_schedule)
+      .where(eq(schema.installment_schedule.id, scheduleId));
+    expect(s!.status).toBe('in_collections');
+  });
+
+  it('refuses to close a case as paid while the instalment is still owed', async () => {
+    const collections = new CollectionsService(db, audit);
+    const { caseId } = await caseInCollections(collections);
+
+    await expect(
+      collections.closeCase(caseId, { resolution: 'paid' }, ACTOR),
+    ).rejects.toBeInstanceOf(CaseNotSettledError);
+
+    const [c] = await db
+      .select()
+      .from(schema.collections_cases)
+      .where(eq(schema.collections_cases.id, caseId));
+    // Still open, so it keeps escalating and can still be collected.
+    expect(c!.closed_at).toBeNull();
+  });
+
+  it('closes a case as paid once the payment is on the plan', async () => {
+    const collections = new CollectionsService(db, audit);
+    const { scheduleId, caseId } = await caseInCollections(collections);
+    await plans.recordManualPayment(scheduleId, {}, ACTOR);
+
+    const closed = await collections.closeCase(caseId, { resolution: 'paid' }, ACTOR);
+    expect(closed.closed_at).not.toBeNull();
+    expect(closed.resolution).toBe('paid');
   });
 });

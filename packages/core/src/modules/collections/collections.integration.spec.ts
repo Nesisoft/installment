@@ -296,7 +296,10 @@ describe.skipIf(!RUN_DB)('CollectionsService (integration)', () => {
   });
 
   it('closes a case manually, then rejects further actions and lists it as closed', async () => {
-    const { opened } = await openCaseForOverdue();
+    const { schedule, opened } = await openCaseForOverdue();
+    // "Paid at branch" is recorded on the plan first: closing a case as paid
+    // records nothing, and is refused while the instalment is still owed.
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
     const closed = await collections.closeCase(
       opened.id,
       { resolution: 'paid', notes: 'Paid at branch' },

@@ -9,7 +9,11 @@ import {
 } from '../schedules/state-machine';
 import { PlanDefaultError } from '../schedules/errors';
 import { assignCaseSchema, closeCaseSchema, listCasesSchema, recordActionSchema } from './dto';
-import { CaseAlreadyClosedError, CollectionsCaseNotFoundError } from './errors';
+import {
+  CaseAlreadyClosedError,
+  CaseNotSettledError,
+  CollectionsCaseNotFoundError,
+} from './errors';
 import {
   COLLECTIONS_STAGES,
   isLaterStage,
@@ -699,11 +703,14 @@ export class CollectionsService {
   }
 
   /**
-   * Manually closes an open case with a non-default resolution
-   * (paid / waived / restructured).
+   * Manually closes an open case with a non-default resolution (paid / waived).
    *
-   * `paid` needs nothing here — the payment flow has already moved the
-   * instalment, and `closeSettledCases` closes the case on the next sweep.
+   * `paid` records nothing — it closes early a case the payment flow has
+   * already settled (`closeSettledCases` would close it on the next sweep). So
+   * it is refused unless the instalment really is `paid`: a closed case is
+   * never looked at again, and closing one beside an unpaid instalment — a
+   * customer who says they paid in cash — forgave the debt with nothing on
+   * record. The payment is recorded on the plan first.
    *
    * `waived` does: the state machine has an `in_collections:admin_waive →
    * waived` edge and nothing dispatched it, so waiving closed the case and
@@ -712,12 +719,10 @@ export class CollectionsService {
    * collected, waived or written off again. Applied here, the debt actually
    * ends.
    *
-   * `restructured` is still a dead end and deliberately left alone: the edge
-   * exists, but restructuring means issuing a replacement plan (hence
-   * `customer_plans.restructured_from_plan_id`) and no such flow exists.
-   * Marking the instalment terminal without the replacement would record the
-   * debt as resolved with nothing standing in for it, which is worse than
-   * leaving it. Closing a case this way still strands the instalment.
+   * `restructured` is not accepted (see `closeCaseSchema`): restructuring
+   * means issuing a replacement plan (`customer_plans.restructured_from_plan_id`)
+   * and no such flow exists, so closing a case that way stranded the
+   * instalment.
    */
   async closeCase(
     caseId: string,
@@ -733,6 +738,15 @@ export class CollectionsService {
       if (c.closed_at) throw new CaseAlreadyClosedError(caseId);
 
       const nowIso = new Date().toISOString();
+
+      if (input.resolution === 'paid' && c.schedule_id) {
+        const s = (
+          await tx.select().from(sched).where(eq(sched.id, c.schedule_id)).for('update').limit(1)
+        )[0];
+        if (s && (s.status as ScheduleStatus) !== 'paid') {
+          throw new CaseNotSettledError(caseId, s.status);
+        }
+      }
 
       if (input.resolution === 'waived' && c.schedule_id) {
         const s = (

@@ -252,6 +252,8 @@ export function CollectionsDetailPage() {
             <CardTitle className="text-base">Close case</CardTitle>
             <CardDescription>
               Manual resolutions only. Default / write-off happen via the dunning sweep.
+              &ldquo;Paid&rdquo; records nothing: record the payment on the plan first, or the case
+              will refuse to close.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -265,7 +267,9 @@ export function CollectionsDetailPage() {
                 >
                   <option value="paid">Paid</option>
                   <option value="waived">Waived</option>
-                  <option value="restructured">Restructured</option>
+                  {/* No "Restructured": restructuring means issuing a
+                      replacement plan and nothing does yet, so closing a case
+                      that way stranded the instalment. */}
                 </select>
               </div>
               <div className="flex-1 space-y-2">

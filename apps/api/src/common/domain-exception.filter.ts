@@ -97,6 +97,7 @@ export const NAME_STATUS: Record<string, number> = {
   ReceiptNotAvailableError: HttpStatus.CONFLICT,
   LockAcquisitionError: HttpStatus.CONFLICT,
   CaseAlreadyClosedError: HttpStatus.CONFLICT,
+  CaseNotSettledError: HttpStatus.UNPROCESSABLE_ENTITY,
   PhoneAlreadyRegisteredError: HttpStatus.CONFLICT,
   EmailAlreadyRegisteredError: HttpStatus.CONFLICT,
   IllegalScheduleTransitionError: HttpStatus.CONFLICT,
