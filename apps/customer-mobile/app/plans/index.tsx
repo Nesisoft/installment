@@ -20,6 +20,7 @@ import {
   useNextInstallment,
   usePayInstallmentMomo,
   usePlans,
+  useProfile,
   useSetAutopay,
 } from '../../src/features/account';
 import { ghs, pluralise } from '../../src/lib/format';
@@ -31,6 +32,11 @@ export default function InstallmentsScreen(): React.ReactElement {
   const feed = useInstallments('all');
   const next = useNextInstallment();
   const plans = usePlans();
+  // A Mobile Money number on file is what both the pay button and the
+  // auto-debit charge; without one the server refuses the first and the second
+  // has nothing to collect from.
+  const profile = useProfile();
+  const noNumber = profile.data !== undefined && !profile.data.momo_phone;
 
   if (feed.isPending || plans.isPending) {
     return (
@@ -72,12 +78,12 @@ export default function InstallmentsScreen(): React.ReactElement {
       <Header title="My instalments" back />
 
       <View style={styles.body}>
-        {next.data ? <NextPayment installment={next.data} /> : <AllClear />}
+        {next.data ? <NextPayment installment={next.data} noNumber={noNumber} /> : <AllClear />}
 
         {allPlans
           .filter((plan) => plan.status === 'active' || plan.status === 'in_arrears')
           .map((plan) => (
-            <AutopayRow key={plan.id} plan={plan} rows={rows} />
+            <AutopayRow key={plan.id} plan={plan} rows={rows} noNumber={noNumber} />
           ))}
 
         <SectionLabel style={styles.sectionGap}>Payment schedule</SectionLabel>
@@ -103,7 +109,13 @@ export default function InstallmentsScreen(): React.ReactElement {
  * it is named explicitly: a customer must never be charged something they were
  * not shown.
  */
-function NextPayment({ installment }: { installment: FeedInstallment }): React.ReactElement {
+function NextPayment({
+  installment,
+  noNumber,
+}: {
+  installment: FeedInstallment;
+  noNumber: boolean;
+}): React.ReactElement {
   const pay = usePayInstallmentMomo();
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
@@ -157,15 +169,30 @@ function NextPayment({ installment }: { installment: FeedInstallment }): React.R
         </Text>
       ) : null}
 
-      <Button
-        label={
-          sent ? 'Check your phone' : `Pay ${ghs(installment.payable_pesewas)} on Mobile Money`
-        }
-        loading={pay.isPending}
-        disabled={sent}
-        onPress={() => void submit()}
-        style={styles.nextCta}
-      />
+      {noNumber ? (
+        <>
+          {/* The charge takes the number on file, and there is none: the button
+              this replaced was a 400 the customer could not get past. */}
+          <Text variant="small" tone="onDarkMuted">
+            There is no Mobile Money number on your account to take this from.
+          </Text>
+          <Button
+            label="Add a Mobile Money number"
+            onPress={() => router.push('/wallet')}
+            style={styles.nextCta}
+          />
+        </>
+      ) : (
+        <Button
+          label={
+            sent ? 'Check your phone' : `Pay ${ghs(installment.payable_pesewas)} on Mobile Money`
+          }
+          loading={pay.isPending}
+          disabled={sent}
+          onPress={() => void submit()}
+          style={styles.nextCta}
+        />
+      )}
       {sent ? (
         <Text variant="tiny" tone="onDarkFaint" center>
           Approve the prompt to finish. This page updates once it clears.
@@ -199,9 +226,11 @@ function AllClear(): React.ReactElement {
 function AutopayRow({
   plan,
   rows,
+  noNumber,
 }: {
   plan: CustomerPlan;
   rows: FeedInstallment[];
+  noNumber: boolean;
 }): React.ReactElement {
   const setAutopay = useSetAutopay();
   const label = rows.find((r) => r.customer_plan_id === plan.id)?.item_title;
@@ -213,6 +242,11 @@ function AutopayRow({
         {label ? (
           <Text variant="tiny" tone="faint">
             {label}
+          </Text>
+        ) : null}
+        {noNumber ? (
+          <Text variant="tiny" tone="accent" style={styles.autopayBody}>
+            There is no Mobile Money number on your account to collect from. Add one in Wallet.
           </Text>
         ) : null}
         <Text variant="tiny" tone="muted" style={styles.autopayBody}>

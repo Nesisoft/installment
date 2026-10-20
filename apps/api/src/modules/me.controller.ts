@@ -196,10 +196,27 @@ export class MeController {
     if (provider !== 'mtn' && provider !== 'tgo' && provider !== 'vod') {
       throw new BadRequestException('Mobile Money provider must be one of mtn, tgo, vod');
     }
-    return this.payments.chargeMobileMoney(
+    const result = await this.payments.chargeMobileMoney(
       { scheduleId, email: customer.email, phone, provider },
       actorOf(user),
     );
+
+    // A number typed for this payment becomes the one later instalments are
+    // collected from, when the customer has none on file — the auto-debit has
+    // nothing else to charge (see `rememberMomoIfNone`). Only once the network
+    // has taken the charge, so a mistyped number that failed is not kept. Best
+    // effort: the payment has already happened, and failing the response here
+    // would tell the customer it had not.
+    if (body?.phone?.trim() && (result.status === 'succeeded' || result.status === 'pending')) {
+      await this.customers
+        .rememberMomoIfNone(
+          customer.id,
+          { momo_phone: phone, momo_provider: provider },
+          actorOf(user),
+        )
+        .catch(() => false);
+    }
+    return result;
   }
 
   /** Resolves the caller and verifies the plan is theirs (404 otherwise — no leak). */

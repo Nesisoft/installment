@@ -213,6 +213,38 @@ describe.skipIf(!RUN_DB)('CustomersService (integration)', () => {
     expect(marketed.marketing_consent_at).not.toBeNull();
   });
 
+  it('keeps the first Mobile Money number a customer pays with, when none is on file', async () => {
+    const svc = makeSvc();
+    const created = await svc.register(input(), SYSTEM_ACTOR);
+    expect(created.momo_phone).toBeNull();
+
+    const set = await svc.rememberMomoIfNone(
+      created.id,
+      { momo_phone: '0244111222', momo_provider: 'vod' },
+      SYSTEM_ACTOR,
+    );
+
+    expect(set).toBe(true);
+    const row = await svc.get(created.id);
+    expect([row.momo_phone, row.momo_provider]).toEqual(['+233244111222', 'vod']);
+    expect(await lastAuditEventType(created.id)).toBe('customer.momo_set');
+  });
+
+  it('never replaces a number the customer chose', async () => {
+    const svc = makeSvc();
+    const created = await svc.register(input(), SYSTEM_ACTOR);
+    await svc.setMomo(created.id, { momo_phone: '0244999000', momo_provider: 'mtn' }, SYSTEM_ACTOR);
+
+    const set = await svc.rememberMomoIfNone(
+      created.id,
+      { momo_phone: '0244111222', momo_provider: 'vod' },
+      SYSTEM_ACTOR,
+    );
+
+    expect(set).toBe(false);
+    expect((await svc.get(created.id)).momo_phone).toBe('+233244999000');
+  });
+
   it('blocklists and unblocklists with audit', async () => {
     const svc = makeSvc();
     const created = await svc.register(input(), SYSTEM_ACTOR);

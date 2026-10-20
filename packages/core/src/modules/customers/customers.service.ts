@@ -430,6 +430,44 @@ export class CustomersService {
     });
   }
 
+  /**
+   * Keeps the number a customer paid an instalment with as the one later
+   * instalments are collected from — only when there is none on file.
+   *
+   * Registration stores no Mobile Money number, so the deposit is paid with a
+   * number typed at checkout, and that number was used once and dropped. The
+   * auto-debit then found nothing to charge (`no_instrument`), recorded no
+   * attempt — so no retry and no payment link followed — and the instalment
+   * went overdue and drew late fees, for a customer told at checkout that the
+   * rest would be "collected automatically". A number already on file is the
+   * customer's own choice and is never replaced here.
+   *
+   * The `IS NULL` guard is in the UPDATE, so two payments racing cannot both
+   * claim to have set it. Returns whether this call set it.
+   */
+  async rememberMomoIfNone(id: string, rawInput: unknown, actor: CustomerActor): Promise<boolean> {
+    const input: SetMomoInput = setMomoSchema.parse(rawInput);
+    return runInTransaction(this.db, async (tx) => {
+      const rows = await tx
+        .update(c)
+        .set({ momo_phone: input.momo_phone, momo_provider: input.momo_provider })
+        .where(and(eq(c.id, id), isNull(c.deleted_at), isNull(c.momo_phone)))
+        .returning({ id: c.id });
+      if (!rows[0]) return false;
+
+      await this.audit.append(tx, {
+        entityType: 'customer',
+        entityId: id,
+        eventType: 'customer.momo_set',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reason: 'first Mobile Money payment on a plan',
+        metadata: { momo_provider: input.momo_provider, source: 'instalment_payment' },
+      });
+      return true;
+    });
+  }
+
   // ----------------------------------------------------------- record consent
 
   async recordConsent(id: string, rawInput: unknown, actor: CustomerActor): Promise<Customer> {
