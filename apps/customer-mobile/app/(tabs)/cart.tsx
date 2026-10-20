@@ -19,7 +19,8 @@ import {
 import { useCart, useRemoveCartItem, useSetCartQuantity } from '../../src/features/shop';
 import { useAddresses } from '../../src/features/shop';
 import { bestQuote, useDeliveryQuote, usePlanQuote } from '../../src/features/storefront';
-import { cadence, ghs, pluralise } from '../../src/lib/format';
+import { ghs, pluralise } from '../../src/lib/format';
+import { basketCost, planLines } from '../../src/lib/basket';
 import { DEFAULT_CITY, DEFAULT_REGION } from '../../src/lib/config';
 import { color, fillParent, radius, space, tintFor } from '../../src/theme/tokens';
 import type { CartLine } from '../../src/features/types';
@@ -40,10 +41,17 @@ export default function CartScreen(): React.ReactElement {
   });
 
   const subtotal = cart.data?.subtotal_pesewas ?? 0;
-  const deliveryFee = delivery.data?.fee_pesewas ?? 0;
-  const total = subtotal + deliveryFee;
+  const storeCount = cart.data?.store_count ?? 1;
+  const cost = basketCost({
+    subtotalPesewas: subtotal,
+    storeCount,
+    pickup: false,
+    feePesewas: delivery.data?.fee_pesewas,
+  });
 
-  const quotes = usePlanQuote(total);
+  // Quoted only once the total is known: a plan priced without its delivery
+  // fee is a schedule the customer will not actually be given.
+  const quotes = usePlanQuote(cost.totalPesewas ?? 0);
   const plan = bestQuote(quotes.data);
 
   // Checkout re-checks purchasability and rolls the WHOLE basket back on one
@@ -129,20 +137,27 @@ export default function CartScreen(): React.ReactElement {
             <Card style={styles.summary}>
               <SummaryRow label="Subtotal" value={ghs(subtotal)} />
               <SummaryRow
-                label={`Delivery to ${defaultAddress?.city ?? DEFAULT_CITY}`}
-                value={deliveryFee === 0 ? 'Free' : ghs(deliveryFee)}
+                label={`Delivery to ${defaultAddress?.city ?? DEFAULT_CITY}${storeCount > 1 ? ` · ${storeCount} orders` : ''}`}
+                value={
+                  cost.deliveryPesewas === null
+                    ? delivery.isError
+                      ? 'Not available'
+                      : 'Working it out…'
+                    : cost.deliveryPesewas === 0
+                      ? 'Free'
+                      : ghs(cost.deliveryPesewas)
+                }
               />
               <View style={styles.rule} />
-              <SummaryRow label="Total" value={ghs(total)} strong />
+              <SummaryRow label="Total" value={ghs(cost.totalPesewas)} strong />
 
               {plan ? (
                 <View style={styles.planNote}>
                   <Text variant="smallMedium" tone="accent">
-                    Or pay {ghs(plan.down_payment_pesewas)} today
+                    Or {lowerFirst(planLines(plan).lead)}
                   </Text>
                   <Text variant="tiny" tone="muted">
-                    then {plan.number_of_installments} × {ghs(plan.per_installment_pesewas)}{' '}
-                    {cadence(plan.installment_frequency_days)}
+                    {planLines(plan).rest}
                     {plan.interest_rate_bps === 0 ? ' — no interest' : ''}
                   </Text>
                 </View>
@@ -155,7 +170,13 @@ export default function CartScreen(): React.ReactElement {
       {items.length > 0 ? (
         <StickyFooter>
           <Button
-            label={blocked ? 'Remove unavailable items to continue' : `Checkout · ${ghs(total)}`}
+            label={
+              blocked
+                ? 'Remove unavailable items to continue'
+                : cost.totalPesewas === null
+                  ? 'Checkout'
+                  : `Checkout · ${ghs(cost.totalPesewas)}`
+            }
             disabled={blocked}
             onPress={() => router.push('/checkout')}
           />
@@ -363,3 +384,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
 });
+
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}

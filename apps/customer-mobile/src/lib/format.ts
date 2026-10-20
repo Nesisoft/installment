@@ -6,19 +6,39 @@
  * screen that will eventually round differently from the one next to it.
  */
 
-/** `28990000` → `GHS 289,900` (whole cedis, the design's default). */
-export function ghs(pesewas: number | null | undefined): string {
-  if (pesewas === null || pesewas === undefined) return '—';
-  return `GHS ${Math.round(pesewas / 100).toLocaleString('en-GB')}`;
+/** Thousands separators by hand: Hermes' `toLocaleString` grouping is not something to bet a price on. */
+function grouped(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-/** `28990050` → `GHS 289,900.50`. For receipts and statements, where the pesewas matter. */
+function split(pesewas: number): { sign: string; whole: string; fraction: number } {
+  const abs = Math.abs(Math.trunc(pesewas));
+  return {
+    sign: pesewas < 0 ? '-' : '',
+    whole: grouped(Math.trunc(abs / 100)),
+    fraction: abs % 100,
+  };
+}
+
+/**
+ * `28990000` → `GHS 289,900`; `77875` → `GHS 778.75`.
+ *
+ * Whole cedis when the amount is whole, the pesewas when it is not. This
+ * rounded to whole cedis always, on the screens where a customer approves a
+ * charge: "Pay GHS 779" above a Mobile Money prompt for GHS 778.75, a 40-pesewa
+ * late fee shown as "GHS 0". The amount on a pay button is the amount charged.
+ */
+export function ghs(pesewas: number | null | undefined): string {
+  if (pesewas === null || pesewas === undefined) return '—';
+  const { sign, whole, fraction } = split(pesewas);
+  return `${sign}GHS ${whole}${fraction ? `.${String(fraction).padStart(2, '0')}` : ''}`;
+}
+
+/** `28990050` → `GHS 289,900.50`. Always two places — receipts and statements. */
 export function ghsExact(pesewas: number | null | undefined): string {
   if (pesewas === null || pesewas === undefined) return '—';
-  return `GHS ${(pesewas / 100).toLocaleString('en-GB', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  const { sign, whole, fraction } = split(pesewas);
+  return `${sign}GHS ${whole}.${String(fraction).padStart(2, '0')}`;
 }
 
 /** Bare number, no currency — for a figure that already sits beside a "GHS" label. */

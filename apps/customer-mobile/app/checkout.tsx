@@ -40,9 +40,10 @@ import {
   usePayOrderCard,
   usePayOrderMomo,
 } from '../src/features/shop';
-import { usePayInstallmentMomo } from '../src/features/account';
+import { usePayInstallmentLink, usePayInstallmentMomo } from '../src/features/account';
 import { useDeliveryQuote, usePickupHubs, usePlanQuote } from '../src/features/storefront';
 import { cadence, ghs } from '../src/lib/format';
+import { basketCost, planLines } from '../src/lib/basket';
 import { arrivalWindow } from '../src/lib/dates';
 import { DEFAULT_CITY, DEFAULT_REGION } from '../src/lib/config';
 import { color, radius, space } from '../src/theme/tokens';
@@ -107,10 +108,16 @@ export default function CheckoutScreen(): React.ReactElement {
   });
 
   const subtotal = cart.data?.subtotal_pesewas ?? 0;
-  const deliveryFee = fulfilment === 'pickup' ? 0 : (delivery.data?.fee_pesewas ?? 0);
-  const total = subtotal + deliveryFee;
+  const cost = basketCost({
+    subtotalPesewas: subtotal,
+    storeCount: cart.data?.store_count ?? 1,
+    pickup: fulfilment === 'pickup',
+    feePesewas: delivery.data?.fee_pesewas,
+  });
+  // Null until delivery is priced; nothing below may present a total before it.
+  const total = cost.totalPesewas;
 
-  const quotes = usePlanQuote(total);
+  const quotes = usePlanQuote(total ?? 0);
   const eligible = useMemo(() => (quotes.data ?? []).filter((q) => q.eligible), [quotes.data]);
   const plan = eligible.find((q) => q.plan_template_id === planId) ?? eligible[0] ?? null;
 
@@ -123,7 +130,7 @@ export default function CheckoutScreen(): React.ReactElement {
    * a different body is a 409, not a replay.
    */
   const attemptKey = useRef(checkoutKey());
-  const payloadSignature = `${payment}:${plan?.plan_template_id ?? ''}:${fulfilment}:${addressId ?? ''}:${hubId ?? ''}:${total}`;
+  const payloadSignature = `${payment}:${plan?.plan_template_id ?? ''}:${fulfilment}:${addressId ?? ''}:${hubId ?? ''}:${total ?? ''}`;
   const lastSignature = useRef(payloadSignature);
   if (lastSignature.current !== payloadSignature) {
     lastSignature.current = payloadSignature;
@@ -131,6 +138,7 @@ export default function CheckoutScreen(): React.ReactElement {
   }
 
   const canSubmit =
+    total !== null &&
     (cart.data?.items.length ?? 0) > 0 &&
     (fulfilment === 'courier' ? Boolean(addressId) : Boolean(hubId)) &&
     (payment === 'full' || Boolean(plan));
@@ -303,7 +311,7 @@ export default function CheckoutScreen(): React.ReactElement {
               <Pressable
                 accessibilityRole="radio"
                 accessibilityState={{ selected: payment === 'installment' }}
-                accessibilityLabel={`Pay in ${plan.installments.length}. ${ghs(plan.down_payment_pesewas)} today.`}
+                accessibilityLabel={`${planLines(plan).lead}. ${planLines(plan).rest}.`}
                 onPress={() => setPayment('installment')}
               >
                 <Card style={payment === 'installment' ? styles.payCardOn : styles.payCard}>
@@ -318,9 +326,9 @@ export default function CheckoutScreen(): React.ReactElement {
                         ) : null}
                       </View>
                       <Text variant="tiny" tone="muted">
-                        {ghs(plan.down_payment_pesewas)} today, then {plan.number_of_installments} ×{' '}
-                        {ghs(plan.per_installment_pesewas)}{' '}
-                        {cadence(plan.installment_frequency_days)}
+                        {plan.down_payment_pesewas > 0
+                          ? `${ghs(plan.down_payment_pesewas)} today, ${planLines(plan).rest}`
+                          : planLines(plan).rest}
                       </Text>
                     </View>
                   </View>
@@ -359,16 +367,16 @@ export default function CheckoutScreen(): React.ReactElement {
               <Pressable
                 accessibilityRole="radio"
                 accessibilityState={{ selected: payment === 'full' }}
-                accessibilityLabel={`Pay ${ghs(total)} in full on Mobile Money`}
+                accessibilityLabel={`Pay ${ghs(total)} in full`}
                 onPress={() => setPayment('full')}
               >
                 <Card style={payment === 'full' ? styles.payCardOn : styles.payCard}>
                   <View style={styles.payHead}>
                     <Radio selected={payment === 'full'} />
                     <View style={styles.payText}>
-                      <Text variant="smallMedium">Pay in full · Mobile Money</Text>
+                      <Text variant="smallMedium">Pay in full</Text>
                       <Text variant="tiny" tone="muted">
-                        One prompt on your phone
+                        Mobile Money or card, in one go
                       </Text>
                     </View>
                     <Text variant="bodyMedium">{ghs(total)}</Text>
@@ -392,7 +400,15 @@ export default function CheckoutScreen(): React.ReactElement {
                 <Text variant="small" tone="muted" style={styles.summaryLabel}>
                   Delivery
                 </Text>
-                <Text variant="smallMedium">{deliveryFee === 0 ? 'Free' : ghs(deliveryFee)}</Text>
+                <Text variant="smallMedium">
+                  {cost.deliveryPesewas === null
+                    ? delivery.isError
+                      ? 'Not available'
+                      : 'Working it out…'
+                    : cost.deliveryPesewas === 0
+                      ? 'Free'
+                      : ghs(cost.deliveryPesewas)}
+                </Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text variant="small" tone="muted" style={styles.summaryLabel}>
@@ -424,14 +440,12 @@ export default function CheckoutScreen(): React.ReactElement {
         <Button
           label={
             payment === 'installment' && plan
-              ? `Pay ${ghs(plan.down_payment_pesewas)} today`
-              : `Pay ${ghs(total)} on Mobile Money`
+              ? planLines(plan).lead
+              : total === null
+                ? 'Pay in full'
+                : `Pay ${ghs(total)}`
           }
-          sublabel={
-            payment === 'installment' && plan
-              ? `then ${plan.number_of_installments} × ${ghs(plan.per_installment_pesewas)} ${cadence(plan.installment_frequency_days)}`
-              : undefined
-          }
+          sublabel={payment === 'installment' && plan ? planLines(plan).rest : undefined}
           loading={checkout.isPending}
           disabled={!canSubmit}
           onPress={() => void submit()}
@@ -484,6 +498,7 @@ function DecisionSheet({
   /** Mobile Money is a push to this handset; a card is a hosted page. */
   const [method, setMethod] = useState<'momo' | 'card'>('momo');
   const payCard = usePayOrderCard(decision.order.id);
+  const payDepositLink = usePayInstallmentLink();
 
   const [momoPhone, setMomoPhone] = useState('');
   const [momoProvider, setMomoProvider] = useState<MomoProvider | null>(null);
@@ -491,7 +506,8 @@ function DecisionSheet({
 
   // A separate logical attempt from the checkout, so a separate key.
   const payKey = useRef(newIdempotencyKey('deposit'));
-  const busy = payInstallment.isPending || payOrder.isPending || payCard.isPending;
+  const busy =
+    payInstallment.isPending || payOrder.isPending || payCard.isPending || payDepositLink.isPending;
 
   function toConfirmation(): void {
     onDismiss();
@@ -502,18 +518,27 @@ function DecisionSheet({
     setError(null);
     try {
       if (method === 'card') {
-        // The card never reaches us. We open the provider's page, and the order
-        // settles by webhook — so success is not this call returning, it is the
-        // confirmation screen's poll seeing the order turn paid. Which also
-        // means dismissing the page is not an error: the order simply stays
-        // unpaid until the customer tries again or the TTL sweep cancels it.
-        const session = await payCard.mutateAsync({
-          callbackUrl: Linking.createURL('/payment-complete'),
-        });
-        await WebBrowser.openAuthSessionAsync(
-          session.authorization_url,
-          Linking.createURL('/payment-complete'),
-        );
+        // The card never reaches us. We open the provider's page, and the
+        // payment settles by webhook — so success is not this call returning,
+        // it is the confirmation screen's poll seeing it land. Dismissing the
+        // page is not an error: nothing is paid until the customer tries again.
+        //
+        // A deposit is an instalment, not an order: `pay-card` refuses any
+        // order not paid in full. This sent every approved plan's deposit
+        // there, and the refusal (a 409) was read as "already in progress" —
+        // so the customer was taken to a screen saying the deposit was paid.
+        const url =
+          decision.outcome === 'paid_later'
+            ? (
+                await payCard.mutateAsync({
+                  callbackUrl: Linking.createURL('/payment-complete'),
+                })
+              ).authorization_url
+            : decision.down_payment
+              ? (await payDepositLink.mutateAsync(decision.down_payment.id)).url
+              : null;
+        if (!url) return;
+        await WebBrowser.openAuthSessionAsync(url, Linking.createURL('/payment-complete'));
         toConfirmation();
         return;
       }
@@ -530,9 +555,10 @@ function DecisionSheet({
       }
       toConfirmation();
     } catch (err) {
-      // 409 means a charge is already running for this row — that is progress,
-      // not a failure, and the confirmation screen polls for the outcome.
-      if (apiErrorStatus(err) === 409) {
+      // On Mobile Money a 409 means a charge is already running for this row —
+      // progress, not a failure, and the confirmation screen polls for the
+      // outcome. On a card it means the payment was refused outright.
+      if (method === 'momo' && apiErrorStatus(err) === 409) {
         toConfirmation();
         return;
       }

@@ -14,10 +14,8 @@ import {
 import { useOrder } from '../../src/features/shop';
 import { ghs } from '../../src/lib/format';
 import { longDate, shortDate } from '../../src/lib/dates';
+import { describeConfirmation } from '../../src/lib/confirmation';
 import { color, radius, space } from '../../src/theme/tokens';
-
-/** Statuses that mean the money has not landed yet. */
-const AWAITING = ['pending_payment', 'pending_approval'];
 
 export default function ConfirmationScreen(): React.ReactElement {
   const insets = useSafeAreaInsets();
@@ -54,7 +52,10 @@ export default function ConfirmationScreen(): React.ReactElement {
   }
 
   const data = order.data;
-  const waiting = AWAITING.includes(data.status);
+  // What may truthfully be said is decided in one tested place: the order
+  // status alone said "confirmed" over a declined order and an unpaid deposit.
+  const view = describeConfirmation(data);
+  const waiting = view.waiting;
   const plan = data.plan;
 
   // Sequence 1 is the deposit when the plan has one; it is either paid or being
@@ -65,9 +66,6 @@ export default function ConfirmationScreen(): React.ReactElement {
       !(row.sequence_number === 1 && (plan?.down_payment_pesewas ?? 0) > 0),
   );
 
-  const paidToday =
-    plan && plan.down_payment_pesewas > 0 ? plan.down_payment_pesewas : data.total_pesewas;
-
   return (
     <Screen dark contentStyle={{ paddingTop: insets.top + space.xxxl }}>
       <View style={styles.body}>
@@ -75,22 +73,21 @@ export default function ConfirmationScreen(): React.ReactElement {
           {waiting ? (
             <ActivityIndicator color={color.onDark} />
           ) : (
-            <Icon name="check" size={30} color={color.onDark} strokeWidth={2.8} />
+            <Icon
+              name={view.kind === 'not_placed' ? 'x' : 'check'}
+              size={30}
+              color={color.onDark}
+              strokeWidth={2.8}
+            />
           )}
         </View>
 
         <Text variant="h1" tone="onDark">
-          {waiting ? 'Almost there.' : 'Order confirmed.'}
-          {'\n'}
-          {waiting ? 'Approve it on your phone.' : "It's on the way."}
+          {view.title}
         </Text>
 
         <Text variant="body" tone="onDarkMuted">
-          {waiting
-            ? 'We are waiting for your Mobile Money approval. This screen updates on its own once it lands.'
-            : data.fulfilment_method === 'pickup'
-              ? `Ready for collection at ${data.pickup_hub?.name ?? 'your chosen hub'}.`
-              : 'We will let you know as soon as it ships.'}
+          {view.body}
         </Text>
 
         <View style={styles.card}>
@@ -102,17 +99,21 @@ export default function ConfirmationScreen(): React.ReactElement {
               {data.order_number}
             </Text>
           </View>
-          <View style={styles.rule} />
-          <View style={styles.cardRow}>
-            <Text variant="small" tone="onDarkMuted">
-              {waiting ? 'To pay now' : 'Paid today'}
-            </Text>
-            <Text variant="h3" tone="onDark">
-              {ghs(paidToday)}
-            </Text>
-          </View>
+          {view.amount ? (
+            <>
+              <View style={styles.rule} />
+              <View style={styles.cardRow}>
+                <Text variant="small" tone="onDarkMuted">
+                  {view.amount.label}
+                </Text>
+                <Text variant="h3" tone="onDark">
+                  {ghs(view.amount.pesewas)}
+                </Text>
+              </View>
+            </>
+          ) : null}
 
-          {remaining.length > 0 ? (
+          {view.kind !== 'not_placed' && remaining.length > 0 ? (
             <>
               <View style={styles.rule} />
               <SectionLabel style={styles.scheduleHead}>Remaining schedule</SectionLabel>
@@ -129,7 +130,7 @@ export default function ConfirmationScreen(): React.ReactElement {
             </>
           ) : null}
 
-          {data.return_window_ends_at ? (
+          {view.returnsApply && data.return_window_ends_at ? (
             <>
               <View style={styles.rule} />
               <Text variant="tiny" tone="onDarkFaint">

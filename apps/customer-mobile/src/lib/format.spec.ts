@@ -16,6 +16,16 @@ describe('money formatting', () => {
     expect(ghs(0)).toBe('GHS 0');
   });
 
+  it('shows the pesewas of an amount that has them, never a rounded charge', () => {
+    // A no-deposit plan on GHS 3,115: four payments of GHS 778.75. The button
+    // read "GHS 779" above a Mobile Money prompt for 778.75.
+    expect(ghs(77_875)).toBe('GHS 778.75');
+    expect(ghs(5)).toBe('GHS 0.05');
+    expect(ghs(40)).toBe('GHS 0.40');
+    expect(ghs(123_456_789)).toBe('GHS 1,234,567.89');
+    expect(ghs(-150)).toBe('-GHS 1.50');
+  });
+
   it('renders an em dash rather than "GHS NaN" for a missing amount', () => {
     expect(ghs(null)).toBe('—');
     expect(ghs(undefined)).toBe('—');
