@@ -756,6 +756,11 @@ export interface MerchantPayoutRow {
   initiatedAt: string;
   settledAt: string | null;
   failedAt: string | null;
+  /**
+   * From the seller's own `/merchant/payouts`, a sentence written for the
+   * seller: what happened and where the money is. From the admin console's
+   * `/merchants/:id/payouts`, the provider's text as it was recorded.
+   */
   lastError: string | null;
 }
 
