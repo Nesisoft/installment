@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiErrorMessage } from '@installment/mobile-kit';
-import type { MerchantStatsTopProduct } from '@installment/api-types';
+import type { MerchantStatsTopProduct, MerchantStatus } from '@installment/api-types';
 import {
   ActionRow,
   Avatar,
@@ -31,6 +31,19 @@ import { color, font, radius, space, tintFor } from '../../src/theme/tokens';
 
 /** The design draws two weeks of bars in the hero. */
 const HERO_DAYS = 14;
+
+/**
+ * The account's status, in the seller's words. Anything but `active` printed
+ * the column as it was, so a new seller read "pending_kyc" under their shop's
+ * name. `active` means the documents were approved: the first activation is
+ * refused while any are outstanding.
+ */
+const SHOP_STATUS: Record<MerchantStatus, string> = {
+  pending_kyc: 'Awaiting verification',
+  active: 'Verified',
+  suspended: 'Suspended',
+  offboarded: 'Closed',
+};
 
 export default function TodayScreen(): React.ReactElement {
   const insets = useSafeAreaInsets();
@@ -91,7 +104,7 @@ export default function TodayScreen(): React.ReactElement {
               {shopName}
             </Text>
             <Text variant="tiny" tone="onDarkMuted" numberOfLines={1}>
-              {profile.data?.status === 'active' ? 'Verified' : (profile.data?.status ?? '—')}
+              {profile.data ? SHOP_STATUS[profile.data.status] : '—'}
             </Text>
           </View>
         </View>
@@ -125,7 +138,7 @@ export default function TodayScreen(): React.ReactElement {
             <Text variant="small" tone="onDarkMuted">
               {pluralise(today?.orders ?? 0, 'order')}
               {stats.data.current.paymentMix.installment.orders > 0
-                ? ` · ${stats.data.current.paymentMix.installment.orders} on instalments this month`
+                ? ` · ${stats.data.current.paymentMix.installment.orders} on instalments in 30 days`
                 : ''}
             </Text>
 
