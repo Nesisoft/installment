@@ -114,6 +114,7 @@ export const NAME_STATUS: Record<string, number> = {
   StoreTransitionError: HttpStatus.CONFLICT,
   InvalidOrderTransitionError: HttpStatus.CONFLICT,
   OrderNotPayableError: HttpStatus.CONFLICT,
+  OrderPaymentInFlightError: HttpStatus.CONFLICT,
   OrderNotActivatableError: HttpStatus.CONFLICT,
   // The order is not in a state that allows this fulfilment step — including a
   // lost race with a concurrent writer, which is a retry, not a fault.

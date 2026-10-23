@@ -26,6 +26,7 @@ import {
   OrderNotCancellableError,
   OrderNotFoundError,
   OrderNotPayableError,
+  OrderPaymentInFlightError,
 } from './errors';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
@@ -346,13 +347,38 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
    * and is the only thing tying an asynchronous charge.success back to it.
    */
   describe('customer MoMo payment', () => {
-    function stubPaystack(status: string) {
+    /**
+     * `status` is what a charge answers; `'declined400'` throws the HTTP 400
+     * Paystack actually sends for a decline. `verified` is what verifying a
+     * reference says; one not listed was never created.
+     */
+    function stubPaystack(status: string, verified: Record<string, string> = {}) {
       const calls: { reference: string; amount: number }[] = [];
       const links: { reference: string; amount: number; channels?: string[] }[] = [];
       const client = {
         chargeMobileMoney: async (req: { reference: string; amount: number }) => {
           calls.push({ reference: req.reference, amount: req.amount });
+          if (status === 'declined400') {
+            throw Object.assign(new Error('Charge attempted'), {
+              status: 400,
+              cause: {
+                status: false,
+                message: 'Charge attempted',
+                data: { reference: req.reference, status: 'failed', message: 'Declined' },
+              },
+            });
+          }
           return { data: { reference: req.reference, status, display_text: 'Approve it' } };
+        },
+        verifyTransaction: async (reference: string) => {
+          const known = verified[reference];
+          if (!known) {
+            throw Object.assign(new Error('Transaction reference not found.'), {
+              status: 400,
+              cause: { status: false, code: 'transaction_not_found' },
+            });
+          }
+          return { data: { status: known } };
         },
         createPaymentLink: async (req: {
           reference: string;
@@ -531,6 +557,161 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
       await expect(
         payments.payWithCard({ orderId: order.id, customerId, email: 'ama@example.gh' }, ACTOR),
       ).rejects.toThrow(OrderNotPayableError);
+    });
+
+    /**
+     * The reference stays put while a charge under it might still take money,
+     * and moves on once Paystack says it will not. Paystack refuses a reference
+     * it has seen, so one that never moved left an order with a declined first
+     * charge, or a card page closed unpaid, impossible to pay by any method.
+     */
+    describe('paying again', () => {
+      const momo = (customerId: string, orderId: string) => ({
+        orderId,
+        customerId,
+        email: 'a@b.com',
+        phone: '0245550000',
+        provider: 'mtn' as const,
+      });
+
+      it('reports a decline Paystack sends as HTTP 400 as a failed charge', async () => {
+        const { customerId, order } = await payableOrder(1);
+        const payments = new OrderPaymentService(db, orders, stubPaystack('declined400').client);
+
+        const result = await payments.payWithMobileMoney(momo(customerId, order.id), ACTOR);
+
+        expect(result.status).toBe('failed');
+        expect(result.message).toBe('Declined');
+      });
+
+      it('charges a declined order again under the next reference', async () => {
+        const { customerId, order } = await payableOrder(1);
+        const first = OrderPaymentService.referenceFor(order.id);
+        await new OrderPaymentService(
+          db,
+          orders,
+          stubPaystack('declined400').client,
+        ).payWithMobileMoney(momo(customerId, order.id), ACTOR);
+
+        const { client, calls } = stubPaystack('success', { [first]: 'failed' });
+        const result = await new OrderPaymentService(db, orders, client).payWithMobileMoney(
+          momo(customerId, order.id),
+          ACTOR,
+        );
+
+        expect(calls.map((c) => c.reference)).toEqual([`${first}-2`]);
+        expect(result.status).toBe('paid');
+        expect((await orders.get(customerId, order.id)).status).toBe('paid');
+      });
+
+      it('opens a second card page once the first was closed unpaid', async () => {
+        const { customerId, order } = await payableOrder(1);
+        const first = OrderPaymentService.referenceFor(order.id);
+        const card = { orderId: order.id, customerId, email: 'ama@example.gh' };
+        await new OrderPaymentService(db, orders, stubPaystack('success').client).payWithCard(
+          card,
+          ACTOR,
+        );
+
+        const { client, links } = stubPaystack('success', { [first]: 'abandoned' });
+        const session = await new OrderPaymentService(db, orders, client).payWithCard(card, ACTOR);
+
+        expect(session.reference).toBe(`${first}-2`);
+        expect(links.map((l) => l.reference)).toEqual([`${first}-2`]);
+      });
+
+      it('does not charge over a prompt still waiting on the handset', async () => {
+        const { customerId, order } = await payableOrder(1);
+        const first = OrderPaymentService.referenceFor(order.id);
+        await new OrderPaymentService(
+          db,
+          orders,
+          stubPaystack('pay_offline').client,
+        ).payWithMobileMoney(momo(customerId, order.id), ACTOR);
+
+        const { client, calls } = stubPaystack('success', { [first]: 'ongoing' });
+        await expect(
+          new OrderPaymentService(db, orders, client).payWithMobileMoney(
+            momo(customerId, order.id),
+            ACTOR,
+          ),
+        ).rejects.toBeInstanceOf(OrderPaymentInFlightError);
+        expect(calls).toHaveLength(0);
+      });
+
+      it('settles rather than charges again when the last charge succeeded after all', async () => {
+        const { customerId, order } = await payableOrder(1);
+        const first = OrderPaymentService.referenceFor(order.id);
+        await new OrderPaymentService(
+          db,
+          orders,
+          stubPaystack('pay_offline').client,
+        ).payWithMobileMoney(momo(customerId, order.id), ACTOR);
+
+        const { client, calls } = stubPaystack('success', { [first]: 'success' });
+        const result = await new OrderPaymentService(db, orders, client).payWithMobileMoney(
+          momo(customerId, order.id),
+          ACTOR,
+        );
+
+        expect(result).toMatchObject({ status: 'paid', reference: first });
+        expect(calls).toHaveLength(0);
+      });
+
+      it('reuses a reference Paystack never created', async () => {
+        const { customerId, order } = await payableOrder(1);
+        const first = OrderPaymentService.referenceFor(order.id);
+        // Recorded before the provider was called, then the call never landed.
+        await db
+          .update(schema.orders)
+          .set({ payment_reference: first })
+          .where(eq(schema.orders.id, order.id));
+
+        const { client, calls } = stubPaystack('pay_offline');
+        await new OrderPaymentService(db, orders, client).payWithMobileMoney(
+          momo(customerId, order.id),
+          ACTOR,
+        );
+
+        expect(calls.map((c) => c.reference)).toEqual([first]);
+      });
+
+      it('settles an order when an earlier attempt takes the money late', async () => {
+        const { customerId, order } = await payableOrder(1);
+        const first = OrderPaymentService.referenceFor(order.id);
+        const card = { orderId: order.id, customerId, email: 'ama@example.gh' };
+        await new OrderPaymentService(db, orders, stubPaystack('success').client).payWithCard(
+          card,
+          ACTOR,
+        );
+        // Closed, so a second page goes under the next reference...
+        const payments = new OrderPaymentService(
+          db,
+          orders,
+          stubPaystack('success', { [first]: 'abandoned' }).client,
+        );
+        await payments.payWithCard(card, ACTOR);
+
+        // ...and then the customer finishes on the first page after all.
+        expect(await payments.settleByPaymentReference(first, ACTOR)).toBe(true);
+        expect((await orders.get(customerId, order.id)).status).toBe('paid');
+      });
+
+      it('does not claim a second payment under another reference, so it is alerted', async () => {
+        const { customerId, order } = await payableOrder(1);
+        const first = OrderPaymentService.referenceFor(order.id);
+        const payments = new OrderPaymentService(db, orders, stubPaystack('success').client);
+        await payments.payWithMobileMoney(momo(customerId, order.id), ACTOR);
+
+        expect(await payments.settleByPaymentReference(`${first}-2`, ACTOR)).toBe(false);
+      });
+
+      it('reads the order back out of any of its references', () => {
+        const id = '0b6cd9b6-9a45-4ab3-ab94-3f3b80f5d9cf';
+        expect(OrderPaymentService.orderIdOf(OrderPaymentService.referenceFor(id))).toBe(id);
+        expect(OrderPaymentService.orderIdOf(OrderPaymentService.referenceFor(id, 3))).toBe(id);
+        expect(OrderPaymentService.orderIdOf('INSTL-whatever-1')).toBeNull();
+      });
     });
 
     it('refuses to charge an order that is not awaiting payment', async () => {

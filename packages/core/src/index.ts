@@ -157,6 +157,7 @@ export {
   type ChargeResult,
 } from './modules/payments/payment.service';
 export { ChargeFailureEscalator } from './modules/payments/charge-failure-escalator';
+export { declineFromChargeError, isNotFoundAtProvider } from './modules/payments/provider-decline';
 export {
   PlanCashLedger,
   PROVIDER_CASH_REF,
