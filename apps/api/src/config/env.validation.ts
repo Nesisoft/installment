@@ -173,6 +173,13 @@ export const envSchema = z.object({
   // Paystack — empty in dev keeps boot friction-free; charging/webhooks need a real key.
   PAYSTACK_SECRET_KEY: z.string().default(''),
   PAYSTACK_BASE_URL: z.string().default('https://api.paystack.co'),
+  /**
+   * Where a customer's address goes when Paystack would refuse it. Accounts
+   * opened with a phone number have no email and store one on a reserved
+   * domain, which Paystack rejects outright; see `chargeableEmail`. A domain
+   * Ejua controls, so nothing Paystack sends to it reaches anyone else.
+   */
+  PAYSTACK_STANDIN_EMAIL_DOMAIN: z.string().default('customers.ejua.gh'),
   SENTRY_DSN: z.string().default(''),
   SENTRY_ENVIRONMENT: z.string().default('development'),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
