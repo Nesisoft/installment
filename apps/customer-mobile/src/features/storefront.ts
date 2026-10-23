@@ -229,20 +229,21 @@ export function usePlanQuote(
 /**
  * One quote per amount — a multi-shop basket is several orders, each quoted on
  * its own amount. Same cache key as `usePlanQuote`, so a single-shop basket
- * shares its answer. A zero amount (unpriced) is not fetched.
+ * shares its answer. Each distinct amount is asked once (two shops can come to
+ * the same total), and a zero amount — not yet priced — not at all.
  */
 export function usePlanQuotes(amountsPesewas: readonly number[]): (PlanQuote[] | undefined)[] {
   const api = useApi();
+  const distinct = [...new Set(amountsPesewas.filter((amount) => amount > 0))];
   const results = useQueries({
-    queries: amountsPesewas.map((amount) => ({
+    queries: distinct.map((amount) => ({
       queryKey: ['plan-quote', amount, undefined],
       queryFn: async () =>
         (await api.post<PlanQuote[]>('/storefront/plan-quote', { amount_pesewas: amount })).data,
-      enabled: amount > 0,
       staleTime: 5 * 60_000,
     })),
   });
-  return results.map((r) => r.data);
+  return amountsPesewas.map((amount) => results[distinct.indexOf(amount)]?.data);
 }
 
 export function usePickupHubs(city = DEFAULT_CITY): UseQueryResult<PickupHub[]> {

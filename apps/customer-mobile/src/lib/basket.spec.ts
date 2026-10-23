@@ -3,6 +3,7 @@ import {
   basketCost,
   cheapestCommonPlans,
   commonEligibleTemplateIds,
+  noPlanReason,
   ordersPlanLines,
   planLines,
   shopOrders,
@@ -168,5 +169,31 @@ describe('ordersPlanLines', () => {
       lead: 'Pay in 4',
       rest: '2 orders, each on its own plan',
     });
+  });
+});
+
+describe('noPlanReason', () => {
+  const ok = { eligible: true, ineligible_reason: null };
+  const small = { eligible: false, ineligible_reason: 'This plan starts at GHS 100' };
+
+  it('names the shop whose order no plan fits, in the plan’s own words', () => {
+    expect(
+      noPlanReason([{ name: 'OSU TECH HUB' }, { name: 'MAKOLA FOODS' }], [[ok], [small]]),
+    ).toBe(
+      'Instalments are not available for this basket: no plan fits the MAKOLA FOODS order (this plan starts at GHS 100). Pay in full, or buy from that shop on its own.',
+    );
+  });
+
+  it('says so when every order has a plan but no single plan fits them all', () => {
+    const pay4 = { eligible: true, ineligible_reason: null };
+    expect(noPlanReason([{ name: 'A' }, { name: 'B' }], [[pay4], [pay4]])).toMatch(
+      /no one plan fits every shop’s order/,
+    );
+  });
+
+  it('gives a single order the plan’s reason', () => {
+    expect(noPlanReason([{ name: 'A' }], [[small]])).toBe(
+      'Instalments are not available for this order. This plan starts at GHS 100.',
+    );
   });
 });

@@ -164,3 +164,33 @@ export function ordersPlanLines(plans: readonly QuoteTerms[]): { lead: string; r
     rest: `${plans.length} orders, each on its own plan`,
   };
 }
+
+/**
+ * Why a fully quoted basket has no plan to offer: names the shop whose order
+ * no plan fits, with the plan's own reason, or says no single plan fits every
+ * order. Shown in place of a plan, so the customer is not left with a disabled
+ * button and no explanation.
+ */
+export function noPlanReason(
+  shops: readonly { name: string }[],
+  quotesPerShop: readonly (
+    | readonly Pick<PlanQuote, 'eligible' | 'ineligible_reason'>[]
+    | undefined
+  )[],
+): string {
+  const blocked = shops.findIndex((_, i) => !(quotesPerShop[i] ?? []).some((q) => q.eligible));
+  const reason =
+    blocked >= 0
+      ? (quotesPerShop[blocked]?.find((q) => q.ineligible_reason)?.ineligible_reason ?? null)
+      : null;
+  if (shops.length <= 1) {
+    return reason
+      ? `Instalments are not available for this order. ${reason}.`
+      : 'Instalments are not available for this order.';
+  }
+  if (blocked >= 0) {
+    const why = reason ? ` (${reason.charAt(0).toLowerCase()}${reason.slice(1)})` : '';
+    return `Instalments are not available for this basket: no plan fits the ${shops[blocked]!.name} order${why}. Pay in full, or buy from that shop on its own.`;
+  }
+  return 'Instalments are not available for this basket: no one plan fits every shop’s order. Pay in full, or buy from one shop at a time.';
+}

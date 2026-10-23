@@ -311,10 +311,16 @@ export interface CustomerProfile {
   created_at: string;
 }
 
+/**
+ * What a Mobile Money charge answers. An order's charge says `paid`; an
+ * instalment's says `succeeded`, or `unknown` when Paystack's answer did not
+ * settle it (the verify poll does). A decline is HTTP 200 with `failed`.
+ */
 export interface ChargeResult {
-  status: 'paid' | 'pending' | 'failed';
-  reference: string;
+  status: 'paid' | 'succeeded' | 'pending' | 'unknown' | 'failed';
+  reference?: string;
   message?: string;
+  failureReason?: string;
 }
 
 // --- Ghana Card (KYC tier 1) --------------------------------------------------
