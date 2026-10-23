@@ -1,8 +1,9 @@
 import {
-  useInfiniteQuery,
-  useQuery,
   type UseInfiniteQueryResult,
   type UseQueryResult,
+  useInfiniteQuery,
+  useQueries,
+  useQuery,
 } from '@tanstack/react-query';
 import { useApi } from '@installment/mobile-kit';
 import { DEFAULT_CITY } from '../lib/config';
@@ -223,6 +224,25 @@ export function usePlanQuote(
     enabled: amountPesewas > 0,
     staleTime: 5 * 60_000,
   });
+}
+
+/**
+ * One quote per amount — a multi-shop basket is several orders, each quoted on
+ * its own amount. Same cache key as `usePlanQuote`, so a single-shop basket
+ * shares its answer. A zero amount (unpriced) is not fetched.
+ */
+export function usePlanQuotes(amountsPesewas: readonly number[]): (PlanQuote[] | undefined)[] {
+  const api = useApi();
+  const results = useQueries({
+    queries: amountsPesewas.map((amount) => ({
+      queryKey: ['plan-quote', amount, undefined],
+      queryFn: async () =>
+        (await api.post<PlanQuote[]>('/storefront/plan-quote', { amount_pesewas: amount })).data,
+      enabled: amount > 0,
+      staleTime: 5 * 60_000,
+    })),
+  });
+  return results.map((r) => r.data);
 }
 
 export function usePickupHubs(city = DEFAULT_CITY): UseQueryResult<PickupHub[]> {

@@ -62,3 +62,105 @@ export function planLines(q: QuoteTerms): { lead: string; rest: string } {
     rest: `${n} × ${ghs(q.per_installment_pesewas)} ${every}, nothing today`,
   };
 }
+
+/** One shop's share of the basket: the order checkout will make for it. */
+export interface ShopOrder {
+  storeId: string;
+  name: string;
+  subtotalPesewas: number;
+  /** Subtotal plus this order's own delivery; null while delivery is unpriced. */
+  amountPesewas: number | null;
+}
+
+interface ShopLine {
+  store_id: string | null;
+  store_display_name: string | null;
+  line_total_pesewas: number;
+}
+
+/**
+ * The basket as the orders checkout will create — one per shop, each with its
+ * own delivery fee — so a plan can be quoted against what each order will be.
+ */
+export function shopOrders(
+  lines: readonly ShopLine[],
+  delivery: { pickup: boolean; feePesewas: number | undefined },
+): ShopOrder[] {
+  const byStore = new Map<string, ShopOrder>();
+  for (const line of lines) {
+    const storeId = line.store_id ?? 'unknown';
+    const shop = byStore.get(storeId) ?? {
+      storeId,
+      name: line.store_display_name ?? 'Other items',
+      subtotalPesewas: 0,
+      amountPesewas: null,
+    };
+    shop.subtotalPesewas += line.line_total_pesewas;
+    byStore.set(storeId, shop);
+  }
+  const fee = delivery.pickup ? 0 : delivery.feePesewas;
+  return [...byStore.values()].map((shop) => ({
+    ...shop,
+    amountPesewas: fee === undefined ? null : shop.subtotalPesewas + fee,
+  }));
+}
+
+/**
+ * The plan templates every shop's order qualifies for, in the first shop's
+ * order — checkout sends one template for all of them. Null until every
+ * shop's quote has loaded.
+ */
+export function commonEligibleTemplateIds(
+  quotesPerShop: readonly (
+    | readonly Pick<PlanQuote, 'plan_template_id' | 'eligible'>[]
+    | undefined
+  )[],
+): string[] | null {
+  if (quotesPerShop.length === 0 || quotesPerShop.some((q) => q === undefined)) return null;
+  const [first, ...rest] = quotesPerShop as readonly (readonly Pick<
+    PlanQuote,
+    'plan_template_id' | 'eligible'
+  >[])[];
+  return first!
+    .filter((q) => q.eligible)
+    .map((q) => q.plan_template_id)
+    .filter((id) =>
+      rest.every((shop) => shop.some((q) => q.plan_template_id === id && q.eligible)),
+    );
+}
+
+type ShopQuote = Pick<PlanQuote, 'plan_template_id' | 'eligible' | 'per_installment_pesewas'>;
+
+/**
+ * Each shop's plan on the template with the smallest instalments, among those
+ * every shop's order qualifies for — what "or pay …" offers, per order. Null
+ * until every quote has loaded, or when no template fits them all.
+ */
+export function cheapestCommonPlans<Q extends ShopQuote>(
+  quotesPerShop: readonly (readonly Q[] | undefined)[],
+): Q[] | null {
+  const ids = commonEligibleTemplateIds(quotesPerShop);
+  if (!ids || ids.length === 0) return null;
+  const plansFor = (id: string): Q[] =>
+    quotesPerShop.map((shop) => shop!.find((q) => q.plan_template_id === id)!);
+  const perInstalment = (plans: Q[]): number =>
+    plans.reduce((sum, q) => sum + q.per_installment_pesewas, 0);
+  return ids
+    .map(plansFor)
+    .reduce((best, plans) => (perInstalment(plans) < perInstalment(best) ? plans : best));
+}
+
+/**
+ * One line, and its follow-up, for the plans a checkout will create.
+ *
+ * One order reads as its plan. Several are several schedules, none of which
+ * describes the others, so they read as what is due today across them.
+ */
+export function ordersPlanLines(plans: readonly QuoteTerms[]): { lead: string; rest: string } {
+  if (plans.length === 1) return planLines(plans[0]!);
+  const deposit = plans.reduce((sum, q) => sum + q.down_payment_pesewas, 0);
+  return {
+    lead: deposit > 0 ? `Pay ${ghs(deposit)} today` : `Pay in ${plans[0]!.installments.length}`,
+    rest: `${plans.length} orders, each on its own plan`,
+  };
+}
