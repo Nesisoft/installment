@@ -320,10 +320,17 @@ export default function ProductScreen(): React.ReactElement {
             <View style={styles.assuranceRow}>
               <Icon name="shield" size={19} color={color.inkSoft} />
               <View style={styles.assuranceText}>
-                <Text variant="bodyMedium">Escrow protected</Text>
-                {/* The window is set per order, so no number is promised here. */}
+                {/* Was "Escrow protected — the vendor is paid only after your
+                    return window closes". Neither holds: a paid order's money
+                    is the seller's to withdraw the next day. What does hold is
+                    the return itself, which refunds the whole order total —
+                    for an order paid in full; one on a plan is unwound with
+                    its plan instead. The window is set per order, so no
+                    number is promised here. */}
+                <Text variant="bodyMedium">Free returns when you pay in full</Text>
                 <Text variant="small" tone="muted">
-                  The vendor is paid only after your return window closes.
+                  Ask to send it back within the return window after it arrives. If the seller
+                  agrees, the whole order total comes back to you.
                 </Text>
               </View>
             </View>

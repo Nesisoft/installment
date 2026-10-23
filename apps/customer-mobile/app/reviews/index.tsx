@@ -37,7 +37,8 @@ export default function PendingReviewsScreen(): React.ReactElement {
       <Header
         title="Rate what you bought"
         subtitle={
-          rows.length > 0 ? `${rows.length} ${pluralise(rows.length, 'thing')} to rate` : undefined
+          // `pluralise` already says the number: this read "2 2 things to rate".
+          rows.length > 0 ? `${pluralise(rows.length, 'thing')} to rate` : undefined
         }
         back
       />

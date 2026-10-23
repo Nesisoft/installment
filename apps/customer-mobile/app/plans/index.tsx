@@ -95,7 +95,7 @@ export default function InstallmentsScreen(): React.ReactElement {
           />
         ))}
 
-        <MissedPaymentNote plans={allPlans} />
+        <MissedPaymentNote plans={allPlans} rows={rows} />
       </View>
     </Screen>
   );
@@ -311,32 +311,58 @@ function PlanSchedule({
 }
 
 /**
- * The late-fee explainer, built from the plan's own rate and cap.
+ * The late-fee explainer, built from each plan's own rate and cap.
  *
  * Basis points: 200 bps = 2% per week, 1500 bps = a 15% cap. A plan sold without
  * a rate never grows one, so the note says so rather than quoting terms that do
- * not apply.
+ * not apply. Terms are fixed per plan when it is sold, so two plans can differ;
+ * this quoted the first active plan's as if they covered every plan. Plans on
+ * the same terms share one line; different terms are named by what was bought.
  */
-function MissedPaymentNote({ plans }: { plans: CustomerPlan[] }): React.ReactElement | null {
-  const plan = plans.find((p) => p.status === 'active') ?? plans[0];
-  if (!plan) return null;
+function MissedPaymentNote({
+  plans,
+  rows,
+}: {
+  plans: CustomerPlan[];
+  rows: FeedInstallment[];
+}): React.ReactElement | null {
+  const live = plans.filter((p) => p.status === 'active' || p.status === 'in_arrears');
+  const shown = live.length > 0 ? live : plans.slice(0, 1);
+  if (shown.length === 0) return null;
 
-  const hasFee = plan.late_fee_bps_per_week > 0;
+  const byTerms = new Map<string, string[]>();
+  for (const plan of shown) {
+    const terms = missedPaymentTerms(plan);
+    const title = rows.find((r) => r.customer_plan_id === plan.id)?.item_title;
+    byTerms.set(terms, [...(byTerms.get(terms) ?? []), ...(title ? [title] : [])]);
+  }
 
   return (
     <Card style={styles.note}>
       <Text variant="smallMedium">If you miss a payment</Text>
+      {[...byTerms].map(([terms, titles]) => (
+        <Text key={terms} variant="tiny" tone="muted">
+          {byTerms.size > 1 && titles.length > 0 ? `${titles.join(', ')}: ` : ''}
+          {terms}
+        </Text>
+      ))}
       <Text variant="tiny" tone="muted">
-        {plan.grace_period_days > 0
-          ? `You get ${pluralise(plan.grace_period_days, 'day')} of grace after the due date. `
-          : 'A payment is due on its date. '}
-        {hasFee
-          ? `After that a late fee of ${plan.late_fee_bps_per_week / 100}% per week applies to the amount overdue, capped at ${plan.late_fee_cap_bps / 100}% of the instalment.`
-          : 'There is no late fee on this plan.'}{' '}
         Your Ejua limit pauses until you catch up.
       </Text>
     </Card>
   );
+}
+
+function missedPaymentTerms(plan: CustomerPlan): string {
+  const grace =
+    plan.grace_period_days > 0
+      ? `You get ${pluralise(plan.grace_period_days, 'day')} of grace after the due date.`
+      : 'A payment is due on its date.';
+  const fee =
+    plan.late_fee_bps_per_week > 0
+      ? `After that a late fee of ${plan.late_fee_bps_per_week / 100}% per week applies to the amount overdue, capped at ${plan.late_fee_cap_bps / 100}% of the instalment.`
+      : 'There is no late fee on this plan.';
+  return `${grace} ${fee}`;
 }
 
 function groupByPlan(rows: FeedInstallment[]): [string, FeedInstallment[]][] {

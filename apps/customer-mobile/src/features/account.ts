@@ -112,9 +112,11 @@ export function usePlanSchedule(planId: string): UseQueryResult<InstallmentRow[]
 /**
  * Turn automatic collection on or off.
  *
- * Optimistic, because a toggle that waits for a round trip on a mobile network
- * feels broken — and rolled back on failure, because a switch that lies about
- * whether we will debit someone is worse than a slow one.
+ * Not optimistic: the switch shows the plan as the server has it and is
+ * disabled while the request is in flight, so a failure leaves it where it was.
+ * A switch that read "off" before the server agreed could tell someone we had
+ * stopped debiting them when we had not. (This said "optimistic, rolled back
+ * on failure"; nothing here ever did either.)
  */
 export function useSetAutopay() {
   const api = useApi();

@@ -47,7 +47,9 @@ export default function AccountScreen(): React.ReactElement {
             Sign in to check out, follow your deliveries and manage what you owe.
           </Text>
           <View style={styles.trust}>
-            {['Escrow protected', 'MoMo checkout', 'Real schedule up front'].map((t) => (
+            {/* Was "Escrow protected": a paid order's money is the seller's to
+                withdraw the next day, not held until the return window closes. */}
+            {['Pay over weeks', 'MoMo checkout', 'Real schedule up front'].map((t) => (
               <View key={t} style={styles.trustChip}>
                 <Icon name="check" size={11} color={color.success} strokeWidth={3} />
                 <Text variant="tiny" tone="onDarkMuted">

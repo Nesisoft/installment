@@ -33,8 +33,17 @@ import type { OrderEvent } from '../../src/features/types';
  * Rendered greyed and undated below the real events, so the timeline reads as a
  * journey with a known end rather than stopping wherever the order currently
  * is. Anything already recorded is filtered out by label.
+ *
+ * Only steps the server records. This also listed "Return window closes" and
+ * "Vendor settled", which no event ever writes — so they sat greyed under every
+ * order forever, the second promising the seller waits for the return window,
+ * which they do not. A pickup order records "Collected", never "Delivered", so
+ * it showed "Delivered" still to come after the customer had it in hand.
  */
-const EXPECTED_TAIL = ['Delivered', 'Return window closes', 'Vendor settled'];
+function expectedTail(events: OrderEvent[], fulfilment: 'courier' | 'pickup'): string[] {
+  const seen = new Set(events.map((e) => e.label));
+  return [fulfilment === 'pickup' ? 'Collected' : 'Delivered'].filter((label) => !seen.has(label));
+}
 
 /**
  * The order statuses `ReturnsService.request` will accept.
@@ -97,6 +106,7 @@ export default function OrderDetailScreen(): React.ReactElement {
   const returnWindowClosed = windowEnds !== null && windowEnds.getTime() < Date.now();
   const shipment = tracking.data?.shipment ?? null;
   const events = tracking.data?.events ?? [];
+  const tail = expectedTail(events, data.fulfilment_method);
   const latest = events[events.length - 1] ?? null;
   const canCancel = data.status === 'pending_payment' || data.status === 'pending_approval';
 
@@ -108,7 +118,16 @@ export default function OrderDetailScreen(): React.ReactElement {
   async function pay(): Promise<void> {
     setError(null);
     try {
-      await payOrder.mutateAsync({ idempotencyKey: payKey.current });
+      const result = await payOrder.mutateAsync({ idempotencyKey: payKey.current });
+      // A decline is a 200 that says `failed`; this read it as success and the
+      // screen simply stayed unpaid with nothing said. Its response now answers
+      // this key, so trying again needs a new one.
+      if (result.status === 'failed') {
+        payKey.current = newIdempotencyKey('order-pay');
+        setError(
+          'That payment did not go through. Check your Mobile Money number and wallet, then try again.',
+        );
+      }
     } catch (err) {
       // A charge already in flight is progress, not a failure — the poll will
       // pick up the result.
@@ -202,10 +221,10 @@ export default function OrderDetailScreen(): React.ReactElement {
               detail={event.detail}
               when={dateTime(event.occurred_at)}
               state={index === events.length - 1 ? 'current' : 'done'}
-              last={index === events.length - 1 && expectedTail(events).length === 0}
+              last={index === events.length - 1 && tail.length === 0}
             />
           ))}
-          {expectedTail(events).map((label, index, all) => (
+          {tail.map((label, index, all) => (
             <TimelineRow
               key={label}
               label={label}
@@ -219,17 +238,20 @@ export default function OrderDetailScreen(): React.ReactElement {
         {/* Was this sentence and nothing else: "Free returns until <date>",
             static text on a screen with no way to start one, next to a seller
             queue that could only ever read empty. The sentence stays, because
-            it is the promise; what is new is that it now leads somewhere.
+            it is the promise — a return refunds the whole order total — and
+            now it leads somewhere.
 
             Only for outright purchases. An instalment order is unwound with
-            its credit plan, which `ReturnsService.request` refuses outright —
-            offering the control here would be inviting a 422. */}
+            its credit plan, which `ReturnsService.request` refuses outright,
+            so it is promised nothing: it used to read "Free returns until …"
+            too. Neither says the vendor is paid only once the window closes;
+            a paid order's money is the seller's to withdraw the next day. */}
         {data.payment_type === 'full' && RETURNABLE.includes(data.status) ? (
           <Card style={styles.returnsCard}>
             <Text variant="tiny" tone="muted" style={styles.returns}>
               {data.return_window_ends_at
-                ? `Free returns until ${longDate(data.return_window_ends_at)}. The vendor is paid only once that window closes.`
-                : 'Free returns for a week after it reaches you. The vendor is paid only once that window closes.'}
+                ? `Free returns until ${longDate(data.return_window_ends_at)}.`
+                : `Free returns for ${pluralise(data.return_window_days, 'day')} after it reaches you.`}
             </Text>
             {openReturn ? (
               <Pressable
@@ -253,11 +275,6 @@ export default function OrderDetailScreen(): React.ReactElement {
               </Pressable>
             )}
           </Card>
-        ) : data.return_window_ends_at ? (
-          <Text variant="tiny" tone="muted" style={styles.returns}>
-            Free returns until {longDate(data.return_window_ends_at)}. The vendor is paid only once
-            that window closes.
-          </Text>
         ) : null}
 
         <SectionLabel style={styles.sectionGap}>Items</SectionLabel>
@@ -338,11 +355,6 @@ export default function OrderDetailScreen(): React.ReactElement {
       </View>
     </Screen>
   );
-}
-
-function expectedTail(events: OrderEvent[]): string[] {
-  const seen = new Set(events.map((e) => e.label));
-  return EXPECTED_TAIL.filter((label) => !seen.has(label));
 }
 
 function TimelineRow({
