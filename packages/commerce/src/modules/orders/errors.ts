@@ -57,6 +57,17 @@ export class OrderNotPayableError extends Error {
   }
 }
 
+/**
+ * A charge for this order may still settle — a Mobile Money prompt not yet
+ * answered — so another must not be started until it has.
+ */
+export class OrderPaymentInFlightError extends Error {
+  constructor(id: string, reference: string) {
+    super(`Order "${id}" has a payment in progress (${reference}); wait for it to finish`);
+    this.name = 'OrderPaymentInFlightError';
+  }
+}
+
 /** Financing activation was attempted on an order that isn't ready for it. */
 export class OrderNotActivatableError extends Error {
   constructor(id: string, reason: string) {
