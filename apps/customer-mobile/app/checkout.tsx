@@ -461,10 +461,13 @@ export default function CheckoutScreen(): React.ReactElement {
                       ) : (
                         <ScheduleStrip installments={plan.installments} />
                       )}
+                      {/* The auto-debit tries a saved card first, then the Mobile
+                          Money number on file; "from your Mobile Money" was
+                          half of that. */}
                       <Text variant="tiny" tone="muted">
-                        Collected automatically from your Mobile Money{' '}
-                        {cadence(plan.installment_frequency_days)}. You can switch that off and pay
-                        by hand at any time.
+                        Collected automatically {cadence(plan.installment_frequency_days)} from your
+                        saved card or Mobile Money number. You can switch that off and pay by hand
+                        at any time.
                       </Text>
                     </View>
                   ) : null}
@@ -523,14 +526,6 @@ export default function CheckoutScreen(): React.ReactElement {
                     : cost.deliveryPesewas === 0
                       ? 'Free'
                       : ghs(cost.deliveryPesewas)}
-                </Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text variant="small" tone="muted" style={styles.summaryLabel}>
-                  Buyer protection
-                </Text>
-                <Text variant="smallMedium" tone="success">
-                  Free
                 </Text>
               </View>
               <View style={styles.rule} />
@@ -844,15 +839,22 @@ function DecisionBody({
       {approved && decision.down_payment ? (
         <Card dark style={styles.depositCard}>
           <View style={styles.depositRow}>
+            {/* Card or Mobile Money: the method is picked below. */}
             <Text variant="small" tone="onDarkMuted">
-              Pay now on Mobile Money
+              Pay now
             </Text>
             <Text variant="h3" tone="onDark">
               {ghs(decision.down_payment.amount_due_pesewas)}
             </Text>
           </View>
+          {/* What this is paid with becomes how the rest is collected: a card
+              is saved by Paystack's webhook, and a Mobile Money number is kept
+              when there is none on file (#120). This also said "you will see
+              each payment before it happens", but the day-before text goes
+              only to a Mobile Money number on file — someone paying by card
+              alone is never sent one. */}
           <Text variant="tiny" tone="onDarkFaint">
-            The rest is collected automatically — you will see each payment before it happens.
+            The rest is collected automatically from your saved card or Mobile Money number.
           </Text>
         </Card>
       ) : null}
@@ -861,7 +863,7 @@ function DecisionBody({
         <Card dark style={styles.depositCard}>
           <View style={styles.depositRow}>
             <Text variant="small" tone="onDarkMuted">
-              Pay now on Mobile Money
+              Pay now
             </Text>
             <Text variant="h3" tone="onDark">
               {ghs(decision.order.total_pesewas)}
