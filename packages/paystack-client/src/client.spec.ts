@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { PaystackClient, PaystackError } from './client';
+import { chargeableEmail, PaystackClient, PaystackError } from './client';
 
 const SECRET = 'sk_test_phase2_dummy';
 
@@ -398,5 +398,69 @@ describe('PaystackClient payout destinations', () => {
     await expect(client(fetchImpl).resolveAccount('9999999999', 'MTN')).rejects.toThrow(
       /Could not resolve account name/,
     );
+  });
+});
+
+describe('chargeableEmail', () => {
+  const STAND_IN = 'customers.ejua.gh';
+
+  it('moves the address phone signup stores, which Paystack refuses, to the stand-in domain', () => {
+    expect(chargeableEmail('+233247392504@customer.installment.local', STAND_IN)).toBe(
+      '+233247392504@customers.ejua.gh',
+    );
+  });
+
+  it('moves every reserved top-level domain, whatever its case', () => {
+    for (const domain of ['x.localhost', 'x.test', 'x.invalid', 'x.example', 'X.LOCAL']) {
+      expect(chargeableEmail(`a@${domain}`, STAND_IN)).toBe('a@customers.ejua.gh');
+    }
+  });
+
+  it('leaves a real address alone, including one at example.com', () => {
+    expect(chargeableEmail('ama@gmail.com', STAND_IN)).toBe('ama@gmail.com');
+    expect(chargeableEmail('ama.customer@example.com', STAND_IN)).toBe('ama.customer@example.com');
+  });
+
+  it('changes nothing without a stand-in domain', () => {
+    expect(chargeableEmail('+233247392504@customer.installment.local', undefined)).toBe(
+      '+233247392504@customer.installment.local',
+    );
+  });
+
+  it('is applied to every request that carries an email', async () => {
+    const { fetchImpl, calls } = makeFetch({ status: true, message: 'ok', data: {} });
+    const client = new PaystackClient({
+      secretKey: SECRET,
+      fetchImpl,
+      standInEmailDomain: STAND_IN,
+    });
+    const email = '+233247392504@customer.installment.local';
+    await client.chargeMobileMoney({
+      email,
+      amount: 100,
+      currency: 'GHS',
+      phone: '0551234987',
+      provider: 'mtn',
+      reference: 'ref-1',
+    });
+    await client.chargeCard({
+      email,
+      amount: 100,
+      currency: 'GHS',
+      authorization_code: 'AUTH_x',
+      reference: 'ref-2',
+    });
+    await client.createPaymentLink({
+      email,
+      amount: 100,
+      currency: 'GHS',
+      reference: 'ref-3',
+      callback_url: 'https://ejua.gh/paid',
+    });
+    expect(calls.map((c) => (c.body as { email: string }).email)).toEqual([
+      '+233247392504@customers.ejua.gh',
+      '+233247392504@customers.ejua.gh',
+      '+233247392504@customers.ejua.gh',
+    ]);
   });
 });

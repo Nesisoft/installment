@@ -18,9 +18,9 @@ import {
 } from '../../src/components';
 import { useCart, useRemoveCartItem, useSetCartQuantity } from '../../src/features/shop';
 import { useAddresses } from '../../src/features/shop';
-import { bestQuote, useDeliveryQuote, usePlanQuote } from '../../src/features/storefront';
+import { useDeliveryQuote, usePlanQuotes } from '../../src/features/storefront';
 import { ghs, pluralise } from '../../src/lib/format';
-import { basketCost, planLines } from '../../src/lib/basket';
+import { basketCost, cheapestCommonPlans, ordersPlanLines, shopOrders } from '../../src/lib/basket';
 import { DEFAULT_CITY, DEFAULT_REGION } from '../../src/lib/config';
 import { color, fillParent, radius, space, tintFor } from '../../src/theme/tokens';
 import type { CartLine } from '../../src/features/types';
@@ -49,10 +49,16 @@ export default function CartScreen(): React.ReactElement {
     feePesewas: delivery.data?.fee_pesewas,
   });
 
-  // Quoted only once the total is known: a plan priced without its delivery
-  // fee is a schedule the customer will not actually be given.
-  const quotes = usePlanQuote(cost.totalPesewas ?? 0);
-  const plan = bestQuote(quotes.data);
+  // Quoted per order, once delivery is known: checkout makes one order per
+  // shop, each on its own plan with its own delivery fee. One plan on the
+  // combined total is a deposit and a schedule nobody is given, and could
+  // offer a plan that one of the orders does not qualify for.
+  const shops = shopOrders(cart.data?.items ?? [], {
+    pickup: false,
+    feePesewas: delivery.data?.fee_pesewas,
+  });
+  const plans = cheapestCommonPlans(usePlanQuotes(shops.map((shop) => shop.amountPesewas ?? 0)));
+  const planText = plans ? ordersPlanLines(plans) : null;
 
   // Checkout re-checks purchasability and rolls the WHOLE basket back on one
   // dead line, so the customer has to be able to see and fix it here.
@@ -151,14 +157,14 @@ export default function CartScreen(): React.ReactElement {
               <View style={styles.rule} />
               <SummaryRow label="Total" value={ghs(cost.totalPesewas)} strong />
 
-              {plan ? (
+              {plans && planText ? (
                 <View style={styles.planNote}>
                   <Text variant="smallMedium" tone="accent">
-                    Or {lowerFirst(planLines(plan).lead)}
+                    Or {lowerFirst(planText.lead)}
                   </Text>
                   <Text variant="tiny" tone="muted">
-                    {planLines(plan).rest}
-                    {plan.interest_rate_bps === 0 ? ' — no interest' : ''}
+                    {planText.rest}
+                    {plans.every((q) => q.interest_rate_bps === 0) ? ' — no interest' : ''}
                   </Text>
                 </View>
               ) : null}

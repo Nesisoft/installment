@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -40,14 +40,26 @@ import {
   usePayOrderCard,
   usePayOrderMomo,
 } from '../src/features/shop';
-import { usePayInstallmentLink, usePayInstallmentMomo } from '../src/features/account';
-import { useDeliveryQuote, usePickupHubs, usePlanQuote } from '../src/features/storefront';
+import {
+  usePayInstallmentLink,
+  usePayInstallmentMomo,
+  useProfile,
+  useSetMomo,
+} from '../src/features/account';
+import { useDeliveryQuote, usePickupHubs, usePlanQuotes } from '../src/features/storefront';
 import { cadence, ghs } from '../src/lib/format';
-import { basketCost, planLines } from '../src/lib/basket';
+import {
+  basketCost,
+  commonEligibleTemplateIds,
+  noPlanReason,
+  ordersPlanLines,
+  planLines,
+  shopOrders,
+} from '../src/lib/basket';
 import { arrivalWindow } from '../src/lib/dates';
 import { DEFAULT_CITY, DEFAULT_REGION } from '../src/lib/config';
 import { color, radius, space } from '../src/theme/tokens';
-import type { DecidedOrder, MomoProvider } from '../src/features/types';
+import type { DecidedOrder, MomoProvider, PlanQuote } from '../src/features/types';
 
 type Fulfilment = 'courier' | 'pickup';
 type PaymentChoice = 'installment' | 'full';
@@ -84,10 +96,29 @@ export default function CheckoutScreen(): React.ReactElement {
   const [payment, setPayment] = useState<PaymentChoice>('installment');
   const [planId, setPlanId] = useState<string | null>(null);
   const [addressSheet, setAddressSheet] = useState(false);
-  const [decision, setDecision] = useState<DecidedOrder | null>(null);
+  // Every order checkout made — one per shop — walked one at a time.
+  const [decisions, setDecisions] = useState<DecidedOrder[] | null>(null);
+  const [step, setStep] = useState(0);
+  const [shopNames, setShopNames] = useState<Record<string, string>>({});
+  // Typed once, used for every order's deposit.
+  const [momo, setMomo] = useState<MomoDetails>({ phone: '', provider: null });
+  // Asked at most once per checkout, whether it was answered or put off.
+  const [collectionAsked, setCollectionAsked] = useState(false);
+  const [sheetBusy, setSheetBusy] = useState(false);
+  const left = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const checkout = useCheckout();
+  // Loaded before any order is placed: the sheet must know whether a number is
+  // on file before it can offer to finish an order that has no deposit.
+  const profile = useProfile(signedIn);
+  // Null until the profile answers. One that cannot be loaded counts as "on
+  // file", so the sheet never hangs on it; the Plans screen says when none is.
+  const momoOnFile = profile.data
+    ? Boolean(profile.data.momo_phone)
+    : profile.isError
+      ? true
+      : null;
 
   // Default to the customer's saved address / the first hub once they load.
   useEffect(() => {
@@ -117,9 +148,43 @@ export default function CheckoutScreen(): React.ReactElement {
   // Null until delivery is priced; nothing below may present a total before it.
   const total = cost.totalPesewas;
 
-  const quotes = usePlanQuote(total ?? 0);
-  const eligible = useMemo(() => (quotes.data ?? []).filter((q) => q.eligible), [quotes.data]);
-  const plan = eligible.find((q) => q.plan_template_id === planId) ?? eligible[0] ?? null;
+  /**
+   * One plan per order, as checkout will make them.
+   *
+   * A basket from two shops becomes two orders, each with its own plan on its
+   * own amount. This quoted one plan on the combined total — a schedule and a
+   * deposit the customer was never going to be given — and the sheet then
+   * walked only the first order's deposit. Each shop is quoted on its own order
+   * (its subtotal plus its own delivery), and only plans every order qualifies
+   * for are offered, since one template is sent for all of them.
+   */
+  const shops = shopOrders(cart.data?.items ?? [], {
+    pickup: fulfilment === 'pickup',
+    feePesewas: delivery.data?.fee_pesewas,
+  });
+  const multiShop = shops.length > 1;
+  const shopQuotes = usePlanQuotes(shops.map((shop) => shop.amountPesewas ?? 0));
+  const quotedEvery = commonEligibleTemplateIds(shopQuotes);
+  const commonIds = quotedEvery ?? [];
+  // Every order is quoted and no plan fits them all — one shop's order below a
+  // plan's minimum is enough. Paying in full is then the only way through, and
+  // the screen says why rather than leaving the button disabled.
+  const noPlan = quotedEvery !== null && commonIds.length === 0;
+  const paying: PaymentChoice = noPlan ? 'full' : payment;
+  const chosenId = planId && commonIds.includes(planId) ? planId : (commonIds[0] ?? null);
+  const shopPlans = chosenId
+    ? shops.map((shop, i) => ({
+        shop,
+        quote: shopQuotes[i]?.find((q) => q.plan_template_id === chosenId) ?? null,
+      }))
+    : [];
+  // Every order's plan, once each is quoted — the footer speaks for all of them.
+  const orderPlans = shopPlans.every((p) => p.quote) ? shopPlans.map((p) => p.quote!) : [];
+  const plan = orderPlans[0] ?? null;
+  const planText = plan ? ordersPlanLines(orderPlans) : null;
+  const eligible = commonIds
+    .map((id) => shopQuotes[0]?.find((q) => q.plan_template_id === id))
+    .filter((q): q is PlanQuote => Boolean(q));
 
   /**
    * One idempotency key per checkout ATTEMPT, held across renders.
@@ -130,7 +195,7 @@ export default function CheckoutScreen(): React.ReactElement {
    * a different body is a 409, not a replay.
    */
   const attemptKey = useRef(checkoutKey());
-  const payloadSignature = `${payment}:${plan?.plan_template_id ?? ''}:${fulfilment}:${addressId ?? ''}:${hubId ?? ''}:${total ?? ''}`;
+  const payloadSignature = `${paying}:${plan?.plan_template_id ?? ''}:${fulfilment}:${addressId ?? ''}:${hubId ?? ''}:${total ?? ''}`;
   const lastSignature = useRef(payloadSignature);
   if (lastSignature.current !== payloadSignature) {
     lastSignature.current = payloadSignature;
@@ -141,24 +206,24 @@ export default function CheckoutScreen(): React.ReactElement {
     total !== null &&
     (cart.data?.items.length ?? 0) > 0 &&
     (fulfilment === 'courier' ? Boolean(addressId) : Boolean(hubId)) &&
-    (payment === 'full' || Boolean(plan));
+    (paying === 'full' || Boolean(plan));
 
   async function submit(): Promise<void> {
     setError(null);
     try {
       const decided = await checkout.mutateAsync({
-        payment_type: payment,
-        ...(payment === 'installment' && plan ? { plan_template_id: plan.plan_template_id } : {}),
+        payment_type: paying,
+        ...(paying === 'installment' && plan ? { plan_template_id: plan.plan_template_id } : {}),
         ...(fulfilment === 'courier' && addressId ? { shipping_address_id: addressId } : {}),
         fulfilment_method: fulfilment,
         ...(fulfilment === 'pickup' && hubId ? { pickup_hub_id: hubId } : {}),
         idempotencyKey: attemptKey.current,
       });
-      // A multi-store basket becomes several orders; the sheet walks the first
-      // and the rest are visible under Orders.
-      const first = decided[0];
-      if (!first) throw new Error('Checkout returned no order');
-      setDecision(first);
+      // A multi-store basket becomes several orders; the sheet walks each.
+      if (decided.length === 0) throw new Error('Checkout returned no order');
+      setShopNames(Object.fromEntries(shops.map((shop) => [shop.storeId, shop.name])));
+      setStep(0);
+      setDecisions(decided);
     } catch (err) {
       setError(apiErrorMessage(err, 'We could not place your order.'));
     }
@@ -174,10 +239,38 @@ export default function CheckoutScreen(): React.ReactElement {
    * component's state changes underneath it. The redirect is a side effect of
    * the cart being empty, so it belongs where side effects go.
    */
-  const cartIsEmpty = Boolean(cart.data && cart.data.items.length === 0 && !decision);
+  const cartIsEmpty = Boolean(cart.data && cart.data.items.length === 0 && !decisions);
   useEffect(() => {
     if (cartIsEmpty) router.replace('/cart');
   }, [cartIsEmpty]);
+
+  /**
+   * Off checkout once its orders are placed, to where they can be seen.
+   *
+   * `decisions` is deliberately left set. Checkout has emptied the cart, so
+   * clearing it made `cartIsEmpty` true and the effect above fired its own
+   * `router.replace('/cart')` after this one: a customer who had just paid was
+   * left on an empty cart instead of their order. Several orders have no single
+   * confirmation, so the order list shows them.
+   */
+  function leaveCheckout(placed: DecidedOrder[]): void {
+    if (left.current) return;
+    left.current = true;
+    router.replace(placed.length > 1 ? '/orders' : `/confirmation/${placed[0]!.order.id}`);
+  }
+
+  /**
+   * Order `index` is dealt with. Keyed to the order rather than to "the current
+   * one": a payment that settles after the customer has already moved on calls
+   * this late, and must not move them again.
+   */
+  function advanceFrom(index: number, placed: DecidedOrder[]): void {
+    if (index >= placed.length - 1) {
+      leaveCheckout(placed);
+      return;
+    }
+    setStep((current) => (current === index ? index + 1 : current));
+  }
 
   if (!signedIn) {
     return (
@@ -307,11 +400,11 @@ export default function CheckoutScreen(): React.ReactElement {
                 screen where someone commits is worse than a spinner. */}
             {cart.isPending ? <Loading /> : null}
 
-            {!cart.isPending && plan ? (
+            {!cart.isPending && plan && planText ? (
               <Pressable
                 accessibilityRole="radio"
                 accessibilityState={{ selected: payment === 'installment' }}
-                accessibilityLabel={`${planLines(plan).lead}. ${planLines(plan).rest}.`}
+                accessibilityLabel={`${planText.lead}. ${planText.rest}.`}
                 onPress={() => setPayment('installment')}
               >
                 <Card style={payment === 'installment' ? styles.payCardOn : styles.payCard}>
@@ -326,9 +419,11 @@ export default function CheckoutScreen(): React.ReactElement {
                         ) : null}
                       </View>
                       <Text variant="tiny" tone="muted">
-                        {plan.down_payment_pesewas > 0
-                          ? `${ghs(plan.down_payment_pesewas)} today, ${planLines(plan).rest}`
-                          : planLines(plan).rest}
+                        {multiShop
+                          ? planText.rest
+                          : plan.down_payment_pesewas > 0
+                            ? `${ghs(plan.down_payment_pesewas)} today, ${planLines(plan).rest}`
+                            : planLines(plan).rest}
                       </Text>
                     </View>
                   </View>
@@ -351,7 +446,21 @@ export default function CheckoutScreen(): React.ReactElement {
                           ))}
                         </ScrollView>
                       ) : null}
-                      <ScheduleStrip installments={plan.installments} />
+                      {multiShop ? (
+                        shopPlans.map(({ shop, quote }) =>
+                          quote ? (
+                            <View key={shop.storeId} style={styles.shopPlan}>
+                              <Text variant="smallMedium">{shop.name}</Text>
+                              <Text variant="tiny" tone="muted">
+                                {planLines(quote).lead}, {planLines(quote).rest}
+                              </Text>
+                              <ScheduleStrip installments={quote.installments} />
+                            </View>
+                          ) : null,
+                        )
+                      ) : (
+                        <ScheduleStrip installments={plan.installments} />
+                      )}
                       <Text variant="tiny" tone="muted">
                         Collected automatically from your Mobile Money{' '}
                         {cadence(plan.installment_frequency_days)}. You can switch that off and pay
@@ -363,16 +472,22 @@ export default function CheckoutScreen(): React.ReactElement {
               </Pressable>
             ) : null}
 
+            {!cart.isPending && noPlan ? (
+              <Text variant="tiny" tone="muted">
+                {noPlanReason(shops, shopQuotes)}
+              </Text>
+            ) : null}
+
             {!cart.isPending ? (
               <Pressable
                 accessibilityRole="radio"
-                accessibilityState={{ selected: payment === 'full' }}
+                accessibilityState={{ selected: paying === 'full' }}
                 accessibilityLabel={`Pay ${ghs(total)} in full`}
                 onPress={() => setPayment('full')}
               >
-                <Card style={payment === 'full' ? styles.payCardOn : styles.payCard}>
+                <Card style={paying === 'full' ? styles.payCardOn : styles.payCard}>
                   <View style={styles.payHead}>
-                    <Radio selected={payment === 'full'} />
+                    <Radio selected={paying === 'full'} />
                     <View style={styles.payText}>
                       <Text variant="smallMedium">Pay in full</Text>
                       <Text variant="tiny" tone="muted">
@@ -439,13 +554,13 @@ export default function CheckoutScreen(): React.ReactElement {
       <StickyFooter>
         <Button
           label={
-            payment === 'installment' && plan
-              ? planLines(plan).lead
+            paying === 'installment' && planText
+              ? planText.lead
               : total === null
                 ? 'Pay in full'
                 : `Pay ${ghs(total)}`
           }
-          sublabel={payment === 'installment' && plan ? planLines(plan).rest : undefined}
+          sublabel={paying === 'installment' && planText ? planText.rest : undefined}
           loading={checkout.isPending}
           disabled={!canSubmit}
           onPress={() => void submit()}
@@ -461,27 +576,83 @@ export default function CheckoutScreen(): React.ReactElement {
         }}
       />
 
-      {decision ? <DecisionSheet decision={decision} onDismiss={() => setDecision(null)} /> : null}
+      {/* One sheet for the whole walk, its body remounted per order. Remounting
+          the sheet itself closes one native modal and opens another in the
+          same commit, which iOS can refuse while the first is still animating
+          away — leaving no sheet at all for the second order. */}
+      <Sheet
+        visible={Boolean(decisions)}
+        // The orders exist whether or not the sheet is walked to the end.
+        onClose={() => decisions && leaveCheckout(decisions)}
+        dark
+        dismissable={!sheetBusy}
+      >
+        {decisions && decisions[step] ? (
+          <DecisionBody
+            // Fresh payment hooks and a fresh idempotency key for each order's
+            // deposit; the typed number is carried over.
+            key={decisions[step].order.id}
+            decision={decisions[step]}
+            position={{
+              index: step,
+              count: decisions.length,
+              shopName: shopNames[decisions[step].order.store_id] ?? null,
+            }}
+            momo={momo}
+            onMomoChange={setMomo}
+            momoOnFile={momoOnFile}
+            askForCollectionNumber={!collectionAsked}
+            onCollectionAnswered={() => setCollectionAsked(true)}
+            onBusyChange={setSheetBusy}
+            onDone={() => advanceFrom(step, decisions)}
+          />
+        ) : null}
+      </Sheet>
     </>
   );
 }
 
+interface MomoDetails {
+  phone: string;
+  provider: MomoProvider | null;
+}
+
 /**
- * The BNPL approval sheet.
+ * One order's outcome, in the approval sheet.
  *
  * The decision has ALREADY been made — `POST /me/checkout` scores and activates
- * before it responds — so this renders an outcome rather than driving one. It
- * is not dismissable while a payment is in flight: a customer who swipes it
- * away mid-charge would be left not knowing whether they had just opened a
+ * before it responds — so this renders an outcome rather than driving one. The
+ * sheet is not dismissable while a payment is in flight: a customer who swipes
+ * it away mid-charge would be left not knowing whether they had just opened a
  * credit line.
  */
-function DecisionSheet({
+function DecisionBody({
   decision,
-  onDismiss,
+  position,
+  momo,
+  onMomoChange,
+  momoOnFile,
+  askForCollectionNumber,
+  onCollectionAnswered,
+  onBusyChange,
+  onDone,
 }: {
   decision: DecidedOrder;
-  onDismiss: () => void;
+  /** Which of the orders checkout made this is, and whose. */
+  position: { index: number; count: number; shopName: string | null };
+  momo: MomoDetails;
+  onMomoChange: (next: MomoDetails) => void;
+  /** Whether the customer has a Mobile Money number on file; null while unknown. */
+  momoOnFile: boolean | null;
+  /** False once this checkout has asked for a collection number. */
+  askForCollectionNumber: boolean;
+  onCollectionAnswered: () => void;
+  /** The sheet cannot be swiped away while a payment is in flight. */
+  onBusyChange: (busy: boolean) => void;
+  /** This order is dealt with: the next one, or off to the confirmation. */
+  onDone: () => void;
 }): React.ReactElement {
+  const setMomoOnFile = useSetMomo();
   const payInstallment = usePayInstallmentMomo();
   const payOrder = usePayOrderMomo(decision.order.id);
   const [error, setError] = useState<string | null>(null);
@@ -500,18 +671,59 @@ function DecisionSheet({
   const payCard = usePayOrderCard(decision.order.id);
   const payDepositLink = usePayInstallmentLink();
 
-  const [momoPhone, setMomoPhone] = useState('');
-  const [momoProvider, setMomoProvider] = useState<MomoProvider | null>(null);
+  const momoPhone = momo.phone;
+  const momoProvider = momo.provider;
+  const setMomoPhone = (phone: string): void => onMomoChange({ ...momo, phone });
+  const setMomoProvider = (provider: MomoProvider): void => onMomoChange({ ...momo, provider });
   const momoReady = momoPhone.replace(/\D/g, '').length >= 9 && momoProvider !== null;
 
-  // A separate logical attempt from the checkout, so a separate key.
+  /**
+   * A separate logical attempt from the checkout, so a separate key — and a new
+   * one whenever the number or network changes. The server hashes the body, so
+   * a corrected number sent under the old key is a 409, which this sheet reads
+   * as "a charge is already running" and moves on from.
+   */
   const payKey = useRef(newIdempotencyKey('deposit'));
+  const chargeSignature = `${momoPhone.replace(/\D/g, '')}:${momoProvider ?? ''}`;
+  const lastCharge = useRef(chargeSignature);
+  if (lastCharge.current !== chargeSignature) {
+    lastCharge.current = chargeSignature;
+    payKey.current = newIdempotencyKey('deposit');
+  }
   const busy =
-    payInstallment.isPending || payOrder.isPending || payCard.isPending || payDepositLink.isPending;
+    payInstallment.isPending ||
+    payOrder.isPending ||
+    payCard.isPending ||
+    payDepositLink.isPending ||
+    setMomoOnFile.isPending;
+  useEffect(() => {
+    onBusyChange(busy);
+    return () => onBusyChange(false);
+  }, [busy, onBusyChange]);
 
-  function toConfirmation(): void {
-    onDismiss();
-    router.replace(`/confirmation/${decision.order.id}`);
+  /**
+   * An approved plan with no deposit pays nothing here, so no number is ever
+   * typed — and with none on file the auto-debit has nothing to collect from,
+   * and the first instalment would go overdue. Ask for it now, once per
+   * checkout, and not before the profile has said whether one is on file.
+   */
+  const noDeposit = decision.outcome === 'approved' && !decision.down_payment;
+  const needsCollectionNumber = noDeposit && askForCollectionNumber && momoOnFile === false;
+  const waitingForProfile = noDeposit && askForCollectionNumber && momoOnFile === null;
+
+  async function saveCollectionNumber(): Promise<void> {
+    if (!momoProvider) return;
+    setError(null);
+    try {
+      await setMomoOnFile.mutateAsync({
+        momo_phone: normaliseGhPhone(momoPhone),
+        momo_provider: momoProvider,
+      });
+      onCollectionAnswered();
+      onDone();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'That number could not be saved.'));
+    }
   }
 
   async function pay(): Promise<void> {
@@ -539,27 +751,39 @@ function DecisionSheet({
               : null;
         if (!url) return;
         await WebBrowser.openAuthSessionAsync(url, Linking.createURL('/payment-complete'));
-        toConfirmation();
+        onDone();
         return;
       }
 
-      const momo = { phone: normaliseGhPhone(momoPhone), provider: momoProvider ?? undefined };
-      if (decision.outcome === 'paid_later') {
-        await payOrder.mutateAsync({ ...momo, idempotencyKey: payKey.current });
-      } else if (decision.down_payment) {
-        await payInstallment.mutateAsync({
-          scheduleId: decision.down_payment.id,
-          ...momo,
-          idempotencyKey: payKey.current,
-        });
+      const charge = { phone: normaliseGhPhone(momoPhone), provider: momoProvider ?? undefined };
+      const result =
+        decision.outcome === 'paid_later'
+          ? await payOrder.mutateAsync({ ...charge, idempotencyKey: payKey.current })
+          : decision.down_payment
+            ? await payInstallment.mutateAsync({
+                scheduleId: decision.down_payment.id,
+                ...charge,
+                idempotencyKey: payKey.current,
+              })
+            : null;
+      // A decline is a 200 that says `failed`, not an error. Moving on from it
+      // told the customer a deposit was on its way that never would be — and on
+      // a several-shop checkout, nothing afterwards would say otherwise. The
+      // stored response now answers this key, so a retry needs a new one.
+      if (result?.status === 'failed') {
+        payKey.current = newIdempotencyKey('deposit');
+        setError(
+          'That payment did not go through. Check the number and network, and that there is enough in the wallet, then try again.',
+        );
+        return;
       }
-      toConfirmation();
+      onDone();
     } catch (err) {
       // On Mobile Money a 409 means a charge is already running for this row —
       // progress, not a failure, and the confirmation screen polls for the
       // outcome. On a card it means the payment was refused outright.
       if (method === 'momo' && apiErrorStatus(err) === 409) {
-        toConfirmation();
+        onDone();
         return;
       }
       setError(apiErrorMessage(err, 'That payment did not go through.'));
@@ -570,184 +794,232 @@ function DecisionSheet({
   const declined = decision.outcome === 'declined';
   const review = decision.outcome === 'in_review';
   const payNow = decision.outcome === 'paid_later';
+  const more = position.index < position.count - 1;
 
   return (
-    <Sheet visible onClose={onDismiss} dark dismissable={!busy}>
-      <View style={styles.sheet}>
-        <View
-          style={[
-            styles.sheetIcon,
-            { backgroundColor: declined ? color.darkHover : review ? color.warn : color.success },
-          ]}
-        >
-          {review ? (
-            <ActivityIndicator color={color.onDark} />
-          ) : (
-            <Icon
-              name={declined ? 'x' : 'check'}
-              size={22}
-              color={color.onDark}
-              strokeWidth={2.8}
-            />
-          )}
-        </View>
-
-        <Text variant="h2" tone="onDark">
-          {approved
-            ? 'Approved'
-            : declined
-              ? 'Not approved this time'
-              : review
-                ? 'Being reviewed'
-                : 'Order placed'}
-        </Text>
-
-        {approved && decision.approved_limit_pesewas ? (
-          <Text variant="small" tone="onDarkMuted">
-            Using {ghs(decision.order.total_pesewas)} of your {ghs(decision.approved_limit_pesewas)}{' '}
-            limit.
-          </Text>
-        ) : null}
-
-        {decision.message ? (
-          <Text variant="small" tone="onDarkMuted">
-            {decision.message}
-          </Text>
-        ) : null}
-
-        {approved && decision.down_payment ? (
-          <Card dark style={styles.depositCard}>
-            <View style={styles.depositRow}>
-              <Text variant="small" tone="onDarkMuted">
-                Pay now on Mobile Money
-              </Text>
-              <Text variant="h3" tone="onDark">
-                {ghs(decision.down_payment.amount_due_pesewas)}
-              </Text>
-            </View>
-            <Text variant="tiny" tone="onDarkFaint">
-              The rest is collected automatically — you will see each payment before it happens.
-            </Text>
-          </Card>
-        ) : null}
-
-        {payNow ? (
-          <Card dark style={styles.depositCard}>
-            <View style={styles.depositRow}>
-              <Text variant="small" tone="onDarkMuted">
-                Pay now on Mobile Money
-              </Text>
-              <Text variant="h3" tone="onDark">
-                {ghs(decision.order.total_pesewas)}
-              </Text>
-            </View>
-          </Card>
-        ) : null}
-
-        {error ? (
-          <Text variant="small" tone="accent">
-            {error}
-          </Text>
-        ) : null}
-
-        {(approved && decision.down_payment) || payNow ? (
-          <>
-            <View style={styles.payMethodRow}>
-              {[
-                { value: 'momo' as const, label: 'Mobile Money' },
-                { value: 'card' as const, label: 'Card' },
-              ].map((m) => (
-                <Pressable
-                  key={m.value}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: method === m.value }}
-                  accessibilityLabel={`Pay by ${m.label}`}
-                  onPress={() => setMethod(m.value)}
-                  style={[styles.payMethodTab, method === m.value && styles.payMethodTabOn]}
-                >
-                  <Text variant="smallMedium" tone={method === m.value ? 'onDark' : 'onDarkMuted'}>
-                    {m.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {method === 'card' ? (
-              <Text variant="tiny" tone="onDarkFaint">
-                We will open a secure page to take your card. Your card details never reach Ejua.
-              </Text>
-            ) : null}
-
-            {method === 'momo' ? (
-              <View style={styles.momoFields}>
-                <Text variant="eyebrow" tone="onDarkFaint">
-                  MOBILE MONEY NUMBER
-                </Text>
-                <View style={styles.momoRow}>
-                  <Text variant="bodyMedium" tone="onDarkMuted">
-                    +233
-                  </Text>
-                  <View style={styles.momoDivider} />
-                  <TextInput
-                    value={momoPhone}
-                    onChangeText={setMomoPhone}
-                    placeholder="24 000 0000"
-                    placeholderTextColor={color.onDarkFaint}
-                    keyboardType="phone-pad"
-                    style={styles.momoInput}
-                    accessibilityLabel="The Mobile Money number to charge"
-                  />
-                </View>
-                <View style={styles.momoProviders}>
-                  {MOMO_PROVIDERS.map((p) => (
-                    <Pressable
-                      key={p.value}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: momoProvider === p.value }}
-                      accessibilityLabel={p.label}
-                      onPress={() => setMomoProvider(p.value)}
-                      style={[
-                        styles.momoProvider,
-                        momoProvider === p.value && styles.momoProviderOn,
-                      ]}
-                    >
-                      <Text
-                        variant="smallMedium"
-                        tone={momoProvider === p.value ? 'onDark' : 'onDarkMuted'}
-                      >
-                        {p.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            ) : null}
-            <Button
-              label={method === 'card' ? 'Pay by card' : 'Approve on my phone'}
-              loading={busy}
-              disabled={method === 'momo' && !momoReady}
-              onPress={() => void pay()}
-            />
-            <Text variant="tiny" tone="onDarkFaint" center>
-              {method === 'card'
-                ? 'You will finish on our provider’s secure page, then come back here.'
-                : 'You will get a Mobile Money prompt. Enter your PIN to finish.'}
-            </Text>
-          </>
-        ) : declined ? (
-          <Button
-            label="Keep shopping"
-            variant="ghost"
-            onPress={() => {
-              onDismiss();
-              router.replace('/');
-            }}
-          />
+    <View style={styles.sheet}>
+      <View
+        style={[
+          styles.sheetIcon,
+          { backgroundColor: declined ? color.darkHover : review ? color.warn : color.success },
+        ]}
+      >
+        {review ? (
+          <ActivityIndicator color={color.onDark} />
         ) : (
-          <Button label="See my order" onPress={toConfirmation} />
+          <Icon name={declined ? 'x' : 'check'} size={22} color={color.onDark} strokeWidth={2.8} />
         )}
       </View>
-    </Sheet>
+
+      {position.count > 1 ? (
+        <Text variant="eyebrow" tone="onDarkFaint">
+          {`ORDER ${position.index + 1} OF ${position.count}`}
+          {position.shopName ? ` · ${position.shopName.toUpperCase()}` : ''}
+        </Text>
+      ) : null}
+
+      <Text variant="h2" tone="onDark">
+        {approved
+          ? 'Approved'
+          : declined
+            ? 'Not approved this time'
+            : review
+              ? 'Being reviewed'
+              : 'Order placed'}
+      </Text>
+
+      {approved && decision.approved_limit_pesewas ? (
+        <Text variant="small" tone="onDarkMuted">
+          Using {ghs(decision.order.total_pesewas)} of your {ghs(decision.approved_limit_pesewas)}{' '}
+          limit.
+        </Text>
+      ) : null}
+
+      {decision.message ? (
+        <Text variant="small" tone="onDarkMuted">
+          {decision.message}
+        </Text>
+      ) : null}
+
+      {approved && decision.down_payment ? (
+        <Card dark style={styles.depositCard}>
+          <View style={styles.depositRow}>
+            <Text variant="small" tone="onDarkMuted">
+              Pay now on Mobile Money
+            </Text>
+            <Text variant="h3" tone="onDark">
+              {ghs(decision.down_payment.amount_due_pesewas)}
+            </Text>
+          </View>
+          <Text variant="tiny" tone="onDarkFaint">
+            The rest is collected automatically — you will see each payment before it happens.
+          </Text>
+        </Card>
+      ) : null}
+
+      {payNow ? (
+        <Card dark style={styles.depositCard}>
+          <View style={styles.depositRow}>
+            <Text variant="small" tone="onDarkMuted">
+              Pay now on Mobile Money
+            </Text>
+            <Text variant="h3" tone="onDark">
+              {ghs(decision.order.total_pesewas)}
+            </Text>
+          </View>
+        </Card>
+      ) : null}
+
+      {error ? (
+        <Text variant="small" tone="accent">
+          {error}
+        </Text>
+      ) : null}
+
+      {(approved && decision.down_payment) || payNow ? (
+        <>
+          <View style={styles.payMethodRow}>
+            {[
+              { value: 'momo' as const, label: 'Mobile Money' },
+              { value: 'card' as const, label: 'Card' },
+            ].map((m) => (
+              <Pressable
+                key={m.value}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: method === m.value }}
+                accessibilityLabel={`Pay by ${m.label}`}
+                onPress={() => setMethod(m.value)}
+                style={[styles.payMethodTab, method === m.value && styles.payMethodTabOn]}
+              >
+                <Text variant="smallMedium" tone={method === m.value ? 'onDark' : 'onDarkMuted'}>
+                  {m.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {method === 'card' ? (
+            <Text variant="tiny" tone="onDarkFaint">
+              We will open a secure page to take your card. Your card details never reach Ejua.
+            </Text>
+          ) : null}
+
+          {method === 'momo' ? (
+            <MomoFields
+              phone={momoPhone}
+              provider={momoProvider}
+              onPhone={setMomoPhone}
+              onProvider={setMomoProvider}
+              label="The Mobile Money number to charge"
+            />
+          ) : null}
+          <Button
+            label={method === 'card' ? 'Pay by card' : 'Approve on my phone'}
+            loading={busy}
+            disabled={method === 'momo' && !momoReady}
+            onPress={() => void pay()}
+          />
+          <Text variant="tiny" tone="onDarkFaint" center>
+            {method === 'card'
+              ? 'You will finish on our provider’s secure page, then come back here.'
+              : 'You will get a Mobile Money prompt. Enter your PIN to finish.'}
+          </Text>
+        </>
+      ) : needsCollectionNumber ? (
+        <>
+          <Text variant="small" tone="onDarkMuted">
+            Nothing to pay today. Which Mobile Money number should each instalment be collected
+            from?
+          </Text>
+          <MomoFields
+            phone={momoPhone}
+            provider={momoProvider}
+            onPhone={setMomoPhone}
+            onProvider={setMomoProvider}
+            label="The Mobile Money number to collect instalments from"
+          />
+          <Button
+            label="Collect from this number"
+            loading={busy}
+            disabled={!momoReady}
+            onPress={() => void saveCollectionNumber()}
+          />
+          <Button
+            label="Not now"
+            variant="ghost"
+            disabled={busy}
+            onPress={() => {
+              onCollectionAnswered();
+              onDone();
+            }}
+          />
+        </>
+      ) : declined && position.count === 1 ? (
+        <Button label="Keep shopping" variant="ghost" onPress={() => router.replace('/')} />
+      ) : (
+        <Button
+          label={more ? 'Next order' : position.count > 1 ? 'See my orders' : 'See my order'}
+          // Not before the profile says whether a collection number is needed.
+          loading={waitingForProfile}
+          onPress={onDone}
+        />
+      )}
+    </View>
+  );
+}
+
+/** The number and network a Mobile Money charge or collection goes to. */
+function MomoFields({
+  phone,
+  provider,
+  onPhone,
+  onProvider,
+  label,
+}: {
+  phone: string;
+  provider: MomoProvider | null;
+  onPhone: (phone: string) => void;
+  onProvider: (provider: MomoProvider) => void;
+  /** What the number is for, read out by a screen reader. */
+  label: string;
+}): React.ReactElement {
+  return (
+    <View style={styles.momoFields}>
+      <Text variant="eyebrow" tone="onDarkFaint">
+        MOBILE MONEY NUMBER
+      </Text>
+      <View style={styles.momoRow}>
+        <Text variant="bodyMedium" tone="onDarkMuted">
+          +233
+        </Text>
+        <View style={styles.momoDivider} />
+        <TextInput
+          value={phone}
+          onChangeText={onPhone}
+          placeholder="24 000 0000"
+          placeholderTextColor={color.onDarkFaint}
+          keyboardType="phone-pad"
+          style={styles.momoInput}
+          accessibilityLabel={label}
+        />
+      </View>
+      <View style={styles.momoProviders}>
+        {MOMO_PROVIDERS.map((p) => (
+          <Pressable
+            key={p.value}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: provider === p.value }}
+            accessibilityLabel={p.label}
+            onPress={() => onProvider(p.value)}
+            style={[styles.momoProvider, provider === p.value && styles.momoProviderOn]}
+          >
+            <Text variant="smallMedium" tone={provider === p.value ? 'onDark' : 'onDarkMuted'}>
+              {p.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -921,6 +1193,12 @@ const styles = StyleSheet.create({
   payTitleRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   expanded: { marginTop: space.lg, gap: space.md },
   planChips: { gap: space.sm },
+  shopPlan: {
+    gap: space.xs,
+    paddingTop: space.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.borderSoft,
+  },
   summary: { gap: space.sm },
   summaryRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   summaryLabel: { flex: 1 },
