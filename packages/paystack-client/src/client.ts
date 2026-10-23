@@ -222,6 +222,11 @@ export interface PaystackClientOptions {
   /** Defaults to global fetch; tests inject a stub. */
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /**
+   * Where an address Paystack will not accept is moved — see
+   * `chargeableEmail`. Unset, every address goes through as given.
+   */
+  standInEmailDomain?: string;
 }
 
 const DEFAULT_BASE_URL = 'https://api.paystack.co';
@@ -245,11 +250,43 @@ function assertValidReference(op: string, reference: string): void {
   }
 }
 
+/**
+ * Top-level domains reserved never to resolve (RFC 2606, RFC 6761, RFC 6762).
+ * Paystack refuses an address on one — HTTP 400, `validation_error` /
+ * `invalid_email_address`, "Invalid Email Address Passed" (test mode,
+ * 2026-10-23) — before any transaction exists.
+ */
+const RESERVED_TLDS = new Set(['local', 'localhost', 'test', 'invalid', 'example']);
+
+/**
+ * The address to give Paystack for a customer.
+ *
+ * Paystack needs an email on every charge and payment link. An account opened
+ * with a phone number has none, and signup stores `<phone>@customer.installment.local`
+ * in its place — an address on a reserved domain, which Paystack refused: every
+ * customer who signed up in the app was unable to pay at all, by Mobile Money
+ * or by card. Such an address is moved to `standInDomain`, keeping its local
+ * part, so one customer always maps to one address. That matters: Paystack ties
+ * a saved card's authorization to the email it was created under.
+ */
+export function chargeableEmail(email: string, standInDomain: string | undefined): string {
+  if (!standInDomain) return email;
+  const at = email.lastIndexOf('@');
+  if (at < 1) return email;
+  const tld = email
+    .slice(at + 1)
+    .split('.')
+    .pop()!
+    .toLowerCase();
+  return RESERVED_TLDS.has(tld) ? `${email.slice(0, at)}@${standInDomain}` : email;
+}
+
 export class PaystackClient {
   private readonly secretKey: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly standInEmailDomain: string | undefined;
 
   constructor(opts: PaystackClientOptions) {
     if (!opts.secretKey) {
@@ -259,6 +296,7 @@ export class PaystackClient {
     this.baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.standInEmailDomain = opts.standInEmailDomain || undefined;
   }
 
   /**
@@ -284,7 +322,7 @@ export class PaystackClient {
   chargeMobileMoney(req: ChargeMobileMoneyRequest): Promise<PaystackResponse<ChargeData>> {
     assertValidReference('chargeMobileMoney', req.reference);
     return this.request<ChargeData>('POST', '/charge', {
-      email: req.email,
+      email: chargeableEmail(req.email, this.standInEmailDomain),
       amount: req.amount,
       currency: req.currency,
       reference: req.reference,
@@ -296,7 +334,7 @@ export class PaystackClient {
   chargeCard(req: ChargeCardRequest): Promise<PaystackResponse<ChargeData>> {
     assertValidReference('chargeCard', req.reference);
     return this.request<ChargeData>('POST', '/charge', {
-      email: req.email,
+      email: chargeableEmail(req.email, this.standInEmailDomain),
       amount: req.amount,
       currency: req.currency,
       reference: req.reference,
@@ -318,7 +356,7 @@ export class PaystackClient {
   ): Promise<PaystackResponse<CreatePaymentLinkData>> {
     assertValidReference('createPaymentLink', req.reference);
     return this.request<CreatePaymentLinkData>('POST', '/transaction/initialize', {
-      email: req.email,
+      email: chargeableEmail(req.email, this.standInEmailDomain),
       amount: req.amount,
       currency: req.currency,
       reference: req.reference,

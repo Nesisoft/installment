@@ -586,6 +586,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
           // Empty key in dev → a placeholder so boot works; real calls 401 until set.
           secretKey: config.get('PAYSTACK_SECRET_KEY', { infer: true }) || 'sk_test_unset',
           baseUrl: config.get('PAYSTACK_BASE_URL', { infer: true }),
+          standInEmailDomain: config.get('PAYSTACK_STANDIN_EMAIL_DOMAIN', { infer: true }),
         }),
       inject: [ConfigService],
     },
