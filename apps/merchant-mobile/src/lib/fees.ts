@@ -102,5 +102,7 @@ export function feeSentence(fees: SellerFees): string {
     Math.min(...mdr) === Math.max(...mdr)
       ? `${pctSpan(mdr)} on every instalment sale`
       : `${pctSpan(mdr)} on an instalment sale depending on the plan the buyer picks`;
-  return `Ejua's fee is ${pct(fees.pay_now_commission_bps)} on a paid-in-full order, and ${onPlans}.`;
+  // "of the items": the commission is taken on the goods only. The seller
+  // pays the courier, so the delivery fee passes to them whole.
+  return `Ejua's fee is ${pct(fees.pay_now_commission_bps)} of the items on a paid-in-full order (the delivery fee is all yours), and ${onPlans}.`;
 }

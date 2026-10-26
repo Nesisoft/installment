@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { createTestDb, schema } from '@installment/db';
 import {
   ApplicationsService,
@@ -8,8 +9,10 @@ import {
   LedgerService,
   MerchantsService,
   PayoutRecorder,
+  PLATFORM_ACCOUNT_REF,
   RefundService,
   ReserveReleaseService,
+  SETTLEMENT_CASH_REF,
   SYSTEM_ACTORS,
   approveRequiredMerchantKyc,
 } from '@installment/core';
@@ -17,7 +20,7 @@ import { StoresService } from '../stores/stores.service';
 import { ProductsService } from '../catalog/products.service';
 import { InventoryService } from '../catalog/inventory.service';
 import { CartService } from '../orders/cart.service';
-import { OrdersService } from '../orders/orders.service';
+import { OrdersService, orderPaymentTransactionId } from '../orders/orders.service';
 import { FulfilmentService } from '../fulfilment/fulfilment.service';
 import { ReturnsService } from './returns.service';
 import { MerchantReturnsService } from './merchant-returns.service';
@@ -187,6 +190,68 @@ describe.skipIf(!RUN_DB)('MerchantReturnsService (integration)', () => {
       .reduce((sum, e) => sum + Number(e.amount_pesewas), 0);
 
     expect(debited).toBe(promised);
+  });
+
+  it('promises what the payment booked, for an order paid before commission left delivery', async () => {
+    // GHS 50 of goods and GHS 15 delivery, paid when commission was still
+    // taken on the whole 6500: 325 to revenue, 6175 to the seller. The rate
+    // today would say 250 and 6250; the promise and the debit must both be the
+    // 6175 the seller was actually credited.
+    const customerId = await shopper();
+    const { merchantId, storeId } = await shop();
+    const product = await products.create(
+      {
+        store_id: storeId,
+        title: 'Kente Stole',
+        base_price_pesewas: 5_000,
+        status: 'active',
+        variants: [
+          { sku: `SKU-${randomUUID().slice(0, 8)}`, price_pesewas: null, quantity_available: 5 },
+        ],
+      },
+      ACTOR,
+    );
+    await cart.addItem(customerId, { variant_id: product.variants[0]!.id, quantity: 1 });
+    const [raised] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+    const transactionId = orderPaymentTransactionId(raised!.id);
+    await ledger.record([
+      {
+        transactionId,
+        accountType: 'paystack_settlement',
+        accountRef: SETTLEMENT_CASH_REF,
+        direction: 'debit',
+        amountPesewas: 6_500,
+        description: 'old-rule payment',
+      },
+      {
+        transactionId,
+        accountType: 'merchant_payable',
+        accountRef: merchantId,
+        direction: 'credit',
+        amountPesewas: 6_175,
+        description: 'old-rule payment',
+      },
+      {
+        transactionId,
+        accountType: 'revenue',
+        accountRef: PLATFORM_ACCOUNT_REF,
+        direction: 'credit',
+        amountPesewas: 325,
+        description: 'old-rule payment',
+      },
+    ]);
+    await db
+      .update(schema.orders)
+      .set({ shipping_pesewas: 1_500, total_pesewas: 6_500, status: 'paid' })
+      .where(eq(schema.orders.id, raised!.id));
+
+    const request = await returns.request(customerId, raised!.id, { reason: 'Wrong colour' });
+    const detail = await merchantReturns.detail(merchantId, request.id);
+    expect(detail.merchantLosesPesewas).toBe(6_175);
+    expect(detail.commissionReversedPesewas).toBe(325);
+
+    await returns.approve(request.id, ACTOR, { merchantId });
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
   });
 
   it('summarises a multi-line order rather than naming one thing', async () => {

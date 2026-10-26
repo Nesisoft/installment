@@ -96,13 +96,13 @@ describe('saleSplits', () => {
 describe('feeSentence', () => {
   it('names both fees, and says the plan decides when the plans differ', () => {
     expect(feeSentence(MODEL_RATES)).toBe(
-      "Ejua's fee is 5% on a paid-in-full order, and 3–5% on an instalment sale depending on the plan the buyer picks.",
+      "Ejua's fee is 5% of the items on a paid-in-full order (the delivery fee is all yours), and 3–5% on an instalment sale depending on the plan the buyer picks.",
     );
   });
 
   it('gives a merchant with a deal one flat figure', () => {
     expect(feeSentence(NEGOTIATED)).toBe(
-      "Ejua's fee is 5% on a paid-in-full order, and 2.5% on every instalment sale.",
+      "Ejua's fee is 5% of the items on a paid-in-full order (the delivery fee is all yours), and 2.5% on every instalment sale.",
     );
   });
 });

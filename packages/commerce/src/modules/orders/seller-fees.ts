@@ -15,7 +15,8 @@ export interface PlanFees {
  *
  * - **Paid in full.** `checkout` stamps the marketplace commission — this
  *   merchant's deal, else the platform default — on the order, and
- *   `confirmPayment` books it. No reserve.
+ *   `confirmPayment` books it on the goods only (`commissionBasePesewas`):
+ *   the delivery fee passes to the seller, who pays the courier. No reserve.
  * - **On a plan.** Activation freezes `effectiveRates` onto the plan: the
  *   merchant's negotiated rate if there is one, else the plan's business-model
  *   rate. Which plan applies is the buyer's choice at checkout, so the seller is
