@@ -540,7 +540,17 @@ function Payout(): React.ReactElement {
 
   return (
     <View style={styles.step}>
-      {account.data?.connected ? (
+      {account.data && !account.data.connected && account.data.code_required ? (
+        // Money is already owed, so the first account takes the code texted to
+        // the seller's phone. That flow lives on the payout account screen.
+        <View style={styles.gap}>
+          <Text variant="small" tone="onDarkMuted" style={styles.blurb}>
+            You already have money waiting. Setting where it goes takes a code we text to the phone
+            on your account.
+          </Text>
+          <Button label="Set up payouts" onPress={() => router.push('/payout-account')} />
+        </View>
+      ) : account.data?.connected ? (
         <Card dark style={styles.gap}>
           <Text variant="eyebrow" tone="onDarkFaint">
             PAYOUT DESTINATION

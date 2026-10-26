@@ -102,12 +102,19 @@ export function PayoutAccountPage() {
         </Card>
       )}
 
-      <PayoutAccountForm connected={current.connected} />
+      <PayoutAccountForm connected={current.connected} codeRequired={current.code_required} />
     </div>
   );
 }
 
-function PayoutAccountForm({ connected }: { connected: boolean }) {
+function PayoutAccountForm({
+  connected,
+  codeRequired,
+}: {
+  connected: boolean;
+  /** A replacement, or a first account while money is owed: both need the code. */
+  codeRequired: boolean;
+}) {
   const destinations = usePayoutDestinations();
   const resolve = useResolvePayoutAccount();
   const sendCode = useSendPayoutChangeCode();
@@ -174,7 +181,7 @@ function PayoutAccountForm({ connected }: { connected: boolean }) {
       {
         bank_code: confirmed.bankCode,
         account_number: confirmed.number,
-        ...(connected ? { code: code.trim() } : {}),
+        ...(codeRequired ? { code: code.trim() } : {}),
       },
       {
         onSuccess: () => {
@@ -245,7 +252,7 @@ function PayoutAccountForm({ connected }: { connected: boolean }) {
               <p className="text-sm text-muted-foreground">
                 If that is not you, correct the number rather than saving it.
               </p>
-              {connected && !codeSent ? (
+              {codeRequired && !codeSent ? (
                 <>
                   <p className="text-sm text-muted-foreground">
                     Changing where your money goes takes a code we text to the phone on your
@@ -282,7 +289,7 @@ function PayoutAccountForm({ connected }: { connected: boolean }) {
                   <Button
                     type="button"
                     onClick={onSave}
-                    disabled={save.isPending || (connected && code.trim().length < 4)}
+                    disabled={save.isPending || (codeRequired && code.trim().length < 4)}
                   >
                     {save.isPending ? 'Saving…' : `Pay my settlements to ${confirmed.name}`}
                   </Button>

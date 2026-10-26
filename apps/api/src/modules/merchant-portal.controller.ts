@@ -385,6 +385,10 @@ export class MerchantPortalController {
    */
   @Post('payout-account')
   @HttpCode(200)
+  // The route that checks the code, so the one that bounds guessing it. Each
+  // code allows five wrong tries, but a resend starts a fresh code, and the
+  // global limit alone let a session fire hundreds of guesses an hour.
+  @RateLimit({ limit: 10, windowSeconds: 900, bucket: 'payout-account-save' })
   @ApiOperation({ summary: 'Set where my settlements are sent' })
   @ApiZodBody(setPayoutAccountSchema)
   @ApiModel('Merchant')

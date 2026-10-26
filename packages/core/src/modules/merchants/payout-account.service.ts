@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { runInTransaction } from '../../shared/event-bus/transaction';
@@ -9,6 +9,7 @@ import {
   type SetPayoutAccountInput,
 } from './dto';
 import {
+  MerchantConflictError,
   MerchantNotFoundError,
   PayoutAccountUnresolvedError,
   PayoutChangeCodeInvalidError,
@@ -22,6 +23,7 @@ import type { NotificationService } from '../notifications/notification.service'
 import type { Merchant, MerchantActor } from './merchants.service';
 
 const m = schema.merchants;
+const le = schema.ledger_entries;
 
 /**
  * The slice of the Paystack client this service needs.
@@ -67,6 +69,12 @@ export interface PayoutAccountView {
    * replaced another one recently; null when nothing is held.
    */
   payouts_held_until: string | null;
+  /**
+   * Whether setting an account from the merchant's session needs the code
+   * texted to their phone: when one is already on file, or when money is
+   * already owed to them. Clients ask for the code when this is true.
+   */
+  code_required: boolean;
 }
 
 /**
@@ -200,8 +208,10 @@ export class PayoutAccountService {
   async get(merchantId: string): Promise<PayoutAccountView> {
     const row = await this.load(merchantId);
     const heldUntil = isoOrNull(row.payout_account_hold_until);
+    const connected = Boolean(row.paystack_recipient_code);
     return {
-      connected: Boolean(row.paystack_recipient_code),
+      connected,
+      code_required: connected || (await this.owedPesewas(merchantId)) > 0,
       bank_code: row.bank_code,
       account_number_masked: maskAccountNumber(row.bank_account_number),
       account_name: row.bank_account_name,
@@ -317,17 +327,24 @@ export class PayoutAccountService {
     const current = await this.load(merchantId);
     const destination = await this.assertKnownBank(input.bank_code);
 
-    // Replacing an account the merchant already has, as opposed to adding a
-    // first one or re-saving the same one. Only a replacement can take money
-    // that was going somewhere else, so only a replacement is guarded.
-    const replacing =
-      Boolean(current.paystack_recipient_code) &&
-      (current.bank_code !== input.bank_code ||
-        current.bank_account_number !== input.account_number);
+    // Guarded: a change that sends money somewhere it was not going. That is a
+    // replacement of the account on file — and also a FIRST account when money
+    // is already owed, because the session that sets it decides where that
+    // balance goes. Only guarding replacements left exactly the merchant a
+    // stolen session would want: one who sold before adding an account (a
+    // skipped or failed signup payout step), whose whole balance went to
+    // whatever account was set first, with no code, hold or notice. A first
+    // account on nothing owed, and re-saving the same account, stay free.
+    const firstAccount = !current.paystack_recipient_code;
+    const changing =
+      firstAccount ||
+      current.bank_code !== input.bank_code ||
+      current.bank_account_number !== input.account_number;
+    const guarded = changing && (!firstAccount || (await this.owedPesewas(merchantId)) > 0);
     // The code is asked of the merchant's own session only. An admin or the
     // system does not sign in as the merchant, so a stolen merchant session is
     // not the risk on their path; the hold and the notice below still apply.
-    const needsCode = replacing && actor.actorType === 'merchant';
+    const needsCode = guarded && actor.actorType === 'merchant';
     if (needsCode && !input.code) throw new PayoutChangeCodeRequiredError();
 
     // Resolved every time, including when the merchant re-confirms a name the
@@ -360,12 +377,29 @@ export class PayoutAccountService {
       throw new PayoutAccountUnresolvedError('the payment provider returned no recipient code');
     }
 
-    // A replacement waits a day before settlement pays it: the window for the
-    // real seller to see the notice and stop it. A first account waits for
-    // nothing, and re-saving the same account leaves any hold where it was.
-    const holdUntil = replacing ? new Date(this.now().getTime() + PAYOUT_ACCOUNT_HOLD_MS) : null;
+    // A guarded change waits a day before settlement pays it: the window for
+    // the real seller to see the notice and stop it. An unguarded first account
+    // waits for nothing, and re-saving the same account leaves any hold alone.
+    const holdUntil = guarded ? new Date(this.now().getTime() + PAYOUT_ACCOUNT_HOLD_MS) : null;
 
     const updated = await runInTransaction(this.db, async (tx) => {
+      // Decided again on the row as it stands, under a lock. Everything above
+      // read `current` before two provider round trips, so a save that started
+      // while no account was on file could otherwise land on top of one set in
+      // the meantime — as an unguarded "first" account.
+      const [locked] = await tx
+        .select({ recipient: m.paystack_recipient_code })
+        .from(m)
+        .where(and(eq(m.id, merchantId), isNull(m.deleted_at)))
+        .for('update')
+        .limit(1);
+      if (!locked) throw new MerchantNotFoundError(merchantId);
+      if (locked.recipient !== current.paystack_recipient_code) {
+        throw new MerchantConflictError(
+          'The payout account changed while this one was being saved. Check it and try again.',
+        );
+      }
+
       const rows = await tx
         .update(m)
         .set({
@@ -406,7 +440,7 @@ export class PayoutAccountService {
     // To the phone on file, which this change did not touch. Best-effort by
     // NotificationService's own contract: it records a failed send and never
     // throws, so a notice that cannot go out does not undo a change that did.
-    if (replacing && holdUntil && this.guard) {
+    if (guarded && holdUntil && this.guard) {
       await this.guard.notifications.send({
         recipientType: 'merchant',
         recipientId: merchantId,
@@ -425,6 +459,17 @@ export class PayoutAccountService {
   }
 
   // ------------------------------------------------------------------ helpers
+
+  /** What settlement would pay this merchant now: their `merchant_payable` balance. */
+  private async owedPesewas(merchantId: string): Promise<number> {
+    const rows = await this.db
+      .select({
+        balance: sql<string>`coalesce(sum(${le.amount_pesewas} * case ${le.direction} when 'credit' then 1 else -1 end), 0)`,
+      })
+      .from(le)
+      .where(and(eq(le.account_type, 'merchant_payable'), eq(le.account_ref, merchantId)));
+    return Number(rows[0]?.balance ?? 0);
+  }
 
   private async load(merchantId: string): Promise<Merchant> {
     const rows = await this.db
