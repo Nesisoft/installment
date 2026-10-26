@@ -19,6 +19,8 @@
  */
 export type NotificationTemplateId =
   | 'pre_debit_reminder'
+  | 'pre_debit_reminder_card'
+  | 'pre_debit_reminder_manual'
   | 'payment_link'
   | 'payment_succeeded'
   | 'payment_failed'
@@ -56,6 +58,32 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationTemplateId, TemplateDef>
     push: (v) => ({
       title: `GHS ${v.amount} due ${v.date}`,
       body: `Keep your ${String(v.provider).toUpperCase()} wallet funded so the debit goes through.`,
+    }),
+  },
+  // The same heads-up for a customer the auto-debit will charge by card — it
+  // tries a saved card first. A card-only customer was sent nothing (the
+  // reminder needed a Mobile Money number to go to), and one with both was told
+  // to fund a wallet the debit was not going to touch.
+  pre_debit_reminder_card: {
+    required: ['name', 'amount', 'date', 'card'],
+    render: (v) =>
+      `Hi ${v.name}, GHS ${v.amount} for your installment is due ${v.date}. ` +
+      `We will charge your ${v.card}. - ${SIGNOFF}`,
+    push: (v) => ({
+      title: `GHS ${v.amount} due ${v.date}`,
+      body: `We will charge your ${v.card}.`,
+    }),
+  },
+  // And for one with nothing on file to collect from: the debit cannot happen,
+  // so the reminder is the only thing that can stop the instalment going late.
+  pre_debit_reminder_manual: {
+    required: ['name', 'amount', 'date'],
+    render: (v) =>
+      `Hi ${v.name}, GHS ${v.amount} for your installment is due ${v.date}. ` +
+      `There is nothing on file to collect it from, so please pay it in the app. - ${SIGNOFF}`,
+    push: (v) => ({
+      title: `GHS ${v.amount} due ${v.date}`,
+      body: 'Nothing is on file to collect it from. Open the app to pay it.',
     }),
   },
   payment_link: {

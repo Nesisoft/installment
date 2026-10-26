@@ -293,7 +293,8 @@ export interface CustomerProfile {
   id: string;
   first_name: string;
   last_name: string;
-  email: string;
+  /** Null when the customer signed up by phone and never gave one. */
+  email: string | null;
   phone: string;
   momo_phone: string | null;
   momo_provider: MomoProvider | null;

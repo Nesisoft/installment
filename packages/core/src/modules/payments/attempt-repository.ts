@@ -97,6 +97,18 @@ export class AttemptRepository {
     return (await this.db.select().from(pa).where(eq(pa.idempotency_key, key)).limit(1))[0];
   }
 
+  /** The newest attempt on a schedule, whatever became of it. */
+  async findLatestForSchedule(scheduleId: string): Promise<PaymentAttempt | undefined> {
+    return (
+      await this.db
+        .select()
+        .from(pa)
+        .where(eq(pa.schedule_id, scheduleId))
+        .orderBy(desc(pa.initiated_at))
+        .limit(1)
+    )[0];
+  }
+
   /**
    * The newest unresolved attempt for a schedule, if any. `in_flight` means a
    * charge is live at the provider; `unknown` means we could not determine

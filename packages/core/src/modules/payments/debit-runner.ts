@@ -2,6 +2,7 @@ import type { CustomerPlansService, PlanActor } from '../schedules/customer-plan
 import type { CustomersService } from '../customers/customers.service';
 import type { PaymentService, ChargeResult } from './payment.service';
 import type { CardAuthorizationService } from './card-authorization.service';
+import type { AttemptRepository } from './attempt-repository';
 
 /** Outcome of one auto-debit attempt. `skipped` means we couldn't even try. */
 export interface DebitAttemptOutcome {
@@ -21,6 +22,10 @@ export interface DebitSweepSummary {
   unknown: number;
   skipped: number;
   outcomes: DebitAttemptOutcome[];
+}
+
+function isMomoProvider(provider: string): provider is 'mtn' | 'tgo' | 'vod' {
+  return provider === 'mtn' || provider === 'tgo' || provider === 'vod';
 }
 
 /**
@@ -51,6 +56,8 @@ export class DebitRunner {
      * falls back to Mobile Money exactly as before.
      */
     private readonly cards?: CardAuthorizationService,
+    /** Optional too; without it a card is tried on every attempt, as before. */
+    private readonly attempts?: Pick<AttemptRepository, 'findLatestForSchedule'>,
   ) {}
 
   /**
@@ -77,9 +84,24 @@ export class DebitRunner {
       };
     }
 
+    const momoOnFile = Boolean(phone) && isMomoProvider(provider);
     // A saved card collects silently, so it is tried first when there is one.
     const card = this.cards ? await this.cards.findUsable(customerId).catch(() => null) : null;
-    if (card) {
+    /**
+     * Unless that card is what just failed. Every retry went back to the same
+     * card, so a customer whose card was empty and whose wallet was funded ran
+     * the whole retry ladder on the card — to the payment link, then the late
+     * fee — and the Mobile Money number on file was never tried. After a
+     * declined card attempt the next attempt, still one instrument per run,
+     * goes to Mobile Money; a failure there brings the card back. Mobile Money
+     * needs the customer's approval on their handset, so this cannot take money
+     * they did not mean to pay.
+     */
+    const last = this.attempts
+      ? await this.attempts.findLatestForSchedule(scheduleId).catch(() => undefined)
+      : undefined;
+    const cardJustDeclined = last?.payment_method === 'card' && last.status === 'failed';
+    if (card && !(cardJustDeclined && momoOnFile)) {
       try {
         const result = await this.payments.chargeCard(
           { scheduleId, email, authorizationCode: card.authorization_code },
@@ -100,7 +122,7 @@ export class DebitRunner {
       }
     }
 
-    if (!phone || (provider !== 'mtn' && provider !== 'tgo' && provider !== 'vod')) {
+    if (!momoOnFile || !isMomoProvider(provider)) {
       return { scheduleId, status: 'skipped', reason: 'no_instrument' };
     }
 

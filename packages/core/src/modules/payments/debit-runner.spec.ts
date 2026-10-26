@@ -14,6 +14,8 @@ function deps(
     card?: { authorization_code: string } | null;
     cardResult?: { status: string; providerReference?: string; failureReason?: string };
     cardThrows?: Error;
+    /** The schedule's newest attempt; undefined means no attempt repository wired. */
+    lastAttempt?: { payment_method: string | null; status: string } | null;
   } = {},
 ) {
   const installment = over.installment ?? { id: 's1', customer_plan_id: 'p1' };
@@ -40,11 +42,16 @@ function deps(
   });
   // Undefined `card` means no card service at all — the pre-card behaviour.
   const cards = over.card === undefined ? undefined : { findUsable: vi.fn(async () => over.card) };
+  const attempts =
+    over.lastAttempt === undefined
+      ? undefined
+      : { findLatestForSchedule: vi.fn(async () => over.lastAttempt ?? undefined) };
   const runner = new DebitRunner(
     plans as never,
     customers as never,
     { chargeMobileMoney, chargeCard } as never,
     cards as never,
+    attempts as never,
   );
   return { runner, plans, customers, chargeMobileMoney, chargeCard, cards };
 }
@@ -130,6 +137,63 @@ describe('DebitRunner.attemptAutoDebit', () => {
 
     expect(outcome.status).toBe('failed');
     expect(outcome.reason).toBe('insufficient_funds');
+    expect(chargeMobileMoney).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The retry after a declined card goes to Mobile Money. Every retry used to
+   * go back to the same card, so a funded wallet was never tried and the
+   * customer reached the payment link and then the late fee.
+   */
+  it('charges Mobile Money on the attempt after the card was declined', async () => {
+    const { runner, chargeCard, chargeMobileMoney } = deps({
+      card: { authorization_code: 'AUTH_abc' },
+      lastAttempt: { payment_method: 'card', status: 'failed' },
+    });
+
+    const outcome = await runner.attemptAutoDebit('s1', ACTOR);
+
+    expect(chargeCard).not.toHaveBeenCalled();
+    expect(chargeMobileMoney).toHaveBeenCalledOnce();
+    expect(outcome.status).toBe('pending');
+  });
+
+  it('goes back to the card once a Mobile Money attempt has failed too', async () => {
+    const { runner, chargeCard, chargeMobileMoney } = deps({
+      card: { authorization_code: 'AUTH_abc' },
+      lastAttempt: { payment_method: 'momo', status: 'failed' },
+    });
+
+    await runner.attemptAutoDebit('s1', ACTOR);
+
+    expect(chargeCard).toHaveBeenCalledOnce();
+    expect(chargeMobileMoney).not.toHaveBeenCalled();
+  });
+
+  it('retries the card when there is no Mobile Money number to switch to', async () => {
+    const { runner, chargeCard, chargeMobileMoney } = deps({
+      card: { authorization_code: 'AUTH_abc' },
+      customer: { id: 'c1', email: 'a@x.gh', momo_phone: null, momo_provider: null },
+      lastAttempt: { payment_method: 'card', status: 'failed' },
+    });
+
+    await runner.attemptAutoDebit('s1', ACTOR);
+
+    expect(chargeCard).toHaveBeenCalledOnce();
+    expect(chargeMobileMoney).not.toHaveBeenCalled();
+  });
+
+  it('keeps the card when its last attempt did not fail', async () => {
+    // An `unknown` card attempt may yet have taken the money; the unresolved-
+    // attempt guard handles it, and switching instruments here must not.
+    const { runner, chargeCard, chargeMobileMoney } = deps({
+      card: { authorization_code: 'AUTH_abc' },
+      lastAttempt: { payment_method: 'card', status: 'unknown' },
+    });
+
+    await runner.attemptAutoDebit('s1', ACTOR);
+
+    expect(chargeCard).toHaveBeenCalledOnce();
     expect(chargeMobileMoney).not.toHaveBeenCalled();
   });
 
