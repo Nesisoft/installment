@@ -68,12 +68,14 @@ export interface MerchantReturnRow {
   buyerPhone: string | null;
   itemSummary: string | null;
   /**
-   * What approving costs the seller: `total − commission` at the order's own
-   * `commission_bps`, which is what the ledger reverses. Not recomputable from
-   * the merchant's current default rate — that would be wrong for every order
-   * placed before the last rate change.
+   * What approving costs the seller: the net their sale was credited, read
+   * from the payment's own ledger postings — exactly what approving reverses.
+   * Not recomputable from a rate: the merchant's rate and the commission base
+   * (delivery left it in #128) have both changed, and an order keeps the split
+   * it was booked with.
    */
   merchantLosesPesewas: number;
+  /** The commission the payment booked, reversed alongside the seller's net. */
   commissionReversedPesewas: number;
 }
 
