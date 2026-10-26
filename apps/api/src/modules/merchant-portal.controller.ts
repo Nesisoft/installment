@@ -55,6 +55,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentMerchantId } from '../auth/decorators';
 import { ApiModel } from '../common/api-model';
 import { ApiZodBody } from '../common/api-zod';
+import { RateLimit } from '../common/rate-limit.decorator';
 import { MerchantScopeGuard } from '../auth/merchant-scope.guard';
 import { numOrUndefined } from '../auth/current-actor';
 import { keyBelongsTo } from '../media/upload-policy';
@@ -365,6 +366,23 @@ export class MerchantPortalController {
     return this.payoutAccount.resolve(merchantId, body);
   }
 
+  /**
+   * Texts the merchant's phone a code for replacing their payout account with
+   * this one. Each send is an SMS we pay for, hence the tight limit.
+   */
+  @Post('payout-account/code')
+  @HttpCode(200)
+  @RateLimit({ limit: 5, windowSeconds: 900, bucket: 'payout-account-code' })
+  @ApiOperation({ summary: 'Text me a code to change where my settlements are sent' })
+  @ApiZodBody(resolvePayoutAccountSchema)
+  sendPayoutChangeCode(@Body() body: unknown, @CurrentMerchantId() merchantId: string) {
+    return this.payoutAccount.sendChangeCode(merchantId, body);
+  }
+
+  /**
+   * Replacing an account already on file needs `code` from the route above;
+   * the first account does not. A replacement is not paid for 24 hours.
+   */
   @Post('payout-account')
   @HttpCode(200)
   @ApiOperation({ summary: 'Set where my settlements are sent' })

@@ -16,6 +16,10 @@
  * lands, and nothing is lost when it does not. Informational messages that are
  * *not* money-critical (an order shipping, say) are push-only, and live with the
  * service that raises them rather than here.
+ *
+ * One is for a seller rather than a customer — `payout_account_changed` — and
+ * is here for the same reason: missing it costs them their settlements.
+ * NotificationService pushes only to customers, so its push copy is unused.
  */
 export type NotificationTemplateId =
   | 'pre_debit_reminder'
@@ -27,7 +31,8 @@ export type NotificationTemplateId =
   | 'collections_soft_reminder'
   | 'collections_firm_reminder'
   | 'collections_restriction_warning'
-  | 'collections_legal_threat';
+  | 'collections_legal_threat'
+  | 'payout_account_changed';
 
 /** A push notification's two halves, as a tray renders them. */
 export interface PushCopy {
@@ -156,6 +161,20 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationTemplateId, TemplateDef>
     push: (v) => ({
       title: 'Final notice before legal recovery',
       body: `GHS ${v.amount} remains unpaid. You have 7 days.`,
+    }),
+  },
+  // To a seller, at the phone on file, when their payout account is replaced.
+  // The code that authorised it went to the same phone, but a code can be
+  // talked out of someone; this says what happened, where the money will go,
+  // and that nothing moves for a day — the window to stop it.
+  payout_account_changed: {
+    required: ['destination', 'account', 'name', 'until'],
+    render: (v) =>
+      `Your payouts will now go to ${v.destination} ${v.account} (${v.name}). ` +
+      `Nothing is paid there before ${v.until}. If you did not make this change, contact support now. - ${SIGNOFF}`,
+    push: (v) => ({
+      title: 'Payout account changed',
+      body: `Payouts now go to ${v.destination} ${v.account}. Not you? Contact support now.`,
     }),
   },
 };

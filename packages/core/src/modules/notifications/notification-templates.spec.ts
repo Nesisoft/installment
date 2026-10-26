@@ -89,6 +89,12 @@ describe('push renderings', () => {
     collections_firm_reminder: { name: 'Ama', amount: '120.00' },
     collections_restriction_warning: { name: 'Ama', amount: '120.00' },
     collections_legal_threat: { name: 'Ama', amount: '120.00' },
+    payout_account_changed: {
+      destination: 'MTN Mobile Money',
+      account: '••••1122',
+      name: 'AKUA BOATENG',
+      until: '27 Oct 2026, 19:46 GMT',
+    },
   };
 
   it('gives every template a push rendering', () => {
@@ -130,7 +136,11 @@ describe('push renderings', () => {
   });
 
   it('says the amount on every money notice', () => {
+    // The seller's payout-account notice is about where money goes, not how
+    // much: there is no single amount for it to name.
+    const amountless: NotificationTemplateId[] = ['payout_account_changed'];
     for (const id of Object.keys(NOTIFICATION_TEMPLATES) as NotificationTemplateId[]) {
+      if (amountless.includes(id)) continue;
       const copy = renderPushNotification(id, VARS[id]);
       expect(`${copy.title} ${copy.body}`, id).toContain('120.00');
     }

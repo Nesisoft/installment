@@ -904,6 +904,7 @@ export const merchants = pgTable("merchants", {
 	reserve_bps_override: integer(),
 	kyc_exempt_before: timestamp({ withTimezone: true, mode: 'string' }),
 	commission_bps_override: integer(),
+	payout_account_hold_until: timestamp({ withTimezone: true, mode: 'string' }),
 }, (table) => [
 	index("merchants_email_idx").using("btree", table.email.asc().nullsLast().op("citext_ops")).where(sql`(deleted_at IS NULL)`),
 	index("merchants_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),

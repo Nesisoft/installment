@@ -80,7 +80,18 @@ export type ResolvePayoutAccountInput = z.infer<typeof resolvePayoutAccountSchem
  * from the caller. Accepting a name would let one be typed over an account
  * belonging to somebody else.
  */
-export const setPayoutAccountSchema = resolvePayoutAccountSchema;
+export const setPayoutAccountSchema = resolvePayoutAccountSchema.extend({
+  /**
+   * The code texted to the merchant's phone, needed when this replaces an
+   * account already on file (`PayoutAccountService.sendChangeCode`). A first
+   * account needs none.
+   */
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{4,8}$/, 'expected the code from the text message')
+    .optional(),
+});
 export type SetPayoutAccountInput = z.infer<typeof setPayoutAccountSchema>;
 
 export const MERCHANT_KYC_DOC_TYPE_VALUES = [

@@ -5,8 +5,20 @@ import { createTestDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 import { MerchantsService } from './merchants.service';
-import { MerchantNotFoundError, PayoutAccountUnresolvedError, UnknownBankError } from './errors';
-import { PayoutAccountService, type PayoutRecipientClient } from './payout-account.service';
+import {
+  MerchantNotFoundError,
+  PayoutAccountUnresolvedError,
+  PayoutChangeCodeInvalidError,
+  PayoutChangeCodeRequiredError,
+  UnknownBankError,
+} from './errors';
+import {
+  PAYOUT_ACCOUNT_HOLD_MS,
+  PayoutAccountService,
+  type PayoutChangeGuard,
+  type PayoutRecipientClient,
+} from './payout-account.service';
+import { OtpService, type OtpStore } from '../../shared/auth/otp.service';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
@@ -49,6 +61,42 @@ function stubPaystack(opts: StubOptions = {}) {
     },
   };
   return { client, calls };
+}
+
+/** A real OtpService over a map, with the SMS and the notice captured. */
+function stubGuard() {
+  const store = new Map<string, string>();
+  const otpStore: OtpStore = {
+    set: async (key, value) => void store.set(key, value),
+    get: async (key) => store.get(key) ?? null,
+    del: async (key) => void store.delete(key),
+  };
+  const texts: { to: string; message: string }[] = [];
+  const notices: { toAddress: string; templateId: string; variables: Record<string, string> }[] =
+    [];
+  const guard: PayoutChangeGuard = {
+    otp: new OtpService(otpStore),
+    sms: {
+      send: async (msg) => {
+        texts.push({ to: msg.to, message: msg.message });
+        return { status: 'sent' };
+      },
+    },
+    smsSenderId: 'Installmt',
+    notifications: {
+      send: async (input) => {
+        notices.push({
+          toAddress: input.toAddress,
+          templateId: input.templateId,
+          variables: input.variables,
+        });
+        return { notification: {} as never, status: 'sent' as const };
+      },
+    },
+  };
+  /** The six digits out of the last text. */
+  const lastCode = () => /^(\d{6}) is your code/.exec(texts.at(-1)?.message ?? '')?.[1] ?? '';
+  return { guard, texts, notices, lastCode };
 }
 
 describe.skipIf(!RUN_DB)('PayoutAccountService (integration)', () => {
@@ -255,6 +303,201 @@ describe.skipIf(!RUN_DB)('PayoutAccountService (integration)', () => {
     expect(JSON.stringify(second?.metadata)).not.toContain('1234567890123');
   });
 
+  // --------------------------------------------------- replacing an account
+
+  describe('replacing an account the merchant already has', () => {
+    const MERCHANT = (id: string) => ({ actorId: id, actorType: 'merchant' as const });
+    const NOW = new Date('2026-10-26T19:46:00.000Z');
+
+    async function connectedMerchant(svc: PayoutAccountService) {
+      const merchant = await newMerchant();
+      await svc.set(merchant.id, { bank_code: 'MTN', account_number: '0244771122' }, SYSTEM_ACTOR);
+      return merchant;
+    }
+
+    it('lets a merchant add a first account with no code, no hold and no notice', async () => {
+      const merchant = await newMerchant();
+      const { guard, notices } = stubGuard();
+      const svc = new PayoutAccountService(db, audit, stubPaystack().client, guard, () => NOW);
+
+      await svc.set(
+        merchant.id,
+        { bank_code: 'MTN', account_number: '0244771122' },
+        MERCHANT(merchant.id),
+      );
+
+      const view = await svc.get(merchant.id);
+      expect(view.connected).toBe(true);
+      expect(view.payouts_held_until).toBeNull();
+      expect(notices).toHaveLength(0);
+    });
+
+    it('refuses a replacement from the merchant session without the texted code', async () => {
+      const { guard } = stubGuard();
+      const paystack = stubPaystack();
+      const svc = new PayoutAccountService(db, audit, paystack.client, guard, () => NOW);
+      const merchant = await connectedMerchant(svc);
+      const recipientsBefore = paystack.calls.recipients.length;
+
+      await expect(
+        svc.set(
+          merchant.id,
+          { bank_code: '030100', account_number: '1234567890123' },
+          MERCHANT(merchant.id),
+        ),
+      ).rejects.toBeInstanceOf(PayoutChangeCodeRequiredError);
+
+      const reread = await merchants.get(merchant.id);
+      expect(reread.bank_code).toBe('MTN');
+      expect(paystack.calls.recipients).toHaveLength(recipientsBefore);
+    });
+
+    it('texts the phone on file a code naming the new account, and accepts it once', async () => {
+      const { guard, texts, notices, lastCode } = stubGuard();
+      const svc = new PayoutAccountService(db, audit, stubPaystack().client, guard, () => NOW);
+      const merchant = await connectedMerchant(svc);
+
+      const sent = await svc.sendChangeCode(merchant.id, {
+        bank_code: '030100',
+        account_number: '1234567890123',
+      });
+      expect(sent.sent_to).toBe('+233 •••• 3456');
+      expect(texts).toHaveLength(1);
+      expect(texts[0]!.to).toBe('+233244123456');
+      expect(texts[0]!.message).toContain('Absa Bank Ghana ••••0123');
+
+      await svc.set(
+        merchant.id,
+        { bank_code: '030100', account_number: '1234567890123', code: lastCode() },
+        MERCHANT(merchant.id),
+      );
+
+      const reread = await merchants.get(merchant.id);
+      expect(reread.bank_code).toBe('030100');
+      // Held for a day from the change.
+      const view = await svc.get(merchant.id);
+      expect(view.payouts_held_until).toBe(
+        new Date(NOW.getTime() + PAYOUT_ACCOUNT_HOLD_MS).toISOString(),
+      );
+      // And the phone on file is told, with where the money now goes.
+      expect(notices).toEqual([
+        {
+          toAddress: '+233244123456',
+          templateId: 'payout_account_changed',
+          variables: {
+            destination: 'Absa Bank Ghana',
+            account: '••••0123',
+            name: 'AKUA BOATENG',
+            until: '27 Oct 2026, 19:46 GMT',
+          },
+        },
+      ]);
+
+      // A code is spent by the change it authorised.
+      await expect(
+        svc.set(
+          merchant.id,
+          { bank_code: 'MTN', account_number: '0244771122', code: lastCode() },
+          MERCHANT(merchant.id),
+        ),
+      ).rejects.toBeInstanceOf(PayoutChangeCodeInvalidError);
+    });
+
+    it('will not spend a code asked for one account on another', async () => {
+      const { guard, lastCode } = stubGuard();
+      const svc = new PayoutAccountService(db, audit, stubPaystack().client, guard, () => NOW);
+      const merchant = await connectedMerchant(svc);
+
+      await svc.sendChangeCode(merchant.id, {
+        bank_code: '030100',
+        account_number: '1234567890123',
+      });
+      await expect(
+        svc.set(
+          merchant.id,
+          { bank_code: '030100', account_number: '9999999999999', code: lastCode() },
+          MERCHANT(merchant.id),
+        ),
+      ).rejects.toBeInstanceOf(PayoutChangeCodeInvalidError);
+      expect((await merchants.get(merchant.id)).bank_code).toBe('MTN');
+    });
+
+    it('fails closed for a merchant when no code can be checked', async () => {
+      const merchant = await newMerchant();
+      const svc = new PayoutAccountService(db, audit, stubPaystack().client);
+      await svc.set(merchant.id, { bank_code: 'MTN', account_number: '0244771122' }, SYSTEM_ACTOR);
+
+      await expect(
+        svc.set(
+          merchant.id,
+          { bank_code: '030100', account_number: '1234567890123', code: '123456' },
+          MERCHANT(merchant.id),
+        ),
+      ).rejects.toBeInstanceOf(PayoutChangeCodeInvalidError);
+      await expect(
+        svc.sendChangeCode(merchant.id, { bank_code: '030100', account_number: '1234567890123' }),
+      ).rejects.toBeInstanceOf(PayoutChangeCodeRequiredError);
+    });
+
+    it('holds and notifies on a system replacement too, without asking for a code', async () => {
+      const { guard, notices } = stubGuard();
+      const svc = new PayoutAccountService(db, audit, stubPaystack().client, guard, () => NOW);
+      const merchant = await connectedMerchant(svc);
+
+      await svc.set(
+        merchant.id,
+        { bank_code: '030100', account_number: '1234567890123' },
+        SYSTEM_ACTOR,
+      );
+      expect((await svc.get(merchant.id)).payouts_held_until).not.toBeNull();
+      expect(notices).toHaveLength(1);
+    });
+
+    it('leaves a hold alone when the same account is saved again', async () => {
+      const { guard, notices, lastCode } = stubGuard();
+      const svc = new PayoutAccountService(db, audit, stubPaystack().client, guard, () => NOW);
+      const merchant = await connectedMerchant(svc);
+      await svc.sendChangeCode(merchant.id, {
+        bank_code: '030100',
+        account_number: '1234567890123',
+      });
+      await svc.set(
+        merchant.id,
+        { bank_code: '030100', account_number: '1234567890123', code: lastCode() },
+        MERCHANT(merchant.id),
+      );
+      const heldUntil = (await svc.get(merchant.id)).payouts_held_until;
+
+      // Not a replacement: no code needed, and the hold neither moves nor lifts.
+      await svc.set(
+        merchant.id,
+        { bank_code: '030100', account_number: '1234567890123' },
+        MERCHANT(merchant.id),
+      );
+      expect((await svc.get(merchant.id)).payouts_held_until).toBe(heldUntil);
+      expect(notices).toHaveLength(1);
+    });
+
+    it('stops reporting the hold once it has passed', async () => {
+      const { guard, lastCode } = stubGuard();
+      let now = NOW;
+      const svc = new PayoutAccountService(db, audit, stubPaystack().client, guard, () => now);
+      const merchant = await connectedMerchant(svc);
+      await svc.sendChangeCode(merchant.id, {
+        bank_code: '030100',
+        account_number: '1234567890123',
+      });
+      await svc.set(
+        merchant.id,
+        { bank_code: '030100', account_number: '1234567890123', code: lastCode() },
+        MERCHANT(merchant.id),
+      );
+
+      now = new Date(NOW.getTime() + PAYOUT_ACCOUNT_HOLD_MS + 1);
+      expect((await svc.get(merchant.id)).payouts_held_until).toBeNull();
+    });
+  });
+
   // ----------------------------------------------------------------- reading
 
   it('shows a merchant their own destination with the number masked', async () => {
@@ -267,6 +510,7 @@ describe.skipIf(!RUN_DB)('PayoutAccountService (integration)', () => {
       bank_code: null,
       account_number_masked: null,
       account_name: null,
+      payouts_held_until: null,
     });
 
     await svc.set(merchant.id, { bank_code: 'MTN', account_number: '0244771122' }, SYSTEM_ACTOR);
@@ -276,6 +520,7 @@ describe.skipIf(!RUN_DB)('PayoutAccountService (integration)', () => {
       bank_code: 'MTN',
       account_number_masked: '••••1122',
       account_name: 'AKUA BOATENG',
+      payouts_held_until: null,
     });
   });
 

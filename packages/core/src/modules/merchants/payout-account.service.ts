@@ -8,8 +8,17 @@ import {
   type ResolvePayoutAccountInput,
   type SetPayoutAccountInput,
 } from './dto';
-import { MerchantNotFoundError, PayoutAccountUnresolvedError, UnknownBankError } from './errors';
+import {
+  MerchantNotFoundError,
+  PayoutAccountUnresolvedError,
+  PayoutChangeCodeInvalidError,
+  PayoutChangeCodeRequiredError,
+  UnknownBankError,
+} from './errors';
 import { type MomoProviderCode } from '../../shared/validators/ghana';
+import type { OtpService } from '../../shared/auth/otp.service';
+import type { SmsSender } from '../auth/auth.service';
+import type { NotificationService } from '../notifications/notification.service';
 import type { Merchant, MerchantActor } from './merchants.service';
 
 const m = schema.merchants;
@@ -53,7 +62,36 @@ export interface PayoutAccountView {
   /** Last four digits only — enough to recognise, useless to redirect. */
   account_number_masked: string | null;
   account_name: string | null;
+  /**
+   * ISO time before which settlement will not pay this account, because it
+   * replaced another one recently; null when nothing is held.
+   */
+  payouts_held_until: string | null;
 }
+
+/**
+ * What it takes to replace an account a merchant already has: a code texted to
+ * the phone on file, and a notice to that phone afterwards.
+ *
+ * Optional on the constructor so callers that never replace an account (and
+ * the fixtures that construct this) need not supply it. Without it a merchant
+ * cannot replace their account at all — the check fails closed — while an
+ * admin or system caller still can, since neither signs in as the merchant.
+ */
+export interface PayoutChangeGuard {
+  otp: Pick<OtpService, 'start' | 'verify'>;
+  sms: SmsSender;
+  smsSenderId: string;
+  notifications: Pick<NotificationService, 'send'>;
+}
+
+/**
+ * How long a replaced account waits before settlement pays it. A day is long
+ * enough for the real seller to see the notice and call, and short enough that
+ * a seller who did make the change is barely inconvenienced: the balance is
+ * still owed, and the first run after the hold pays all of it.
+ */
+export const PAYOUT_ACCOUNT_HOLD_MS = 24 * 60 * 60 * 1_000;
 
 /** Paystack's Ghana list barely changes; refetching it per page view is waste. */
 const BANK_CACHE_TTL_MS = 60 * 60 * 1_000;
@@ -82,6 +120,35 @@ function maskAccountNumber(accountNumber: string | null): string | null {
   return `••••${tail}`;
 }
 
+/** `+233244123456` → `+233 •••• 3456`: enough to know which phone to look at. */
+function maskPhone(phone: string): string {
+  return phone.length > 4 ? `${phone.slice(0, 4)} •••• ${phone.slice(-4)}` : phone;
+}
+
+/**
+ * The OTP key for one change. It names the destination, so a code asked for
+ * one account cannot be spent on another: the text says where the money will
+ * go, and that is the only place the code can send it.
+ */
+function changeTarget(merchantId: string, bankCode: string, accountNumber: string): string {
+  return `payout-change:${merchantId}:${bankCode}:${accountNumber}`;
+}
+
+/** A timestamptz as Postgres returns it, as ISO — or null. */
+function isoOrNull(value: string | null): string | null {
+  if (!value) return null;
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
+/** `2026-10-27T19:46:00Z` → `27 Oct 2026, 19:46 GMT`. Ghana keeps GMT all year. */
+function gmtLabel(at: Date): string {
+  const months = 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ');
+  const hh = String(at.getUTCHours()).padStart(2, '0');
+  const mm = String(at.getUTCMinutes()).padStart(2, '0');
+  return `${at.getUTCDate()} ${months[at.getUTCMonth()]} ${at.getUTCFullYear()}, ${hh}:${mm} GMT`;
+}
+
 /**
  * A merchant's own payout destination.
  *
@@ -104,6 +171,8 @@ export class PayoutAccountService {
     private readonly db: Database,
     private readonly audit: AuditLogger,
     private readonly paystack: PayoutRecipientClient,
+    private readonly guard?: PayoutChangeGuard,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   // ------------------------------------------------------------------- banks
@@ -130,12 +199,49 @@ export class PayoutAccountService {
 
   async get(merchantId: string): Promise<PayoutAccountView> {
     const row = await this.load(merchantId);
+    const heldUntil = isoOrNull(row.payout_account_hold_until);
     return {
       connected: Boolean(row.paystack_recipient_code),
       bank_code: row.bank_code,
       account_number_masked: maskAccountNumber(row.bank_account_number),
       account_name: row.bank_account_name,
+      payouts_held_until:
+        heldUntil && new Date(heldUntil).getTime() > this.now().getTime() ? heldUntil : null,
     };
+  }
+
+  // ------------------------------------------------------------- change code
+
+  /**
+   * Texts the merchant's phone a code that authorises sending their payouts to
+   * this one account.
+   *
+   * Replacing an account used to take only a signed-in session, so anyone
+   * holding one — a shared tablet, a borrowed laptop, a phished password —
+   * could point every settlement at themselves. The phone on file is the
+   * second thing they would also need. It is not editable from the portal.
+   */
+  async sendChangeCode(
+    merchantId: string,
+    rawInput: unknown,
+  ): Promise<{ sent_to: string; expires_at: string }> {
+    const input: ResolvePayoutAccountInput = resolvePayoutAccountSchema.parse(rawInput);
+    const merchant = await this.load(merchantId);
+    const destination = await this.assertKnownBank(input.bank_code);
+    if (!this.guard) throw new PayoutChangeCodeRequiredError();
+
+    const { code, expiresAt } = await this.guard.otp.start(
+      changeTarget(merchantId, input.bank_code, input.account_number),
+    );
+    await this.guard.sms.send({
+      to: merchant.phone,
+      sender: this.guard.smsSenderId,
+      message:
+        `${code} is your code to send your payouts to ${destination.name} ` +
+        `${maskAccountNumber(input.account_number)}. It expires in 5 minutes. ` +
+        `Do not share it with anyone.`,
+    });
+    return { sent_to: maskPhone(merchant.phone), expires_at: expiresAt.toISOString() };
   }
 
   // ----------------------------------------------------------------- resolve
@@ -211,11 +317,36 @@ export class PayoutAccountService {
     const current = await this.load(merchantId);
     const destination = await this.assertKnownBank(input.bank_code);
 
+    // Replacing an account the merchant already has, as opposed to adding a
+    // first one or re-saving the same one. Only a replacement can take money
+    // that was going somewhere else, so only a replacement is guarded.
+    const replacing =
+      Boolean(current.paystack_recipient_code) &&
+      (current.bank_code !== input.bank_code ||
+        current.bank_account_number !== input.account_number);
+    // The code is asked of the merchant's own session only. An admin or the
+    // system does not sign in as the merchant, so a stolen merchant session is
+    // not the risk on their path; the hold and the notice below still apply.
+    const needsCode = replacing && actor.actorType === 'merchant';
+    if (needsCode && !input.code) throw new PayoutChangeCodeRequiredError();
+
     // Resolved every time, including when the merchant re-confirms a name the
     // console already showed them: the name that reaches Paystack has to be the
     // bank's, or a caller could put someone else's account behind a name of
     // their choosing on the transfer.
     const accountName = await this.resolveName(input.account_number, input.bank_code);
+
+    // Checked after the bank has confirmed the account, so a mistyped number
+    // costs the seller a correction rather than their code.
+    if (needsCode) {
+      const ok = this.guard
+        ? await this.guard.otp.verify(
+            changeTarget(merchantId, input.bank_code, input.account_number),
+            input.code!,
+          )
+        : false;
+      if (!ok) throw new PayoutChangeCodeInvalidError();
+    }
 
     const recipient = await this.paystack.createTransferRecipient({
       type: destination.kind === 'mobile_money' ? 'mobile_money' : 'ghipss',
@@ -229,7 +360,12 @@ export class PayoutAccountService {
       throw new PayoutAccountUnresolvedError('the payment provider returned no recipient code');
     }
 
-    return runInTransaction(this.db, async (tx) => {
+    // A replacement waits a day before settlement pays it: the window for the
+    // real seller to see the notice and stop it. A first account waits for
+    // nothing, and re-saving the same account leaves any hold where it was.
+    const holdUntil = replacing ? new Date(this.now().getTime() + PAYOUT_ACCOUNT_HOLD_MS) : null;
+
+    const updated = await runInTransaction(this.db, async (tx) => {
       const rows = await tx
         .update(m)
         .set({
@@ -237,6 +373,7 @@ export class PayoutAccountService {
           bank_code: input.bank_code,
           bank_account_number: input.account_number,
           bank_account_name: accountName,
+          ...(holdUntil ? { payout_account_hold_until: holdUntil.toISOString() } : {}),
         })
         .where(and(eq(m.id, merchantId), isNull(m.deleted_at)))
         .returning();
@@ -256,11 +393,35 @@ export class PayoutAccountService {
         toState: `${input.bank_code}:${maskAccountNumber(input.account_number)}`,
         actorId: actor.actorId,
         actorType: actor.actorType,
-        metadata: { account_name: accountName, destination: destination.name },
+        metadata: {
+          account_name: accountName,
+          destination: destination.name,
+          ...(holdUntil ? { payouts_held_until: holdUntil.toISOString() } : {}),
+        },
       });
 
       return row;
     });
+
+    // To the phone on file, which this change did not touch. Best-effort by
+    // NotificationService's own contract: it records a failed send and never
+    // throws, so a notice that cannot go out does not undo a change that did.
+    if (replacing && holdUntil && this.guard) {
+      await this.guard.notifications.send({
+        recipientType: 'merchant',
+        recipientId: merchantId,
+        toAddress: current.phone,
+        templateId: 'payout_account_changed',
+        variables: {
+          destination: destination.name,
+          account: maskAccountNumber(input.account_number) ?? '',
+          name: accountName,
+          until: gmtLabel(holdUntil),
+        },
+      });
+    }
+
+    return updated;
   }
 
   // ------------------------------------------------------------------ helpers

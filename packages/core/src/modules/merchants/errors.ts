@@ -28,6 +28,29 @@ export class PayoutAccountUnresolvedError extends Error {
   }
 }
 
+/**
+ * A merchant tried to replace their payout account without the code sent to
+ * the phone on file. Replacing one is how a borrowed or stolen session would
+ * redirect every settlement, so a signed-in session alone is not enough.
+ */
+export class PayoutChangeCodeRequiredError extends Error {
+  constructor() {
+    super('Replacing your payout account needs the code we text to your phone');
+    this.name = 'PayoutChangeCodeRequiredError';
+  }
+}
+
+/**
+ * The code was wrong, expired, used up its attempts, or was sent for a
+ * different account — a code names the one destination it was asked for.
+ */
+export class PayoutChangeCodeInvalidError extends Error {
+  constructor() {
+    super('That code is wrong or has expired. Ask for a new one.');
+    this.name = 'PayoutChangeCodeInvalidError';
+  }
+}
+
 /** The chosen bank is not one Paystack can pay out to in Ghana. */
 export class UnknownBankError extends Error {
   constructor(bankCode: string) {

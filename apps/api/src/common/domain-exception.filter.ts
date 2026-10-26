@@ -67,6 +67,10 @@ export const NAME_STATUS: Record<string, number> = {
   // fault: the merchant can fix it by correcting the number or the bank.
   PayoutAccountUnresolvedError: HttpStatus.UNPROCESSABLE_ENTITY,
   UnknownBankError: HttpStatus.UNPROCESSABLE_ENTITY,
+  // Not 401: the session is fine, and the seller apps treat a 401 as "signed
+  // out". The request lacks, or has a wrong, code from the seller's phone.
+  PayoutChangeCodeRequiredError: HttpStatus.UNPROCESSABLE_ENTITY,
+  PayoutChangeCodeInvalidError: HttpStatus.UNPROCESSABLE_ENTITY,
   // A category slug that names nothing is the caller's mistake, and the list of
   // valid ones is a public GET away.
   UnknownStoreCategoryError: HttpStatus.UNPROCESSABLE_ENTITY,

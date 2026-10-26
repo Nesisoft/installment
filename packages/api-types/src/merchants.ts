@@ -52,10 +52,21 @@ export const setPayoutAccountSchema = z.object({
     .trim()
     .transform((v) => v.replace(/[\s-]/g, ''))
     .pipe(z.string().regex(/^\d{5,20}$/, 'Expected an account number of 5-20 digits')),
+  /**
+   * The code texted to the merchant's phone (`POST /merchant/payout-account/code`).
+   * Needed to replace an account already on file; a first account needs none.
+   */
+  code: z.string().trim().optional(),
 });
 export type SetPayoutAccountInput = z.infer<typeof setPayoutAccountSchema>;
-export const resolvePayoutAccountSchema = setPayoutAccountSchema;
-export type ResolvePayoutAccountInput = SetPayoutAccountInput;
+export const resolvePayoutAccountSchema = setPayoutAccountSchema.omit({ code: true });
+export type ResolvePayoutAccountInput = z.infer<typeof resolvePayoutAccountSchema>;
+
+/** Where the change code went, masked, and when it stops working. */
+export interface PayoutChangeCodeSent {
+  sent_to: string;
+  expires_at: string;
+}
 
 export interface PayoutDestination {
   code: string;
@@ -68,6 +79,11 @@ export interface PayoutAccountView {
   bank_code: string | null;
   account_number_masked: string | null;
   account_name: string | null;
+  /**
+   * ISO time before which settlement will not pay this account — it replaced
+   * another one within the last day. Null when nothing is held.
+   */
+  payouts_held_until: string | null;
 }
 
 export interface ResolvedPayoutAccount {

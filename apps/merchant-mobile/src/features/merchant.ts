@@ -34,6 +34,7 @@ import type {
   OrderReturn,
   OrderWithItems,
   PayoutAccountView,
+  PayoutChangeCodeSent,
   PayoutDestination,
   PlanTemplate,
   PresignedUpload,
@@ -41,6 +42,7 @@ import type {
   ProductDetails,
   ProductVariant,
   ResolvedPayoutAccount,
+  ResolvePayoutAccountInput,
   SetPayoutAccountInput,
   StorefrontCategory,
   UpdateMyStoreInput,
@@ -442,6 +444,19 @@ export function useResolvePayoutAccount() {
   return useMutation({
     mutationFn: async (input: SetPayoutAccountInput) =>
       (await api.post<ResolvedPayoutAccount>('/merchant/payout-account/resolve', input)).data,
+  });
+}
+
+/**
+ * Texts the seller's phone a code for replacing their payout account with this
+ * one. A signed-in session alone could otherwise send every settlement
+ * somewhere new; a first account needs no code.
+ */
+export function useSendPayoutChangeCode() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (input: ResolvePayoutAccountInput) =>
+      (await api.post<PayoutChangeCodeSent>('/merchant/payout-account/code', input)).data,
   });
 }
 
