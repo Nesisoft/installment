@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import { Money } from '@installment/core';
 import { schema, type Database } from '@installment/db';
+import { ORDER_PAYMENT_TX_PREFIX, payNowCommissionPesewas } from '../orders/orders.service';
 import { ReturnNotFoundError } from './errors';
 import { RETURN_STATUSES, type ReturnStatus } from './dto';
 
@@ -61,11 +61,12 @@ export interface MerchantReturnRow {
   /**
    * What approving costs the seller: the net they were credited on this sale.
    *
-   * Derived here rather than in the client because it is `total − commission`
-   * at the order's OWN `commission_bps`, and a client that recomputed it from
-   * the merchant's current default rate would be wrong for every order placed
-   * before the last rate change. This is the number the decision turns on and
-   * the one the canvas never showed.
+   * Derived here rather than in the client because it is what the payment
+   * actually booked — read from its ledger postings, as `ReturnsService.approve`
+   * reverses them — and a client that recomputed it from the merchant's current
+   * rate, or from today's commission base, would be wrong for every order paid
+   * before either changed. This is the number the decision turns on and the one
+   * the canvas never showed.
    */
   merchantLosesPesewas: number;
   /** Ejua's commission on the sale, reversed alongside the seller's net. */
@@ -84,9 +85,12 @@ interface ReturnJoinRow {
   r: typeof schema.order_returns.$inferSelect;
   order_number: string;
   order_total: number;
+  order_shipping: number;
   order_status: string;
   order_placed_at: string | null;
   commission_bps: number;
+  /** The revenue the order's payment credited; null if it has no postings. */
+  booked_commission: string | null;
   buyer_name: string | null;
   buyer_phone: string | null;
 }
@@ -220,22 +224,35 @@ export class MerchantReturnsService {
       r: ret,
       order_number: o.order_number,
       order_total: o.total_pesewas,
+      order_shipping: o.shipping_pesewas,
       order_status: o.status,
       order_placed_at: o.placed_at,
       commission_bps: o.commission_bps,
+      booked_commission: sql<string | null>`(
+        SELECT sum(le.amount_pesewas)::text
+        FROM ledger_entries le
+        WHERE le.transaction_id = ${ORDER_PAYMENT_TX_PREFIX} || ${o.id}::text
+          AND le.account_type = 'revenue'
+          AND le.direction = 'credit'
+      )`,
       buyer_name: buyerName,
       buyer_phone: cust.phone,
     };
   }
 
   private toRow(row: ReturnJoinRow, itemSummary: string | null): MerchantReturnRow {
-    // The same arithmetic `ReturnsService.approve` books, and deliberately the
-    // same call: `Money.multiplyBps` is what writes the reversal, so a screen
-    // that rounded differently would promise a seller a number the ledger then
-    // contradicts by a pesewa.
-    const commission = Money.fromPesewas(row.order_total)
-      .multiplyBps(row.commission_bps)
-      .toNumber();
+    // The same figure `ReturnsService.approve` reverses: what the payment
+    // booked, read from the ledger. Recomputing it would promise a seller one
+    // number and book another for any order paid before the commission base
+    // moved off delivery. The rule is the fallback, as it is in `approve`.
+    const commission =
+      row.booked_commission !== null
+        ? Number(row.booked_commission)
+        : payNowCommissionPesewas({
+            total_pesewas: row.order_total,
+            shipping_pesewas: row.order_shipping,
+            commission_bps: row.commission_bps,
+          });
     return {
       id: row.r.id,
       orderId: row.r.order_id,

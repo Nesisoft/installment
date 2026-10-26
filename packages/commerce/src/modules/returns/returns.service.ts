@@ -11,6 +11,7 @@ import {
 } from '@installment/core';
 import { InventoryService } from '../catalog/inventory.service';
 import { assertOrderTransition } from '../orders/order-state';
+import { orderPaymentTransactionId, payNowCommissionPesewas } from '../orders/orders.service';
 import type { OrderStatus } from '../orders/order-state';
 import {
   listReturnsSchema,
@@ -260,9 +261,24 @@ export class ReturnsService {
       //    `refund-paid:{reference}` — DEBIT refund_payable, CREDIT
       //    paystack_settlement — against the very balance credited here, which
       //    is why the account ref is the return's id on both sides.
+      //
+      //    The two credits are READ from the payment's own postings, not
+      //    recomputed from the rate. The base moved (commission was taken on the
+      //    total, delivery included, and is now taken on the goods), so an order
+      //    paid before the change carries a commission today's rule would not
+      //    compute — and reversing by today's rule would leave the platform a
+      //    sliver of revenue it had given back and take it off the seller
+      //    instead. Reading them reverses exactly what was booked, under any
+      //    rule. The computation is the fallback for an order with no postings,
+      //    which a paid order should never be.
       const total = order.total_pesewas;
-      const commission = Money.fromPesewas(total).multiplyBps(order.commission_bps).toNumber();
-      const merchantNet = total - commission;
+      const booked = await this.ledger.entriesFor(orderPaymentTransactionId(order.id), tx);
+      const credited = (account: 'revenue' | 'merchant_payable') =>
+        booked
+          .filter((e) => e.accountType === account && e.direction === 'credit')
+          .reduce((sum, e) => sum + e.amountPesewas, 0);
+      const commission = booked.length > 0 ? credited('revenue') : payNowCommissionPesewas(order);
+      const merchantNet = booked.length > 0 ? credited('merchant_payable') : total - commission;
       const transactionId = orderReturnTransactionId(row.id);
       const metadata = {
         order_id: order.id,

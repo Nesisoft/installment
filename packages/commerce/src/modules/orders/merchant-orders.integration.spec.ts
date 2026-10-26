@@ -721,10 +721,11 @@ describe.skipIf(!RUN_DB)('MerchantOrdersService (integration)', () => {
       hub_name: null,
       hub_detail: null,
     });
-    // Delivery is inside the total the commission was taken from: GHS 265.00
-    // less 5% is GHS 251.75.
+    // The commission is on the goods, not the delivery: GHS 250.00 less 5% is
+    // GHS 237.50, and the GHS 15.00 delivery passes to the seller whole — GHS
+    // 252.50. (It was GHS 251.75 while commission was taken on the total.)
     expect(detail.total_pesewas).toBe(26_500);
-    expect(detail.settlement.netPesewas).toBe(25_175);
+    expect(detail.settlement.netPesewas).toBe(25_250);
   });
 
   it('resolves a pickup order to the hub it will be collected from', async () => {

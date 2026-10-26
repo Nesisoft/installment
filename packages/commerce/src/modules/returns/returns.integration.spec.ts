@@ -10,8 +10,10 @@ import {
   MerchantsService,
   PayoutRecorder,
   PlanTemplatesService,
+  PLATFORM_ACCOUNT_REF,
   RefundService,
   ReserveReleaseService,
+  SETTLEMENT_CASH_REF,
   SYSTEM_ACTORS,
   approveRequiredMerchantKyc,
 } from '@installment/core';
@@ -19,7 +21,7 @@ import { StoresService } from '../stores/stores.service';
 import { ProductsService } from '../catalog/products.service';
 import { InventoryService } from '../catalog/inventory.service';
 import { CartService } from '../orders/cart.service';
-import { OrdersService } from '../orders/orders.service';
+import { OrdersService, orderPaymentTransactionId } from '../orders/orders.service';
 import { FulfilmentService } from '../fulfilment/fulfilment.service';
 import { ReturnsService } from './returns.service';
 import {
@@ -134,6 +136,77 @@ describe.skipIf(!RUN_DB)('ReturnsService (integration)', () => {
       ACTOR,
     );
     return { order: paid, customerId, merchantId, variantId, price };
+  }
+
+  /**
+   * A GHS 50 sale with GHS 15 delivery, paid. `oldRule` books the payment the
+   * way it was booked before commission moved off delivery — 5% of the whole
+   * 6500 — which is what every order paid until then carries in the ledger.
+   */
+  async function paidOrderWithDelivery(opts: { oldRule?: boolean } = {}) {
+    const customerId = await shopper();
+    const { merchantId, storeId } = await shop();
+    const product = await products.create(
+      {
+        store_id: storeId,
+        title: 'Kente Stole',
+        base_price_pesewas: 5_000,
+        status: 'active',
+        variants: [
+          { sku: `SKU-${randomUUID().slice(0, 8)}`, price_pesewas: null, quantity_available: 5 },
+        ],
+      },
+      ACTOR,
+    );
+    await cart.addItem(customerId, { variant_id: product.variants[0]!.id, quantity: 1 });
+    const [raised] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+    await db
+      .update(schema.orders)
+      .set({ shipping_pesewas: 1_500, total_pesewas: 6_500 })
+      .where(eq(schema.orders.id, raised!.id));
+
+    if (!opts.oldRule) {
+      const paid = await orders.confirmPayment(
+        raised!.id,
+        { provider_reference: `ps_${randomUUID().slice(0, 8)}` },
+        ACTOR,
+      );
+      return { order: paid, customerId, merchantId };
+    }
+
+    const transactionId = orderPaymentTransactionId(raised!.id);
+    await ledger.record([
+      {
+        transactionId,
+        accountType: 'paystack_settlement',
+        accountRef: SETTLEMENT_CASH_REF,
+        direction: 'debit',
+        amountPesewas: 6_500,
+        description: 'old-rule payment',
+      },
+      {
+        transactionId,
+        accountType: 'merchant_payable',
+        accountRef: merchantId,
+        direction: 'credit',
+        amountPesewas: 6_175,
+        description: 'old-rule payment',
+      },
+      {
+        transactionId,
+        accountType: 'revenue',
+        accountRef: PLATFORM_ACCOUNT_REF,
+        direction: 'credit',
+        amountPesewas: 325,
+        description: 'old-rule payment',
+      },
+    ]);
+    const [order] = await db
+      .update(schema.orders)
+      .set({ status: 'paid', placed_at: new Date().toISOString() })
+      .where(eq(schema.orders.id, raised!.id))
+      .returning();
+    return { order: order!, customerId, merchantId };
   }
 
   const stockOf = async (variantId: string) =>
@@ -321,6 +394,36 @@ describe.skipIf(!RUN_DB)('ReturnsService (integration)', () => {
     // And the buyer is owed the whole thing, under the return's own id so the
     // disbursement can discharge the same balance.
     expect(await ledger.balanceOf('refund_payable', request.id)).toBe(price);
+  });
+
+  it('reverses what the payment booked, delivery passed through to the seller', async () => {
+    const { order, customerId, merchantId } = await paidOrderWithDelivery();
+    // Commission on the goods only: 250 of the 6500, the seller credited 6250.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(6_250);
+    const revenueBefore = await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF);
+    const request = await returns.request(customerId, order.id, { reason: 'Wrong colour' });
+
+    await returns.approve(request.id, ACTOR, { merchantId });
+
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
+    expect(await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF)).toBe(revenueBefore - 250);
+    expect(await ledger.balanceOf('refund_payable', request.id)).toBe(6_500);
+  });
+
+  it('reverses an order paid under the old rule exactly as it was booked', async () => {
+    // Paid when commission was taken on delivery too: 325 to revenue, 6175 to
+    // the seller. Reversing it at today's rule would take 6250 back off a
+    // seller credited 6175 and hand the platform 75 of revenue it kept.
+    const { order, customerId, merchantId } = await paidOrderWithDelivery({ oldRule: true });
+    const revenueBefore = await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF);
+    const request = await returns.request(customerId, order.id, { reason: 'Wrong colour' });
+
+    await returns.approve(request.id, ACTOR, { merchantId });
+
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
+    expect(await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF)).toBe(revenueBefore - 325);
+    expect(await ledger.balanceOf('refund_payable', request.id)).toBe(6_500);
+    expect(await trialBalance()).toBe(0);
   });
 
   it('leaves the books balanced', async () => {

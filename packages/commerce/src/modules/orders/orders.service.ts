@@ -76,6 +76,36 @@ export function payNowCommissionBps(commissionBpsOverride: number | null): numbe
 }
 
 /**
+ * What the marketplace commission is charged on: what the buyer paid for the
+ * goods. Delivery is not in it.
+ *
+ * The seller ships a paid-in-full order and pays the courier
+ * (`FulfilmentService.markShipped` takes the courier's name; nothing on the
+ * platform books a delivery cost), so the delivery fee is money that passes
+ * through them to the courier. Commission used to be taken on `total_pesewas`,
+ * delivery included: on a GHS 50 item with GHS 15 delivery, 5% of 65 rather
+ * than 50 — the seller paid a cut on money that was never margin to them.
+ *
+ * `total − shipping` rather than `subtotal − discount`, so whatever the total
+ * already nets off is netted off here too, and the base can never exceed what
+ * the buyer actually paid for the items.
+ */
+export function commissionBasePesewas(
+  order: Pick<Order, 'total_pesewas' | 'shipping_pesewas'>,
+): number {
+  return Math.max(0, order.total_pesewas - order.shipping_pesewas);
+}
+
+/** The commission a paid-in-full order books when it is paid, in pesewas. */
+export function payNowCommissionPesewas(
+  order: Pick<Order, 'total_pesewas' | 'shipping_pesewas' | 'commission_bps'>,
+): number {
+  return Money.fromPesewas(commissionBasePesewas(order))
+    .multiplyBps(order.commission_bps)
+    .toNumber();
+}
+
+/**
  * Category label handed to the engine on an installment application. Deriving it
  * from the catalog (product category → scoring eligibility) is a later
  * refinement; a non-empty default keeps the hand-off honest for now.
@@ -517,8 +547,10 @@ export class OrdersService {
       }
       assertOrderTransition('pending_payment', 'paid');
 
+      // Commission on the goods only; the seller keeps the delivery fee whole,
+      // because they are the one who pays the courier.
       const total = order.total_pesewas;
-      const commission = Money.fromPesewas(total).multiplyBps(order.commission_bps).toNumber();
+      const commission = payNowCommissionPesewas(order);
       const merchantNet = total - commission;
       const transactionId = orderPaymentTransactionId(order.id);
       const metadata = {

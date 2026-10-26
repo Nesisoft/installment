@@ -184,6 +184,30 @@ describe.skipIf(!RUN_DB)('OrdersService (integration)', () => {
     ).rejects.toBeInstanceOf(OrderNotPayableError);
   });
 
+  it('takes the commission on the goods and passes the delivery fee to the seller whole', async () => {
+    // The seller ships a paid-in-full order and pays the courier, so the
+    // delivery fee is theirs to pass on. Commission was taken on the total,
+    // delivery included: 5% of 6500 here, not 5% of 5000.
+    const customerId = await freshCustomer();
+    const { merchantId, storeId } = await merchantWithStore();
+    const v = await variant(storeId, 5000);
+    await cart.addItem(customerId, { variant_id: v, quantity: 1 });
+    const [order] = await orders.checkout(customerId, { payment_type: 'full' }, ACTOR);
+    // GHS 15 delivery, as a zone would have priced it.
+    await db
+      .update(schema.orders)
+      .set({ shipping_pesewas: 1500, total_pesewas: 6500 })
+      .where(eq(schema.orders.id, order!.id));
+
+    const revenueBefore = await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF);
+    await orders.confirmPayment(order!.id, { provider_reference: 'ps_ref_delivery' }, ACTOR);
+
+    // 5% of 5000 → 250. The seller gets 4750 for the goods and all 1500 of
+    // the delivery: 6250, not 6175.
+    expect(await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF)).toBe(revenueBefore + 250);
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(6250);
+  });
+
   /**
    * Checkout reserves stock; nothing ever gave it back. InventoryService.release
    * was written for this ("cancel / expiry") and had no caller, so an order the

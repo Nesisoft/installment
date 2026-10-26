@@ -177,6 +177,8 @@ Proposed split (see Open Question #3):
 
 Full-order payout accrual is a **new, simple ledger transaction** (`DEBIT customer_receipts / CREDIT merchant_payable + platform_revenue`) that plugs into the existing `SettlementService` daily sweep — merchants get one settlement stream for both order types.
 
+**As built:** the pay-now commission is taken on the **goods only** — `total_pesewas − shipping_pesewas` (`commissionBasePesewas`). The seller ships the order and pays the courier, so the delivery fee passes to them whole. Until this was settled, commission was taken on the total, delivery included. A return therefore reverses the split **as the payment booked it**, read from that payment's ledger postings, never a split recomputed at today's rule — an order paid under the old base must come back out exactly as it went in.
+
 ---
 
 ## 7. Cross-cutting needs the commerce layer introduces
