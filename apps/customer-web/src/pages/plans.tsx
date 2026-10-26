@@ -7,10 +7,16 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
   StatusBadge,
   cn,
 } from '@installment/ui';
-import { formatGhs, type InstallmentScheduleRow } from '@installment/api-types';
+import {
+  formatGhs,
+  type CustomerPlan,
+  type InstallmentScheduleRow,
+  type MomoProvider,
+} from '@installment/api-types';
 import { apiErrorMessage, newIdempotencyKey, useApi } from '@installment/web-kit';
 import { ArrowLeft, CalendarClock, ExternalLink, Smartphone, CreditCard } from 'lucide-react';
 import {
@@ -20,11 +26,40 @@ import {
   usePayByCardLink,
   useSavedCards,
   useRemoveCard,
+  useMomoOnFile,
 } from '../lib/shop-api';
 import { formatDate, relativeDay } from '../lib/format';
+import { cadenceLabel } from '../lib/installment-preview';
 import { EmptyState, ErrorState, LoadingState } from '../components/data-states';
 
 const PAYABLE_EXCLUDED = new Set(['paid', 'refunded', 'waived', 'defaulted', 'restructured']);
+
+/**
+ * Every payment on the plan, deposit included. `number_of_installments`
+ * excludes the deposit, so a "Pay in 4" plan — a deposit and three more —
+ * read "3 instalments" over a schedule of four.
+ */
+function paymentCount(plan: Pick<CustomerPlan, 'number_of_installments' | 'down_payment_pesewas'>) {
+  return plan.number_of_installments + (plan.down_payment_pesewas > 0 ? 1 : 0);
+}
+
+/** What paying a row now takes: the instalment plus any late fee it has run up. */
+function payable(row: Pick<InstallmentScheduleRow, 'amount_due_pesewas' | 'late_fee_pesewas'>) {
+  return row.amount_due_pesewas + row.late_fee_pesewas;
+}
+
+const MOMO_PROVIDERS: { value: MomoProvider; label: string }[] = [
+  { value: 'mtn', label: 'MTN' },
+  { value: 'vod', label: 'Telecel' },
+  { value: 'tgo', label: 'AirtelTigo' },
+];
+
+/** `024 000 0000` / `24 000 0000` -> `+233240000000`. */
+function normaliseGhPhone(input: string): string {
+  const digits = input.replace(/\D/g, '');
+  const local = digits.startsWith('233') ? digits.slice(3) : digits.replace(/^0/, '');
+  return `+233${local}`;
+}
 
 /** The next instalment a customer would sensibly pay. */
 function nextDue(rows: InstallmentScheduleRow[]): InstallmentScheduleRow | null {
@@ -123,8 +158,8 @@ export function PlansPage() {
                           {formatGhs(p.order_amount_pesewas)} order
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {p.number_of_installments} instalments · every{' '}
-                          {p.installment_frequency_days} days
+                          {paymentCount(p)} payments · every{' '}
+                          {cadenceLabel(p.installment_frequency_days)}
                         </p>
                       </div>
                       <StatusBadge status={p.status} />
@@ -153,21 +188,33 @@ export function PlanDetailPage() {
   const schedule = usePlanSchedule(id);
   const payMomo = usePayMomo(id);
   const cardLink = usePayByCardLink(id);
+  const onFile = useMomoOnFile();
+  const [momo, setMomo] = useState<{ phone: string; provider: MomoProvider } | null>(null);
+  // The number to charge: what the customer typed, else what is on file.
+  const number = momo ?? {
+    phone: onFile.data?.momo_phone ?? '',
+    provider: onFile.data?.momo_provider ?? 'mtn',
+  };
+  const [result, setResult] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
 
   /**
-   * One idempotency key per instalment, retired only once that instalment is
-   * actually paid.
+   * One idempotency key per attempt on an instalment.
    *
-   * A failed attempt must KEEP its key. The case that matters is a charge that
-   * succeeded on the server while the response was lost — routine on a mobile
-   * connection. The customer sees an error and taps Pay again; reusing the key
+   * A request that got no answer must KEEP its key. The case that matters is a
+   * charge that succeeded on the server while the response was lost — routine
+   * on a mobile connection. The customer taps Pay again; reusing the key
    * replays the original charge instead of debiting them a second time.
    *
+   * Any answer retires it, though: the answer is stored under the key, so a
+   * retry would replay it. This kept the key after a decline (a 200 saying
+   * `failed`), so the next tap replayed the decline. A different number or
+   * network is a different request, so it gets its own key too — the server
+   * hashes the body and answers a changed body under an old key with a 409.
+   *
    * Keyed per instalment rather than one key for the plan, because the server
-   * binds a key to a hash of the request path. Reusing one key across two
-   * instalments would make the second payment a 409 conflict.
+   * binds a key to a hash of the request path.
    */
-  const payKeys = useRef<Record<string, string>>({});
+  const payKeys = useRef<Record<string, { key: string; body: string }>>({});
   const [paying, setPaying] = useState<string | null>(null);
 
   const plan = (plans.data ?? []).find((p) => p.id === id) ?? null;
@@ -195,16 +242,34 @@ export function PlanDetailPage() {
   }
 
   function onPay(scheduleId: string) {
+    setResult(null);
+    if (number.phone.replace(/\D/g, '').length < 9) {
+      setResult({ tone: 'error', text: 'Enter the Mobile Money number to charge.' });
+      return;
+    }
     setPaying(scheduleId);
-    const key = payKeys.current[scheduleId] ?? newIdempotencyKey(`pay-${scheduleId}`);
-    payKeys.current[scheduleId] = key;
+    const phone = normaliseGhPhone(number.phone);
+    const body = `${phone}:${number.provider}`;
+    const held = payKeys.current[scheduleId];
+    const key = held && held.body === body ? held.key : newIdempotencyKey(`pay-${scheduleId}`);
+    payKeys.current[scheduleId] = { key, body };
     payMomo.mutate(
-      { scheduleId, idempotencyKey: key },
+      { scheduleId, phone, provider: number.provider, idempotencyKey: key },
       {
-        // Only a charge that came back successful retires its key. Anything
-        // else keeps it, so the next tap is deduplicated rather than charged.
-        onSuccess: () => {
+        onSuccess: (charge) => {
           delete payKeys.current[scheduleId];
+          // A decline is a 200 that says `failed`. This said "Payment started —
+          // approve the prompt on your phone" whatever came back.
+          if (charge.status === 'failed') {
+            setResult({
+              tone: 'error',
+              text: 'That payment did not go through. Check the number and network, and that there is enough in the wallet, then try again.',
+            });
+          } else if (charge.status === 'succeeded' || charge.status === 'paid') {
+            setResult({ tone: 'ok', text: 'Paid. Thank you.' });
+          } else {
+            setResult({ tone: 'ok', text: 'Check your phone and approve the prompt to pay.' });
+          }
         },
         onSettled: () => setPaying(null),
       },
@@ -230,8 +295,7 @@ export function PlanDetailPage() {
           <h1 className="text-xl font-semibold tracking-tight">Your plan</h1>
           {plan ? (
             <p className="mt-1 text-sm text-muted-foreground">
-              {formatGhs(plan.order_amount_pesewas)} order · {plan.number_of_installments}{' '}
-              instalments
+              {formatGhs(plan.order_amount_pesewas)} order · {paymentCount(plan)} payments
             </p>
           ) : null}
         </div>
@@ -246,8 +310,11 @@ export function PlanDetailPage() {
           </p>
           {next ? (
             <p className="mt-2 text-sm text-primary-foreground/80">
-              Next: {formatGhs(next.amount_due_pesewas)} due {formatDate(next.due_date)} (
+              Next: {formatGhs(payable(next))} due {formatDate(next.due_date)} (
               {relativeDay(next.due_date)})
+              {next.late_fee_pesewas > 0
+                ? ` · includes ${formatGhs(next.late_fee_pesewas)} late fee`
+                : ''}
             </p>
           ) : (
             <p className="mt-2 text-sm text-primary-foreground/80">All instalments settled.</p>
@@ -262,17 +329,51 @@ export function PlanDetailPage() {
               <Smartphone className="size-4 text-primary" />
               Pay with Mobile Money
             </CardTitle>
+            {/* This charged "the MoMo number saved on your account" with no way
+                to give one: an account opened on the web has none, and the
+                server refused with "Mobile Money phone is required". */}
             <CardDescription>
-              Charges the MoMo number saved on your account. You will get a prompt on your phone.
+              We send a prompt to this number; approve it on your phone.
+              {onFile.data && !onFile.data.momo_phone
+                ? ' The first number you pay with is kept for automatic collection.'
+                : ''}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <Input
+                aria-label="Mobile Money number"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="024 123 4567"
+                value={number.phone}
+                onChange={(e) => setMomo({ ...number, phone: e.target.value })}
+              />
+              <select
+                aria-label="Network"
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                value={number.provider}
+                onChange={(e) => setMomo({ ...number, provider: e.target.value as MomoProvider })}
+              >
+                {MOMO_PROVIDERS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             {payMomo.isError ? (
               <p className="text-sm text-destructive">{apiErrorMessage(payMomo.error)}</p>
             ) : null}
-            {payMomo.isSuccess ? (
-              <p className="text-sm text-success">
-                Payment started — approve the prompt on your phone.
+            {result ? (
+              <p
+                className={cn(
+                  'text-sm',
+                  result.tone === 'ok' ? 'text-success' : 'text-destructive',
+                )}
+              >
+                {result.text}
               </p>
             ) : null}
             <Button
@@ -283,7 +384,7 @@ export function PlanDetailPage() {
             >
               {payMomo.isPending && paying === next.id
                 ? 'Starting…'
-                : `Pay ${formatGhs(next.amount_due_pesewas)} now`}
+                : `Pay ${formatGhs(payable(next))} now`}
             </Button>
 
             <div className="flex items-center gap-3 pt-1">
@@ -333,7 +434,13 @@ export function PlanDetailPage() {
               >
                 <div className="min-w-0">
                   <p className="text-sm font-medium">
-                    #{row.sequence_number} · {formatGhs(row.amount_due_pesewas)}
+                    {plan && plan.down_payment_pesewas > 0 && row.sequence_number === 1
+                      ? 'Deposit'
+                      : `#${row.sequence_number}`}{' '}
+                    · {formatGhs(row.amount_due_pesewas)}
+                    {row.late_fee_pesewas > 0
+                      ? ` + ${formatGhs(row.late_fee_pesewas)} late fee`
+                      : ''}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Due {formatDate(row.due_date)}
