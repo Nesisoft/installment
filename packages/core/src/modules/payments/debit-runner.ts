@@ -3,6 +3,7 @@ import type { CustomersService } from '../customers/customers.service';
 import type { PaymentService, ChargeResult } from './payment.service';
 import type { CardAuthorizationService } from './card-authorization.service';
 import type { AttemptRepository } from './attempt-repository';
+import { isMomoProvider } from './alternative-instruments';
 
 /** Outcome of one auto-debit attempt. `skipped` means we couldn't even try. */
 export interface DebitAttemptOutcome {
@@ -22,10 +23,6 @@ export interface DebitSweepSummary {
   unknown: number;
   skipped: number;
   outcomes: DebitAttemptOutcome[];
-}
-
-function isMomoProvider(provider: string): provider is 'mtn' | 'tgo' | 'vod' {
-  return provider === 'mtn' || provider === 'tgo' || provider === 'vod';
 }
 
 /**
@@ -96,9 +93,16 @@ export class DebitRunner {
      * goes to Mobile Money; a failure there brings the card back. Mobile Money
      * needs the customer's approval on their handset, so this cannot take money
      * they did not mean to pay.
+     *
+     * Only attempts that charged a saved instrument count. A "Pay by card" link
+     * the customer opened and abandoned is recorded as a failed card attempt
+     * too, on the `payment_link` channel; reading it as a decline skipped a
+     * card that was never charged.
      */
     const last = this.attempts
-      ? await this.attempts.findLatestForSchedule(scheduleId).catch(() => undefined)
+      ? await this.attempts
+          .findLatestForSchedule(scheduleId, { channel: 'auto_debit' })
+          .catch(() => undefined)
       : undefined;
     const cardJustDeclined = last?.payment_method === 'card' && last.status === 'failed';
     if (card && !(cardJustDeclined && momoOnFile)) {

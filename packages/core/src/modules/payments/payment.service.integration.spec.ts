@@ -691,6 +691,120 @@ describe.skipIf(!RUN_DB)('PaymentService (integration)', () => {
     expect(retry.jobs).toHaveLength(0);
   });
 
+  describe('a decline that rules out one instrument, with another on file', () => {
+    // DebitRunner alternates card and Mobile Money down the retry ladder. A
+    // decline that kills one instrument used to end the ladder at `overdue`
+    // even with the other one on file — so a stale wallet tried as the
+    // fallback stranded a usable card, and a blocked card a funded wallet.
+    async function customerWithPlan(momo: boolean) {
+      const suffix = randomUUID();
+      const c = await customers.register(
+        {
+          first_name: 'Abena',
+          last_name: 'Mensah',
+          email: `abena+${suffix}@x.gh`,
+          phone: `024${Math.floor(1_000_000 + Math.random() * 8_999_999)}`,
+        },
+        ACTOR,
+      );
+      if (momo) {
+        await customers.setMomo(c.id, { momo_phone: '0244999000', momo_provider: 'mtn' }, ACTOR);
+      }
+      const app = await apps.submit(
+        {
+          customer_id: c.id,
+          merchant_id: merchantId,
+          plan_template_id: templateId,
+          order_reference: `ORD-${randomUUID()}`,
+          order_amount_pesewas: 500_000,
+          merchant_category: 'electronics',
+        },
+        ACTOR,
+      );
+      await apps.recordDecision(app.id, { outcome: 'approved' }, ACTOR);
+      const { schedule } = await plans.activateFromApplication(app.id, ACTOR);
+      return { customerId: c.id, scheduleId: schedule[0]!.id };
+    }
+
+    function wired(paystack: PaystackChargeClient, retry: RetryScheduler) {
+      const cards = new CardAuthorizationService(db);
+      return {
+        cards,
+        svc: new PaymentService(
+          plans,
+          scheduleState,
+          attempts,
+          paystack,
+          retry,
+          undefined,
+          undefined,
+          undefined,
+          cards,
+          customers,
+        ),
+      };
+    }
+
+    it('keeps the ladder going after a blocked card when a wallet is on file', async () => {
+      const { scheduleId } = await customerWithPlan(true);
+      const retry = fakeRetryScheduler();
+      const { svc } = wired(
+        fakePaystack({
+          card: { reference: 'ps_blk2', status: 'failed', gateway_response: 'Blocked Card' },
+        }),
+        retry,
+      );
+
+      await svc.chargeCard({ scheduleId, authorizationCode: 'AUTH_x', email: 'a@x.gh' }, ACTOR);
+
+      expect((await plans.getInstallment(scheduleId)).status).toBe('retry_scheduled');
+      expect(retry.jobs).toHaveLength(1);
+    });
+
+    it('keeps the ladder going after a closed wallet when a usable card is on file', async () => {
+      const { customerId: cid, scheduleId } = await customerWithPlan(true);
+      const retry = fakeRetryScheduler();
+      const { svc, cards } = wired(
+        fakePaystack({
+          momo: { reference: 'ps_closed', status: 'failed', gateway_response: 'Account Closed' },
+        }),
+        retry,
+      );
+      await cards.record(cid, {
+        authorization_code: `AUTH_${randomUUID().slice(0, 8)}`,
+        reusable: true,
+        last4: '4081',
+        brand: 'visa',
+        exp_month: '12',
+        exp_year: '2099',
+      });
+
+      await svc.chargeMobileMoney(
+        { scheduleId, email: 'a@x.gh', phone: '+233244999000', provider: 'mtn' },
+        ACTOR,
+      );
+
+      expect((await plans.getInstallment(scheduleId)).status).toBe('retry_scheduled');
+      expect(retry.jobs).toHaveLength(1);
+    });
+
+    it('still ends at overdue when there is nothing else to try', async () => {
+      const { scheduleId } = await customerWithPlan(false);
+      const retry = fakeRetryScheduler();
+      const { svc } = wired(
+        fakePaystack({
+          card: { reference: 'ps_blk3', status: 'failed', gateway_response: 'Blocked Card' },
+        }),
+        retry,
+      );
+
+      await svc.chargeCard({ scheduleId, authorizationCode: 'AUTH_x', email: 'a@x.gh' }, ACTOR);
+
+      expect((await plans.getInstallment(scheduleId)).status).toBe('overdue');
+      expect(retry.jobs).toHaveLength(0);
+    });
+  });
+
   it('leaves the schedule failed (no retry) once attempts are exhausted', async () => {
     const { scheduleId } = await freshPlan();
     const retry = fakeRetryScheduler();

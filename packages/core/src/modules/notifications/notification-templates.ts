@@ -79,16 +79,18 @@ export const NOTIFICATION_TEMPLATES: Record<NotificationTemplateId, TemplateDef>
       body: `We will charge your ${v.card}.`,
     }),
   },
-  // And for one with nothing on file to collect from: the debit cannot happen,
-  // so the reminder is the only thing that can stop the instalment going late.
+  // And for an instalment nothing will collect: there is no instrument on
+  // file, or the customer switched automatic collection off for the plan. The
+  // debit will not happen, so this reminder is the only thing that can stop the
+  // instalment going late — and it must not imply that anything will be taken.
   pre_debit_reminder_manual: {
     required: ['name', 'amount', 'date'],
     render: (v) =>
       `Hi ${v.name}, GHS ${v.amount} for your installment is due ${v.date}. ` +
-      `There is nothing on file to collect it from, so please pay it in the app. - ${SIGNOFF}`,
+      `It will not be collected automatically, so please pay it in the app. - ${SIGNOFF}`,
     push: (v) => ({
       title: `GHS ${v.amount} due ${v.date}`,
-      body: 'Nothing is on file to collect it from. Open the app to pay it.',
+      body: 'It will not be collected automatically. Open the app to pay it.',
     }),
   },
   payment_link: {

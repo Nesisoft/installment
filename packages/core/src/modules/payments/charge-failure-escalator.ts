@@ -6,6 +6,7 @@ import {
   type ScheduleEvent,
 } from '../schedules/state-machine';
 import { classifyFailure } from './failure-classifier';
+import { isInstrumentFailure } from './alternative-instruments';
 import { retryStepFor } from './retry-policy';
 import type { RetryScheduler } from './retry-scheduler';
 
@@ -37,6 +38,11 @@ export class ChargeFailureEscalator {
     private readonly schedules: ScheduleStateService,
     private readonly retryScheduler?: RetryScheduler,
     private readonly receipts?: ChargeReceiptNotifier,
+    /**
+     * Whether another instrument is on file for the auto-debit to try. Optional:
+     * without it every non-retryable decline is final, as before.
+     */
+    private readonly alternatives?: { hasAnotherInstrument(scheduleId: string): Promise<boolean> },
   ) {}
 
   /**
@@ -54,7 +60,14 @@ export class ChargeFailureEscalator {
     const installment = await this.plans.getInstallment(scheduleId);
     const amount = installment.amount_due_pesewas + installment.late_fee_pesewas;
 
-    if (classifyFailure(reason) === 'non_retryable') {
+    // A decline that rules out the INSTRUMENT (a closed wallet, a blocked card)
+    // is only final when there is nothing else to try. With another instrument
+    // on file it takes the retryable path, and DebitRunner's next rung goes to
+    // that instrument. A decline about the customer is final either way.
+    if (
+      classifyFailure(reason) === 'non_retryable' &&
+      !(isInstrumentFailure(reason) && (await this.anotherInstrument(scheduleId)))
+    ) {
       await this.tryEvent(scheduleId, 'non_retryable_decline', { ...actor, reason });
       this.notify((n) => n.notifyChargeFailed(scheduleId, amount)); // terminal
       return;
@@ -84,6 +97,12 @@ export class ChargeFailureEscalator {
         delayMs: step.delayHours * HOUR_MS,
       });
     }
+  }
+
+  /** Best-effort: a lookup that fails leaves the decline final, as it always was. */
+  private async anotherInstrument(scheduleId: string): Promise<boolean> {
+    if (!this.alternatives) return false;
+    return this.alternatives.hasAnotherInstrument(scheduleId).catch(() => false);
   }
 
   /** Fires a receipt SMS without ever letting it affect the charge outcome. */

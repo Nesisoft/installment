@@ -85,7 +85,8 @@ describe('ReminderRunner.sendUpcomingReminders', () => {
     });
     const summary = await runner.sendUpcomingReminders('2026-06-20');
 
-    expect(cards!.findUsable).toHaveBeenCalledWith('c1');
+    // Checked for the day it will be charged, not the day the reminder runs.
+    expect(cards!.findUsable).toHaveBeenCalledWith('c1', new Date('2026-06-20T12:00:00Z'));
     expect(sendToCustomer).toHaveBeenCalledWith(
       expect.objectContaining({
         templateId: 'pre_debit_reminder_card',
@@ -143,6 +144,34 @@ describe('ReminderRunner.sendUpcomingReminders', () => {
       }),
     );
     expect(summary).toMatchObject({ sent: 1, skipped: 0 });
+  });
+
+  it('tells a customer who switched automatic collection off to pay in the app', async () => {
+    // `listDueForAutoDebit` skips the plan, so nothing will be charged — the
+    // card and wallet on file are irrelevant, and promising either is a lie
+    // that ends in a late fee.
+    const { runner, sendToCustomer, cards } = deps({
+      plan: { id: 'p1', customer_id: 'c1', autopay_enabled: false },
+      card: { brand: 'visa', last4: '4081' },
+    });
+    await runner.sendUpcomingReminders('2026-06-20');
+    expect(cards!.findUsable).not.toHaveBeenCalled();
+    expect(sendToCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateId: 'pre_debit_reminder_manual',
+        toAddress: '+233200000001',
+      }),
+    );
+  });
+
+  it('does not tell an autopay-off customer to fund their wallet either', async () => {
+    const { runner, sendToCustomer } = deps({
+      plan: { id: 'p1', customer_id: 'c1', autopay_enabled: false },
+    });
+    await runner.sendUpcomingReminders('2026-06-20');
+    expect(sendToCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({ templateId: 'pre_debit_reminder_manual' }),
+    );
   });
 
   it('keeps to the MoMo reminder when the card lookup fails', async () => {
