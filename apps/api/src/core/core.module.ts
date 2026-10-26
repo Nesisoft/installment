@@ -654,6 +654,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
         telco: TelcoHealthMonitor,
         lock: RedisLock,
         cards: CardAuthorizationService,
+        customers: CustomersService,
       ) =>
         new PaymentService(
           plans,
@@ -665,6 +666,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
           telco,
           lock,
           cards,
+          customers,
         ),
       inject: [
         CustomerPlansService,
@@ -676,6 +678,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
         TelcoHealthMonitor,
         RedisLock,
         CardAuthorizationService,
+        CustomersService,
       ],
     },
     {

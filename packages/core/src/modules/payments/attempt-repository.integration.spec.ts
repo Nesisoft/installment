@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestDb } from '@installment/db';
+import { eq } from 'drizzle-orm';
+import { createTestDb, schema } from '@installment/db';
 import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 import { MerchantsService } from '../merchants/merchants.service';
@@ -106,6 +107,35 @@ describe.skipIf(!RUN_DB)('AttemptRepository (integration)', () => {
     expect((await attempts.findById(created.id))?.status).toBe('succeeded');
     expect((await attempts.findByProviderReference(ref))?.id).toBe(created.id);
     expect((await attempts.findByIdempotencyKey(key))?.id).toBe(created.id);
+  });
+
+  it('finds the latest attempt on one channel, so a link the customer opened is not a debit', async () => {
+    const debit = await attempts.create({
+      scheduleId,
+      customerPlanId: planId,
+      channel: 'auto_debit',
+      paymentMethod: 'card',
+      amountPesewas: 125_000,
+      idempotencyKey: `${scheduleId}:latest:${randomUUID()}`,
+    });
+    // Older than the link below, whatever the clock resolution.
+    await db
+      .update(schema.payment_attempts)
+      .set({ initiated_at: '2000-01-01T00:00:00Z' })
+      .where(eq(schema.payment_attempts.id, debit.id));
+    const link = await attempts.create({
+      scheduleId,
+      customerPlanId: planId,
+      channel: 'payment_link',
+      paymentMethod: 'card',
+      amountPesewas: 125_000,
+      idempotencyKey: `${scheduleId}:latest:${randomUUID()}`,
+    });
+
+    expect((await attempts.findLatestForSchedule(scheduleId))?.id).toBe(link.id);
+    const latestDebit = await attempts.findLatestForSchedule(scheduleId, { channel: 'auto_debit' });
+    expect(latestDebit?.channel).toBe('auto_debit');
+    expect(latestDebit?.id).not.toBe(link.id);
   });
 
   it('throws when updating an unknown attempt', async () => {

@@ -98,12 +98,19 @@ export class AttemptRepository {
   }
 
   /** The newest attempt on a schedule, whatever became of it. */
-  async findLatestForSchedule(scheduleId: string): Promise<PaymentAttempt | undefined> {
+  async findLatestForSchedule(
+    scheduleId: string,
+    opts: { channel?: PaymentChannel } = {},
+  ): Promise<PaymentAttempt | undefined> {
     return (
       await this.db
         .select()
         .from(pa)
-        .where(eq(pa.schedule_id, scheduleId))
+        .where(
+          opts.channel
+            ? and(eq(pa.schedule_id, scheduleId), eq(pa.channel, opts.channel))
+            : eq(pa.schedule_id, scheduleId),
+        )
         .orderBy(desc(pa.initiated_at))
         .limit(1)
     )[0];

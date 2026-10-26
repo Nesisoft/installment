@@ -53,7 +53,7 @@ function deps(
     cards as never,
     attempts as never,
   );
-  return { runner, plans, customers, chargeMobileMoney, chargeCard, cards };
+  return { runner, plans, customers, chargeMobileMoney, chargeCard, cards, attempts };
 }
 
 describe('DebitRunner.attemptAutoDebit', () => {
@@ -146,13 +146,16 @@ describe('DebitRunner.attemptAutoDebit', () => {
    * customer reached the payment link and then the late fee.
    */
   it('charges Mobile Money on the attempt after the card was declined', async () => {
-    const { runner, chargeCard, chargeMobileMoney } = deps({
+    const { runner, chargeCard, chargeMobileMoney, attempts } = deps({
       card: { authorization_code: 'AUTH_abc' },
       lastAttempt: { payment_method: 'card', status: 'failed' },
     });
 
     const outcome = await runner.attemptAutoDebit('s1', ACTOR);
 
+    // Only attempts on a saved instrument count: an abandoned "Pay by card"
+    // link is a failed card attempt too, on the payment_link channel.
+    expect(attempts!.findLatestForSchedule).toHaveBeenCalledWith('s1', { channel: 'auto_debit' });
     expect(chargeCard).not.toHaveBeenCalled();
     expect(chargeMobileMoney).toHaveBeenCalledOnce();
     expect(outcome.status).toBe('pending');

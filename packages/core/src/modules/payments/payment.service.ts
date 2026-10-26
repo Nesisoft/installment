@@ -18,6 +18,8 @@ import {
 import { MAX_VERIFY_POLLS } from './retry-policy';
 import type { RetryScheduler } from './retry-scheduler';
 import { ChargeFailureEscalator, type ChargeReceiptNotifier } from './charge-failure-escalator';
+import { AlternativeInstruments } from './alternative-instruments';
+import type { CustomersService } from '../customers/customers.service';
 import {
   declineFromChargeError,
   invalidAuthorizationFrom,
@@ -155,8 +157,24 @@ export class PaymentService {
      * lock landing on this parameter.
      */
     private readonly cards?: CardAuthorizationService,
+    /**
+     * Lets the escalator see whether another instrument is on file, so an
+     * instrument-level decline does not end the retry ladder while one is.
+     * Last, for the reason the comment above gives.
+     */
+    customers?: Pick<CustomersService, 'get'>,
   ) {
-    this.escalator = new ChargeFailureEscalator(plans, schedules, retryScheduler, receipts);
+    const alternatives =
+      customers && cards
+        ? new AlternativeInstruments(attempts, plans, customers, cards)
+        : undefined;
+    this.escalator = new ChargeFailureEscalator(
+      plans,
+      schedules,
+      retryScheduler,
+      receipts,
+      alternatives,
+    );
   }
 
   /**

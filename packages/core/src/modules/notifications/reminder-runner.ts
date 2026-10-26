@@ -21,7 +21,9 @@ export interface ReminderSweepSummary {
  * so a customer with one is told about the card, at their account phone; one
  * with only Mobile Money is told to fund that wallet, at the wallet's number;
  * and one with neither is told to pay in the app, because nothing will collect
- * it for them. The sweep used to text only customers with a MoMo number, so a
+ * it for them. Nor will anything collect it on a plan whose automatic
+ * collection the customer switched off — `listDueForAutoDebit` skips those
+ * plans — so they are told to pay in the app too, whatever is on file. The sweep used to text only customers with a MoMo number, so a
  * card-only customer heard nothing until the charge, and one with nothing on
  * file heard nothing until the late fee.
  */
@@ -70,7 +72,13 @@ export class ReminderRunner {
     try {
       const plan = await this.plans.get(installment.customer_plan_id);
       const customer = await this.customers.get(plan.customer_id);
-      const card = this.cards ? await this.cards.findUsable(customer.id).catch(() => null) : null;
+      const autopay = plan.autopay_enabled !== false;
+      // Usable on the day it will be charged, not the day this runs: a card
+      // expiring at the end of this month is gone by a debit on the 1st.
+      const card =
+        autopay && this.cards
+          ? await this.cards.findUsable(customer.id, debitDay(forDate)).catch(() => null)
+          : null;
 
       const base = {
         name: customer.first_name,
@@ -85,7 +93,7 @@ export class ReminderRunner {
             templateId: 'pre_debit_reminder_card' as const,
             variables: { ...base, card: cardLabel(card) },
           }
-        : customer.momo_phone && customer.momo_provider
+        : autopay && customer.momo_phone && customer.momo_provider
           ? {
               toAddress: customer.momo_phone,
               templateId: 'pre_debit_reminder' as const,
@@ -112,6 +120,11 @@ export class ReminderRunner {
       return false;
     }
   }
+}
+
+/** Noon UTC on the due date — inside that day wherever the card's month is read. */
+function debitDay(forDate: string): Date {
+  return new Date(`${forDate}T12:00:00Z`);
 }
 
 /** "Visa card ending 4081" — enough for a person to know which card is meant. */
