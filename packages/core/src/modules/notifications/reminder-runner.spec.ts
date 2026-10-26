@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ReminderRunner } from './reminder-runner';
+import { cardLabel, ReminderRunner } from './reminder-runner';
 
 const installment = (
   over: Partial<{
@@ -23,11 +23,14 @@ function deps(
     plan?: Record<string, unknown>;
     sendStatus?: 'sent' | 'failed';
     sendThrows?: Error;
+    /** A usable saved card; undefined means the runner gets no card service. */
+    card?: { brand: string | null; last4: string | null } | null;
   } = {},
 ) {
   const customer = over.customer ?? {
     id: 'c1',
     first_name: 'Ama',
+    phone: '+233200000001',
     momo_phone: '0244000000',
     momo_provider: 'mtn',
   };
@@ -41,12 +44,15 @@ function deps(
     if (over.sendThrows) throw over.sendThrows;
     return { notification: { id: 'n1' }, status: over.sendStatus ?? 'sent' };
   });
+  const cards =
+    over.card === undefined ? undefined : { findUsable: vi.fn(async () => over.card ?? null) };
   const runner = new ReminderRunner(
     plans as never,
     customers as never,
     { sendToCustomer } as never,
+    cards as never,
   );
-  return { runner, plans, customers, sendToCustomer };
+  return { runner, plans, customers, sendToCustomer, cards };
 }
 
 describe('ReminderRunner.sendUpcomingReminders', () => {
@@ -71,13 +77,81 @@ describe('ReminderRunner.sendUpcomingReminders', () => {
     expect(summary).toEqual({ forDate: '2026-06-20', candidates: 1, sent: 1, skipped: 0 });
   });
 
-  it('skips a customer with no MoMo on file (never SMSes)', async () => {
-    const { runner, sendToCustomer } = deps({
-      customer: { id: 'c1', first_name: 'Ama', momo_phone: null, momo_provider: null },
+  it('tells a customer with a saved card about the card, at their account phone', async () => {
+    // The debit tries the card first, so this is the instrument it will charge —
+    // even for a customer who also has a MoMo number on file.
+    const { runner, sendToCustomer, cards } = deps({
+      card: { brand: 'visa', last4: '4081' },
     });
     const summary = await runner.sendUpcomingReminders('2026-06-20');
-    expect(sendToCustomer).not.toHaveBeenCalled();
-    expect(summary).toMatchObject({ candidates: 1, sent: 0, skipped: 1 });
+
+    expect(cards!.findUsable).toHaveBeenCalledWith('c1');
+    expect(sendToCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateId: 'pre_debit_reminder_card',
+        toAddress: '+233200000001',
+        variables: {
+          name: 'Ama',
+          amount: '250.00',
+          date: '2026-06-20',
+          card: 'Visa card ending 4081',
+        },
+      }),
+    );
+    expect(summary).toMatchObject({ sent: 1, skipped: 0 });
+  });
+
+  it('reminds a card-only customer, who used to hear nothing', async () => {
+    const { runner, sendToCustomer } = deps({
+      customer: {
+        id: 'c1',
+        first_name: 'Ama',
+        phone: '+233200000001',
+        momo_phone: null,
+        momo_provider: null,
+      },
+      card: { brand: 'mastercard', last4: '5559' },
+    });
+    await runner.sendUpcomingReminders('2026-06-20');
+    expect(sendToCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateId: 'pre_debit_reminder_card',
+        toAddress: '+233200000001',
+      }),
+    );
+  });
+
+  it('tells a customer with nothing on file to pay in the app', async () => {
+    // Nothing will collect it for them, so this text is what stands between the
+    // instalment and a late fee.
+    const { runner, sendToCustomer } = deps({
+      customer: {
+        id: 'c1',
+        first_name: 'Ama',
+        phone: '+233200000001',
+        momo_phone: null,
+        momo_provider: null,
+      },
+      card: null,
+    });
+    const summary = await runner.sendUpcomingReminders('2026-06-20');
+    expect(sendToCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateId: 'pre_debit_reminder_manual',
+        toAddress: '+233200000001',
+        variables: { name: 'Ama', amount: '250.00', date: '2026-06-20' },
+      }),
+    );
+    expect(summary).toMatchObject({ sent: 1, skipped: 0 });
+  });
+
+  it('keeps to the MoMo reminder when the card lookup fails', async () => {
+    const { runner, sendToCustomer, cards } = deps({ card: null });
+    cards!.findUsable.mockRejectedValueOnce(new Error('db down'));
+    await runner.sendUpcomingReminders('2026-06-20');
+    expect(sendToCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({ templateId: 'pre_debit_reminder', toAddress: '0244000000' }),
+    );
   });
 
   it('counts a failed SMS as skipped (NotificationService records the failure)', async () => {
@@ -100,6 +174,13 @@ describe('ReminderRunner.sendUpcomingReminders', () => {
 
     const summary = await runner.sendUpcomingReminders('2026-06-20');
     expect(summary).toEqual({ forDate: '2026-06-20', candidates: 2, sent: 1, skipped: 1 });
+  });
+
+  it('labels a card by brand and last four, and copes without either', () => {
+    expect(cardLabel({ brand: 'visa', last4: '4081' })).toBe('Visa card ending 4081');
+    expect(cardLabel({ brand: null, last4: '4081' })).toBe('card ending 4081');
+    expect(cardLabel({ brand: 'verve', last4: null })).toBe('saved Verve card');
+    expect(cardLabel({ brand: null, last4: null })).toBe('saved card');
   });
 
   it('passes a custom limit through to the repository', async () => {

@@ -1,6 +1,7 @@
 import { Money } from '../../shared/money/money';
 import type { CustomerPlansService } from '../schedules/customer-plans.service';
 import type { CustomersService } from '../customers/customers.service';
+import type { CardAuthorizationService } from '../payments/card-authorization.service';
 import type { NotificationService } from './notification.service';
 
 export interface ReminderSweepSummary {
@@ -12,15 +13,25 @@ export interface ReminderSweepSummary {
 
 /**
  * Pre-debit reminder sweep. Texts customers a heads-up the day before an
- * installment debits so their Mobile Money wallet is funded — the Ghanaian BNPL
- * expectation. Best-effort: a customer with no MoMo on file is skipped, and a
- * failed SMS is recorded by NotificationService (never thrown).
+ * installment debits, naming what the debit will charge — the Ghanaian BNPL
+ * expectation. Best-effort: a failed SMS is recorded by NotificationService
+ * (never thrown).
+ *
+ * It follows DebitRunner's choice of instrument. A saved card is charged first,
+ * so a customer with one is told about the card, at their account phone; one
+ * with only Mobile Money is told to fund that wallet, at the wallet's number;
+ * and one with neither is told to pay in the app, because nothing will collect
+ * it for them. The sweep used to text only customers with a MoMo number, so a
+ * card-only customer heard nothing until the charge, and one with nothing on
+ * file heard nothing until the late fee.
  */
 export class ReminderRunner {
   constructor(
     private readonly plans: CustomerPlansService,
     private readonly customers: CustomersService,
     private readonly notifications: NotificationService,
+    /** Optional so framework-free callers keep working; without it no card is assumed. */
+    private readonly cards?: Pick<CardAuthorizationService, 'findUsable'>,
   ) {}
 
   /**
@@ -59,20 +70,41 @@ export class ReminderRunner {
     try {
       const plan = await this.plans.get(installment.customer_plan_id);
       const customer = await this.customers.get(plan.customer_id);
-      if (!customer.momo_phone || !customer.momo_provider) return false;
+      const card = this.cards ? await this.cards.findUsable(customer.id).catch(() => null) : null;
 
-      const amount = installment.amount_due_pesewas + installment.late_fee_pesewas;
+      const base = {
+        name: customer.first_name,
+        amount: Money.fromPesewas(installment.amount_due_pesewas + installment.late_fee_pesewas)
+          .format('')
+          .trim(),
+        date: forDate,
+      };
+      const message = card
+        ? {
+            toAddress: customer.phone,
+            templateId: 'pre_debit_reminder_card' as const,
+            variables: { ...base, card: cardLabel(card) },
+          }
+        : customer.momo_phone && customer.momo_provider
+          ? {
+              toAddress: customer.momo_phone,
+              templateId: 'pre_debit_reminder' as const,
+              variables: {
+                ...base,
+                provider: customer.momo_provider,
+                phone: customer.momo_phone,
+              },
+            }
+          : {
+              toAddress: customer.phone,
+              templateId: 'pre_debit_reminder_manual' as const,
+              variables: base,
+            };
+      if (!message.toAddress) return false;
+
       const result = await this.notifications.sendToCustomer({
         customerId: customer.id,
-        toAddress: customer.momo_phone,
-        templateId: 'pre_debit_reminder',
-        variables: {
-          name: customer.first_name,
-          amount: Money.fromPesewas(amount).format('').trim(),
-          date: forDate,
-          provider: customer.momo_provider,
-          phone: customer.momo_phone,
-        },
+        ...message,
       });
       return result.status === 'sent';
     } catch {
@@ -80,4 +112,13 @@ export class ReminderRunner {
       return false;
     }
   }
+}
+
+/** "Visa card ending 4081" — enough for a person to know which card is meant. */
+export function cardLabel(card: { brand: string | null; last4: string | null }): string {
+  const brand = card.brand?.trim();
+  const named = brand
+    ? `${brand.charAt(0).toUpperCase()}${brand.slice(1).toLowerCase()} card`
+    : 'card';
+  return card.last4 ? `${named} ending ${card.last4}` : `saved ${named}`;
 }

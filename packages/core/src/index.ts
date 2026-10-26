@@ -409,6 +409,7 @@ export {
   type GhanaCardStatus,
   type GhanaCardStatusView,
 } from './modules/customers/customers.service';
+export * from './modules/customers/placeholder-email';
 export * from './modules/employers/state-machine';
 export {
   createEmployerSchema,

@@ -75,6 +75,13 @@ describe('push renderings', () => {
       provider: 'mtn',
       phone: '024 455 1338',
     },
+    pre_debit_reminder_card: {
+      name: 'Ama',
+      amount: '120.00',
+      date: '12 Sep',
+      card: 'Mastercard ending 4081',
+    },
+    pre_debit_reminder_manual: { name: 'Ama', amount: '120.00', date: '12 Sep' },
     payment_link: { name: 'Ama', amount: '120.00', url: 'https://pay.example/abc' },
     payment_succeeded: { name: 'Ama', amount: '120.00', outstanding: '360.00' },
     payment_failed: { name: 'Ama', amount: '120.00' },

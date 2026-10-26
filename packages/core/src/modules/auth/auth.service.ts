@@ -4,6 +4,7 @@ import { OtpService } from '../../shared/auth/otp.service';
 import { UsersService, type User } from '../users/users.service';
 import { UserNotFoundError } from '../users/errors';
 import { CustomersService } from '../customers/customers.service';
+import { placeholderEmailFor } from '../customers/placeholder-email';
 import { MerchantsService } from '../merchants/merchants.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 import { type GhanaRegion, type MomoProviderCode } from '../../shared/validators/ghana';
@@ -448,7 +449,7 @@ export class AuthService {
             {
               first_name: input.first_name,
               last_name: input.last_name,
-              email: input.email ?? `${input.phone}@customer.installment.local`,
+              email: input.email ?? placeholderEmailFor(input.phone),
               phone: input.phone,
               date_of_birth: input.date_of_birth,
             },

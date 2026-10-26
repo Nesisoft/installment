@@ -30,6 +30,7 @@ import {
   CustomersService,
   InstallmentsFeedService,
   attachGhanaCardSchema,
+  realEmail,
   setMomoSchema,
   updateCustomerSchema,
 } from '@installment/core';
@@ -121,7 +122,13 @@ export class MeShopperController {
       id: customer.id,
       first_name: customer.first_name,
       last_name: customer.last_name,
-      email: customer.email,
+      /**
+       * Null for a phone-signup account that never gave one. The column holds
+       * `<phone>@customer.installment.local` to satisfy NOT NULL, and the
+       * profile showed that back as the customer's email — an address they
+       * never typed, presented as one we would write to.
+       */
+      email: realEmail(customer.email),
       phone: customer.phone,
       momo_phone: customer.momo_phone,
       momo_provider: customer.momo_provider,

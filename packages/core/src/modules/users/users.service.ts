@@ -12,6 +12,7 @@ import {
   type CreateStaffInput,
 } from './dto';
 import { RoleNotFoundError, UserConflictError, UserNotFoundError } from './errors';
+import { placeholderEmailFor } from '../customers/placeholder-email';
 
 const u = schema.users;
 const ur = schema.user_roles;
@@ -91,7 +92,7 @@ export class UsersService {
       {
         // Customers authenticate by phone+OTP, so a synthetic unique email keeps
         // the NOT NULL/UNIQUE email column satisfied without a real inbox.
-        email: input.email ?? `${input.phone}@customer.installment.local`,
+        email: input.email ?? placeholderEmailFor(input.phone),
         name: input.name,
         phone: input.phone,
         user_type: 'customer',
