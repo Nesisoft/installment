@@ -1113,12 +1113,31 @@ export interface CartLine extends CartItem {
   title: string;
   sku: string;
   product_id: string | null;
+  /** Line total, so no client re-derives price x quantity and rounds it differently. */
+  line_total_pesewas: number;
+  image_url: string | null;
+  /** Checkout makes one order per store, so the store decides which order a line lands in. */
+  store_id: string | null;
+  store_slug: string | null;
+  store_display_name: string | null;
+  option_values: Record<string, unknown>;
+  quantity_available: number;
+  /** False when the product or variant has been delisted since it was added. */
+  purchasable: boolean;
+  installment_eligible: boolean;
 }
 
-/** Returned by GET /me/cart and the cart mutation endpoints. */
+/**
+ * Returned by GET /me/cart and the cart mutation endpoints. Mirrors
+ * `CartService`'s own type; this declared only the first few fields, so a
+ * client had no typed way to see that a basket spans several stores.
+ */
 export interface CartWithItems extends Cart {
   items: CartLine[];
   subtotal_pesewas: number;
+  /** Distinct stores in the basket — checkout will split into this many orders. */
+  store_count: number;
+  item_count: number;
 }
 
 // --- Commerce (orders) ------------------------------------------------------
@@ -1177,4 +1196,24 @@ export interface OrderItem {
 /** Returned by POST /me/checkout and the order read endpoints. */
 export interface OrderWithItems extends Order {
   items: OrderItem[];
+}
+
+export type CheckoutOutcome = 'paid_later' | 'approved' | 'declined' | 'in_review' | 'failed';
+
+/**
+ * What POST /me/checkout returns: one per order it made (one per store), each
+ * with the credit decision already taken — checkout scores and activates
+ * before it answers. Mirrors `DecidedOrder` in the commerce package.
+ */
+export interface DecidedOrder {
+  order: OrderWithItems;
+  outcome: CheckoutOutcome;
+  application_id: string | null;
+  plan: CustomerPlan | null;
+  schedule: InstallmentScheduleRow[];
+  /** The deposit the customer must now pay, when there is one. */
+  down_payment: InstallmentScheduleRow | null;
+  approved_limit_pesewas: number | null;
+  /** Customer-readable reason, for the declined and in-review outcomes. */
+  message: string | null;
 }

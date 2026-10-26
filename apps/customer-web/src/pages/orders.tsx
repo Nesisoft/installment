@@ -12,7 +12,7 @@ import {
   StatusBadge,
 } from '@installment/ui';
 import { formatGhs } from '@installment/api-types';
-import { apiErrorMessage, newIdempotencyKey } from '@installment/web-kit';
+import { apiErrorMessage, apiErrorStatus, newIdempotencyKey } from '@installment/web-kit';
 import { ArrowLeft, Smartphone } from 'lucide-react';
 import { useOrder, useOrders, usePayOrderMomo } from '../lib/shop-api';
 import { formatDate } from '../lib/format';
@@ -51,7 +51,9 @@ export function OrdersPage() {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-muted-foreground">
-                        {o.payment_type === 'installment' ? 'In instalments' : 'Paid in full'}
+                        {/* The payment type, not its state: "Paid in full" sat beside a
+                            Pending Payment badge on every unpaid order. */}
+                        {o.payment_type === 'installment' ? 'In instalments' : 'Pay in full'}
                       </span>
                       <span className="text-sm font-semibold">{formatGhs(o.total_pesewas)}</span>
                     </div>
@@ -80,9 +82,14 @@ export function OrderDetailPage() {
   const order = useOrder(id, { pollMs: awaitingApproval ? 3000 : undefined });
   const payMomo = usePayOrderMomo(id);
   const [momo, setMomo] = useState({ phone: '', provider: 'mtn' as 'mtn' | 'tgo' | 'vod' });
-  // One key per attempt, rotated only after a charge that actually went
-  // through. A retry of a failed or timed-out attempt reuses it, so a charge
-  // that succeeded while the response was lost is replayed, not repeated.
+  /**
+   * One key per attempt. A retry after a timeout reuses it, so a charge that
+   * succeeded while the response was lost is replayed, not repeated. Any
+   * answer the server gave retires it: that answer is now stored under the
+   * key, so reusing it replays it. This kept the key after a decline, so
+   * "Pay" again returned the same decline, and a corrected number under the
+   * same key was refused as a conflict — the order could not be paid here.
+   */
   const [payKey, setPayKey] = useState(() => newIdempotencyKey('order-pay'));
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -97,17 +104,28 @@ export function OrderDetailPage() {
       { phone: momo.phone.trim(), provider: momo.provider, idempotencyKey: payKey },
       {
         onSuccess: (result) => {
+          setPayKey(newIdempotencyKey('order-pay'));
           if (result.status === 'paid') {
             setAwaitingApproval(false);
-            setPayKey(newIdempotencyKey('order-pay'));
             return;
           }
-          if (result.status === 'pending') {
-            // Not paid yet — they still have to approve it on the handset.
+          if (result.status === 'failed') {
+            setAwaitingApproval(false);
+            setFailure(
+              'That payment did not go through. Check the number and network, and that there is enough in the wallet, then try again.',
+            );
+            return;
+          }
+          // Not paid yet — they still have to approve it on the handset.
+          setAwaitingApproval(true);
+        },
+        onError: (err) => {
+          // A charge under the last prompt may still land; the server will not
+          // start another over it.
+          if (apiErrorStatus(err) === 409) {
             setAwaitingApproval(true);
-            return;
+            setFailure('Your last prompt is still waiting. Approve it on your phone first.');
           }
-          setFailure(result.message ?? 'The payment did not go through. Try again.');
         },
       },
     );
@@ -189,7 +207,7 @@ export function OrderDetailPage() {
                 </p>
               ) : null}
               {failure ? <p className="text-sm text-destructive">{failure}</p> : null}
-              {payMomo.isError ? (
+              {payMomo.isError && apiErrorStatus(payMomo.error) !== 409 ? (
                 <p className="text-sm text-destructive">{apiErrorMessage(payMomo.error)}</p>
               ) : null}
 
@@ -197,7 +215,7 @@ export function OrderDetailPage() {
                 {payMomo.isPending
                   ? 'Starting…'
                   : awaitingApproval
-                    ? 'Send the prompt again'
+                    ? 'Send a new prompt'
                     : `Pay ${formatGhs(o.total_pesewas)} now`}
               </Button>
             </form>
@@ -205,10 +223,21 @@ export function OrderDetailPage() {
         </Card>
       ) : null}
 
-      {o.payment_type === 'installment' ? (
+      {/* Read from the order's status as well as its plan: a declined order has
+          no plan either, and was told "Financing under review — we are
+          checking your eligibility" beside a Declined badge. */}
+      {o.payment_type === 'installment' && o.status !== 'cancelled' ? (
         <Card className="border-primary/40">
           <CardContent className="p-4 text-sm">
-            {o.customer_plan_id ? (
+            {o.status === 'declined' ? (
+              <>
+                <p className="font-medium">Not approved</p>
+                <p className="mt-1 text-muted-foreground">
+                  We could not approve instalments for this order. Nothing was charged, and the
+                  items are back on sale.
+                </p>
+              </>
+            ) : o.customer_plan_id ? (
               <>
                 <p className="font-medium">Financing approved</p>
                 <p className="mt-1 text-muted-foreground">

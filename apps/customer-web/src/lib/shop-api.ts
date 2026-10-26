@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@installment/web-kit';
 import type {
   Address,
@@ -9,10 +9,13 @@ import type {
   StorefrontProductDetails,
   CheckoutInput,
   CreateAddressInput,
+  Customer,
   CustomerPlan,
+  DecidedOrder,
   DeliveryQuote,
   InstallmentScheduleRow,
   OrderWithItems,
+  PlanQuote,
   PlanTemplate,
   Statement,
 } from '@installment/api-types';
@@ -111,6 +114,26 @@ export function usePlanTemplates() {
   });
 }
 
+/**
+ * What a plan costs on each amount — one quote per order checkout will make.
+ * The engine's own schedule generator, server-side: what the customer is shown
+ * is what the plan will be. Each distinct amount is asked once, and an amount
+ * not yet priced (zero) not at all.
+ */
+export function usePlanQuotes(amountsPesewas: readonly number[]): (PlanQuote[] | undefined)[] {
+  const api = useApi();
+  const distinct = [...new Set(amountsPesewas.filter((amount) => amount > 0))];
+  const results = useQueries({
+    queries: distinct.map((amount) => ({
+      queryKey: ['plan-quote', amount],
+      queryFn: async () =>
+        (await api.post<PlanQuote[]>('/storefront/plan-quote', { amount_pesewas: amount })).data,
+      staleTime: 5 * 60_000,
+    })),
+  });
+  return amountsPesewas.map((amount) => results[distinct.indexOf(amount)]?.data);
+}
+
 // --- Cart -------------------------------------------------------------------
 
 const CART_KEY = ['cart'];
@@ -190,9 +213,12 @@ export function useCheckout() {
     // mint a fresh key per retry and defeat the protection entirely. Making it
     // required means a caller that forgets is a type error rather than a
     // silently unprotected checkout.
+    // One decided order per store. This was typed as `OrderWithItems[]`, and
+    // the page navigated to `/orders/${orders[0].id}` — `undefined`, because the
+    // order is `orders[0].order` — so every checkout ended on an error page.
     mutationFn: async ({ idempotencyKey, ...input }: CheckoutInput & { idempotencyKey: string }) =>
       (
-        await api.post<OrderWithItems[]>('/me/checkout', input, {
+        await api.post<DecidedOrder[]>('/me/checkout', input, {
           headers: { 'Idempotency-Key': idempotencyKey },
         })
       ).data,
@@ -233,11 +259,17 @@ export function useOrder(id: string, opts: { pollMs?: number } = {}) {
   });
 }
 
+/**
+ * What a Mobile Money charge answers. An order's charge says `paid`; an
+ * instalment's says `succeeded`, or `unknown` when Paystack's answer did not
+ * settle it (the verify poll does). A decline is HTTP 200 with `failed`.
+ */
 export interface OrderChargeResult {
-  status: 'paid' | 'pending' | 'failed';
-  reference: string;
+  status: 'paid' | 'succeeded' | 'pending' | 'unknown' | 'failed';
+  reference?: string;
   order?: OrderWithItems;
   message?: string;
+  failureReason?: string;
 }
 
 /**
@@ -271,6 +303,16 @@ export function usePayOrderMomo(orderId: string) {
 }
 
 // --- Plans & payments -------------------------------------------------------
+
+/** The Mobile Money number on file, which instalments are collected from. */
+export function useMomoOnFile() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['profile'],
+    queryFn: async () =>
+      (await api.get<Pick<Customer, 'momo_phone' | 'momo_provider'>>('/me/profile')).data,
+  });
+}
 
 export function usePlans() {
   const api = useApi();
@@ -379,14 +421,18 @@ export function usePayMomo(planId: string) {
         ...(args.phone ? { phone: args.phone } : {}),
         ...(args.provider ? { provider: args.provider } : {}),
       };
-      const { data } = await api.post(`/me/installments/${args.scheduleId}/pay-momo`, body, {
-        headers: { 'Idempotency-Key': args.idempotencyKey },
-      });
+      const { data } = await api.post<OrderChargeResult>(
+        `/me/installments/${args.scheduleId}/pay-momo`,
+        body,
+        { headers: { 'Idempotency-Key': args.idempotencyKey } },
+      );
       return data;
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['plan-schedule', planId] });
       void qc.invalidateQueries({ queryKey: ['plans'] });
+      // The first number paid with is kept when none is on file (#120).
+      void qc.invalidateQueries({ queryKey: ['profile'] });
     },
   });
 }

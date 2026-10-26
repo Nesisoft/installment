@@ -31,6 +31,11 @@ export function apiErrorMessage(err: unknown, fallback = 'Something went wrong')
   return fallback;
 }
 
+/** The HTTP status of a failed request, when it got as far as a response. */
+export function apiErrorStatus(err: unknown): number | undefined {
+  return axios.isAxiosError(err) ? err.response?.status : undefined;
+}
+
 export function createApiClient({ baseURL, store, onAuthError }: ApiClientOptions): AxiosInstance {
   const instance = axios.create({ baseURL, headers: { 'Content-Type': 'application/json' } });
 
