@@ -93,7 +93,11 @@ export default function PayoutAccountScreen(): React.ReactElement {
           </Note>
         ) : null}
 
-        <ChangeForm connected={current.connected} destinations={destinations.data} />
+        <ChangeForm
+          connected={current.connected}
+          codeRequired={current.code_required}
+          destinations={destinations.data}
+        />
       </View>
     </Screen>
   );
@@ -101,9 +105,12 @@ export default function PayoutAccountScreen(): React.ReactElement {
 
 function ChangeForm({
   connected,
+  codeRequired,
   destinations,
 }: {
   connected: boolean;
+  /** A replacement, or a first account while money is owed: both need the code. */
+  codeRequired: boolean;
   destinations: PayoutDestination[];
 }): React.ReactElement {
   const resolve = useResolvePayoutAccount();
@@ -160,7 +167,7 @@ function ChangeForm({
       await save.mutateAsync({
         bank_code: confirmed.bank,
         account_number: confirmed.number,
-        ...(connected ? { code: code.trim() } : {}),
+        ...(codeRequired ? { code: code.trim() } : {}),
       });
       setBankCode('');
       setNumber('');
@@ -210,7 +217,7 @@ function ChangeForm({
           disabled={!bankCode || number.trim().length < 5 || resolve.isPending}
           onPress={() => void check()}
         />
-      ) : connected && !codeSent ? (
+      ) : codeRequired && !codeSent ? (
         <>
           <Note>
             Changing where your money goes takes a code we text to the phone on your account.
@@ -239,7 +246,7 @@ function ChangeForm({
           ) : null}
           <Button
             label={save.isPending ? 'Saving…' : `Pay me here`}
-            disabled={save.isPending || (connected && code.trim().length < 4)}
+            disabled={save.isPending || (codeRequired && code.trim().length < 4)}
             onPress={() => void commit()}
           />
           {codeSent ? (

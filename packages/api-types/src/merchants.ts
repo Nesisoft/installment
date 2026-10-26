@@ -84,6 +84,12 @@ export interface PayoutAccountView {
    * another one within the last day. Null when nothing is held.
    */
   payouts_held_until: string | null;
+  /**
+   * Whether saving an account needs the code texted to the seller's phone:
+   * one is already on file, or money is already owed. Ask for the code when
+   * true, rather than only when `connected`.
+   */
+  code_required: boolean;
 }
 
 export interface ResolvedPayoutAccount {

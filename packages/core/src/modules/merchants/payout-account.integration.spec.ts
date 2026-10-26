@@ -6,6 +6,7 @@ import { AuditLogger } from '../audit/audit-logger.service';
 import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 import { MerchantsService } from './merchants.service';
 import {
+  MerchantConflictError,
   MerchantNotFoundError,
   PayoutAccountUnresolvedError,
   PayoutChangeCodeInvalidError,
@@ -19,6 +20,7 @@ import {
   type PayoutRecipientClient,
 } from './payout-account.service';
 import { OtpService, type OtpStore } from '../../shared/auth/otp.service';
+import { LedgerService } from '../../shared/ledger/ledger.service';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
 
@@ -439,6 +441,95 @@ describe.skipIf(!RUN_DB)('PayoutAccountService (integration)', () => {
       ).rejects.toBeInstanceOf(PayoutChangeCodeRequiredError);
     });
 
+    /** Owes the merchant `pesewas`, as a paid sale would. */
+    async function owe(merchantId: string, pesewas: number) {
+      const transactionId = `test-owed:${merchantId}:${randomUUID()}`;
+      await new LedgerService(db).record([
+        {
+          transactionId,
+          accountType: 'paystack_settlement',
+          accountRef: 'test-cash',
+          direction: 'debit',
+          amountPesewas: pesewas,
+          description: 'test sale',
+        },
+        {
+          transactionId,
+          accountType: 'merchant_payable',
+          accountRef: merchantId,
+          direction: 'credit',
+          amountPesewas: pesewas,
+          description: 'test sale',
+        },
+      ]);
+    }
+
+    it('guards a FIRST account when money is already owed', async () => {
+      // A seller who sold before adding an account. Whoever sets the first one
+      // decides where that balance goes, so a session alone must not be enough.
+      const merchant = await newMerchant();
+      await owe(merchant.id, 400_000);
+      const { guard, notices, lastCode } = stubGuard();
+      const svc = new PayoutAccountService(db, audit, stubPaystack().client, guard, () => NOW);
+
+      expect((await svc.get(merchant.id)).code_required).toBe(true);
+      await expect(
+        svc.set(
+          merchant.id,
+          { bank_code: 'MTN', account_number: '0244771122' },
+          MERCHANT(merchant.id),
+        ),
+      ).rejects.toBeInstanceOf(PayoutChangeCodeRequiredError);
+      expect((await merchants.get(merchant.id)).paystack_recipient_code).toBeNull();
+
+      await svc.sendChangeCode(merchant.id, { bank_code: 'MTN', account_number: '0244771122' });
+      await svc.set(
+        merchant.id,
+        { bank_code: 'MTN', account_number: '0244771122', code: lastCode() },
+        MERCHANT(merchant.id),
+      );
+      // Held and announced, like a replacement.
+      expect((await svc.get(merchant.id)).payouts_held_until).toBe(
+        new Date(NOW.getTime() + PAYOUT_ACCOUNT_HOLD_MS).toISOString(),
+      );
+      expect(notices).toHaveLength(1);
+    });
+
+    it('does not ask for a code on a first account with nothing owed', async () => {
+      const merchant = await newMerchant();
+      const svc = new PayoutAccountService(db, audit, stubPaystack().client, stubGuard().guard);
+      expect((await svc.get(merchant.id)).code_required).toBe(false);
+    });
+
+    it('refuses a save that started before another account landed', async () => {
+      // `current` is read before two provider round trips. A first save that
+      // began on an empty row must not land, unguarded, on top of an account
+      // set in the meantime.
+      const merchant = await newMerchant();
+      const base = stubPaystack().client;
+      const racing: PayoutRecipientClient = {
+        ...base,
+        createTransferRecipient: async (req) => {
+          // Another save commits while this one is talking to the provider.
+          await db
+            .update(schema.merchants)
+            .set({ paystack_recipient_code: 'RCP_other', bank_code: 'MTN' })
+            .where(eq(schema.merchants.id, merchant.id));
+          return base.createTransferRecipient(req);
+        },
+      };
+      const svc = new PayoutAccountService(db, audit, racing, stubGuard().guard, () => NOW);
+
+      await expect(
+        svc.set(
+          merchant.id,
+          { bank_code: '030100', account_number: '1234567890123' },
+          MERCHANT(merchant.id),
+        ),
+      ).rejects.toBeInstanceOf(MerchantConflictError);
+      expect((await merchants.get(merchant.id)).paystack_recipient_code).toBe('RCP_other');
+    });
+
     it('holds and notifies on a system replacement too, without asking for a code', async () => {
       const { guard, notices } = stubGuard();
       const svc = new PayoutAccountService(db, audit, stubPaystack().client, guard, () => NOW);
@@ -511,6 +602,7 @@ describe.skipIf(!RUN_DB)('PayoutAccountService (integration)', () => {
       account_number_masked: null,
       account_name: null,
       payouts_held_until: null,
+      code_required: false,
     });
 
     await svc.set(merchant.id, { bank_code: 'MTN', account_number: '0244771122' }, SYSTEM_ACTOR);
@@ -521,6 +613,7 @@ describe.skipIf(!RUN_DB)('PayoutAccountService (integration)', () => {
       account_number_masked: '••••1122',
       account_name: 'AKUA BOATENG',
       payouts_held_until: null,
+      code_required: true,
     });
   });
 

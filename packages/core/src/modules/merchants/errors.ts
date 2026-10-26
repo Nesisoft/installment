@@ -29,13 +29,14 @@ export class PayoutAccountUnresolvedError extends Error {
 }
 
 /**
- * A merchant tried to replace their payout account without the code sent to
- * the phone on file. Replacing one is how a borrowed or stolen session would
- * redirect every settlement, so a signed-in session alone is not enough.
+ * A merchant tried to set a payout account without the code sent to the phone
+ * on file — replacing the one they have, or adding a first one while money is
+ * already owed. Either is how a borrowed or stolen session would redirect
+ * settlements, so a signed-in session alone is not enough.
  */
 export class PayoutChangeCodeRequiredError extends Error {
   constructor() {
-    super('Replacing your payout account needs the code we text to your phone');
+    super('Setting where your payouts go needs the code we text to your phone');
     this.name = 'PayoutChangeCodeRequiredError';
   }
 }
