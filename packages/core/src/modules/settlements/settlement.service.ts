@@ -169,6 +169,7 @@ export class SettlementService {
           status: merchants.status,
           recipient: merchants.paystack_recipient_code,
           minPayout: merchants.min_payout_pesewas,
+          holdUntil: merchants.payout_account_hold_until,
         })
         .from(merchants)
         .where(eq(merchants.id, merchantId))
@@ -188,6 +189,19 @@ export class SettlementService {
         status: 'skipped',
         amountPesewas: balance,
         reason: 'no Paystack recipient code',
+      };
+    }
+    // The payout account was replaced within the last day (PayoutAccountService
+    // sets this when it is). The balance stays owed and the first run after the
+    // hold pays all of it; until then a seller who did not make the change has
+    // a day to stop money going to an account that is not theirs.
+    const holdUntil = merchant.holdUntil ? new Date(merchant.holdUntil) : null;
+    if (holdUntil && holdUntil.getTime() > asOf.getTime()) {
+      return {
+        merchantId,
+        status: 'skipped',
+        amountPesewas: balance,
+        reason: `payout account changed recently — held until ${holdUntil.toISOString()}`,
       };
     }
     // Below the floor the balance simply rolls forward — it stays in

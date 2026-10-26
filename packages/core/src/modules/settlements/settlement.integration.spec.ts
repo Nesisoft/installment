@@ -170,6 +170,31 @@ describe.skipIf(!RUN_DB)('SettlementService (integration)', () => {
     expect(await ledger.balanceOf('merchant_payable', noRecipient)).toBe(10_000); // untouched
   });
 
+  it('holds a merchant whose payout account was just replaced, then pays them in full', async () => {
+    const transfers = fakeTransfers();
+    const settlement = new SettlementService(db, ledger, audit, transfers);
+    const merchantId = await merchantOwed(25_000);
+    // What PayoutAccountService writes when an existing account is replaced.
+    await db
+      .update(schema.merchants)
+      .set({ payout_account_hold_until: '2026-06-10T12:00:00.000Z' })
+      .where(eq(schema.merchants.id, merchantId));
+
+    const held = await settlement.settleMerchant(merchantId, new Date('2026-06-10T09:00:00Z'));
+    expect(held.status).toBe('skipped');
+    expect(held.amountPesewas).toBe(25_000);
+    expect(held.reason).toBe(
+      'payout account changed recently — held until 2026-06-10T12:00:00.000Z',
+    );
+    // Nothing moved: the balance is still owed and no transfer was attempted.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(25_000);
+    expect(transfers.calls).toHaveLength(0);
+
+    const paid = await settlement.settleMerchant(merchantId, new Date('2026-06-11T09:00:00Z'));
+    expect(paid.status).toBe('settled');
+    expect(paid.amountPesewas).toBe(25_000);
+  });
+
   it('reverses the ledger and marks failed when the transfer is rejected', async () => {
     const merchantId = await merchantOwed(20_000);
     const settlement = new SettlementService(db, ledger, audit, fakeTransfers('failed'));

@@ -166,9 +166,32 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
     },
     {
       provide: PayoutAccountService,
-      useFactory: (db: Database, audit: AuditLogger, paystack: PaystackClient) =>
-        new PayoutAccountService(db, audit, paystack),
-      inject: [DRIZZLE, AuditLogger, PaystackClient],
+      // The guard is what replacing an existing account takes: a code texted to
+      // the merchant's phone, and a notice to it afterwards.
+      useFactory: (
+        db: Database,
+        audit: AuditLogger,
+        paystack: PaystackClient,
+        otp: OtpService,
+        sms: SmsSender,
+        config: ConfigService<Env, true>,
+        notifications: NotificationService,
+      ) =>
+        new PayoutAccountService(db, audit, paystack, {
+          otp,
+          sms,
+          smsSenderId: config.get('SMS_SENDER_ID', { infer: true }),
+          notifications,
+        }),
+      inject: [
+        DRIZZLE,
+        AuditLogger,
+        PaystackClient,
+        OtpService,
+        SMS_SENDER,
+        ConfigService,
+        NotificationService,
+      ],
     },
     {
       provide: StoresService,

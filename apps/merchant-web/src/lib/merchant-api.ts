@@ -27,12 +27,14 @@ import type {
   Order,
   OrderWithItems,
   PayoutAccountView,
+  PayoutChangeCodeSent,
   PayoutDestination,
   PlanSettlementView,
   PlanTemplate,
   PresignedUpload,
   Product,
   ResolvedPayoutAccount,
+  ResolvePayoutAccountInput,
   SetPayoutAccountInput,
   ProductDetails,
   ProductVariant,
@@ -120,6 +122,18 @@ export function useResolvePayoutAccount() {
   return useMutation({
     mutationFn: async (input: SetPayoutAccountInput) =>
       (await api.post<ResolvedPayoutAccount>('/merchant/payout-account/resolve', input)).data,
+  });
+}
+
+/**
+ * Texts the seller's phone a code for replacing their account with this one.
+ * Replacing an account needs it; a first account does not.
+ */
+export function useSendPayoutChangeCode() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (input: ResolvePayoutAccountInput) =>
+      (await api.post<PayoutChangeCodeSent>('/merchant/payout-account/code', input)).data,
   });
 }
 

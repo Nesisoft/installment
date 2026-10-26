@@ -11,14 +11,16 @@ import {
   Label,
 } from '@installment/ui';
 import { apiErrorMessage } from '@installment/web-kit';
-import { setPayoutAccountSchema } from '@installment/api-types';
-import { BadgeCheck, Landmark, TriangleAlert } from 'lucide-react';
+import { setPayoutAccountSchema, type PayoutChangeCodeSent } from '@installment/api-types';
+import { BadgeCheck, Clock, Landmark, TriangleAlert } from 'lucide-react';
 import {
   usePayoutAccount,
   usePayoutDestinations,
   useResolvePayoutAccount,
+  useSendPayoutChangeCode,
   useSetPayoutAccount,
 } from '../lib/merchant-api';
+import { formatDateTime } from '../lib/format';
 import { PageHeader } from '../components/page-header';
 import { ErrorState, LoadingState } from '../components/data-states';
 
@@ -35,6 +37,10 @@ import { ErrorState, LoadingState } from '../components/data-states';
  * bank and the name it holds is shown back before anything is saved. A typo
  * then costs a second look at an unfamiliar name, instead of a successful
  * transfer to a stranger.
+ *
+ * Replacing an account takes a third: a code texted to the phone on the
+ * account. A signed-in session alone could otherwise redirect every
+ * settlement, and the first payout to a replacement waits 24 hours.
  */
 export function PayoutAccountPage() {
   const account = usePayoutAccount();
@@ -69,6 +75,16 @@ export function PayoutAccountPage() {
             <p className="text-muted-foreground">
               {current.account_number_masked} · {current.account_name}
             </p>
+            {current.payouts_held_until ? (
+              <p className="flex items-center gap-2 pt-2 text-muted-foreground">
+                <Clock className="size-4 shrink-0" />
+                {/* Settlement skips the merchant until then; what is owed
+                    stays owed and the next run after it pays all of it. */}
+                New account: nothing is paid into it before{' '}
+                {formatDateTime(current.payouts_held_until)}. What you are owed until then is paid
+                in the first run after.
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       ) : (
@@ -94,11 +110,14 @@ export function PayoutAccountPage() {
 function PayoutAccountForm({ connected }: { connected: boolean }) {
   const destinations = usePayoutDestinations();
   const resolve = useResolvePayoutAccount();
+  const sendCode = useSendPayoutChangeCode();
   const save = useSetPayoutAccount();
 
   const [bankCode, setBankCode] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [confirmed, setConfirmed] = useState<{ name: string; bankCode: string; number: string }>();
+  const [codeSent, setCodeSent] = useState<PayoutChangeCodeSent>();
+  const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const options = destinations.data ?? [];
@@ -109,7 +128,25 @@ function PayoutAccountForm({ connected }: { connected: boolean }) {
     if (next.bank !== undefined) setBankCode(next.bank);
     if (next.number !== undefined) setAccountNumber(next.number);
     setConfirmed(undefined);
+    // A code names the account it was sent for, so a new entry needs a new one.
+    setCodeSent(undefined);
+    setCode('');
     setError(null);
+  }
+
+  function onSendCode() {
+    if (!confirmed) return;
+    setError(null);
+    sendCode.mutate(
+      { bank_code: confirmed.bankCode, account_number: confirmed.number },
+      {
+        onSuccess: (sent) => {
+          setCodeSent(sent);
+          setCode('');
+        },
+        onError: (err) => setError(apiErrorMessage(err)),
+      },
+    );
   }
 
   function onCheck(e: FormEvent) {
@@ -134,12 +171,18 @@ function PayoutAccountForm({ connected }: { connected: boolean }) {
     if (!confirmed) return;
     setError(null);
     save.mutate(
-      { bank_code: confirmed.bankCode, account_number: confirmed.number },
+      {
+        bank_code: confirmed.bankCode,
+        account_number: confirmed.number,
+        ...(connected ? { code: code.trim() } : {}),
+      },
       {
         onSuccess: () => {
           setBankCode('');
           setAccountNumber('');
           setConfirmed(undefined);
+          setCodeSent(undefined);
+          setCode('');
         },
         onError: (err) => setError(apiErrorMessage(err)),
       },
@@ -202,9 +245,49 @@ function PayoutAccountForm({ connected }: { connected: boolean }) {
               <p className="text-sm text-muted-foreground">
                 If that is not you, correct the number rather than saving it.
               </p>
-              <Button type="button" onClick={onSave} disabled={save.isPending}>
-                {save.isPending ? 'Saving…' : `Pay my settlements to ${confirmed.name}`}
-              </Button>
+              {connected && !codeSent ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Changing where your money goes takes a code we text to the phone on your
+                    account. Nothing is paid into the new account for 24 hours after the change.
+                  </p>
+                  <Button type="button" onClick={onSendCode} disabled={sendCode.isPending}>
+                    {sendCode.isPending ? 'Sending…' : 'Text me a code'}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {codeSent ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="code">Code we texted to {codeSent.sent_to}</Label>
+                      <Input
+                        id="code"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        placeholder="123456"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value)}
+                        className="w-40"
+                      />
+                      <button
+                        type="button"
+                        className="text-sm text-muted-foreground underline"
+                        onClick={onSendCode}
+                        disabled={sendCode.isPending}
+                      >
+                        Send a new code
+                      </button>
+                    </div>
+                  ) : null}
+                  <Button
+                    type="button"
+                    onClick={onSave}
+                    disabled={save.isPending || (connected && code.trim().length < 4)}
+                  >
+                    {save.isPending ? 'Saving…' : `Pay my settlements to ${confirmed.name}`}
+                  </Button>
+                </>
+              )}
             </div>
           ) : (
             <Button type="submit" variant="outline" disabled={resolve.isPending}>

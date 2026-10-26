@@ -95,6 +95,7 @@ function Routes(): React.ReactElement | null {
         <Stack.Screen name="returns/index" />
         <Stack.Screen name="returns/[id]" />
         <Stack.Screen name="performance" />
+        <Stack.Screen name="payout-account" />
         <Stack.Screen name="onboarding" />
       </Stack.Protected>
       <Stack.Protected guard={!signedIn}>

@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiErrorMessage } from '@installment/mobile-kit';
 import type { MerchantHeldReserveRow, MerchantPayoutRow } from '@installment/api-types';
@@ -101,6 +102,25 @@ export default function PayoutsScreen(): React.ReactElement {
               ? ' '
               : 'No payout destination set up yet'}
         </Text>
+        {account.data?.payouts_held_until ? (
+          <Text variant="tiny" tone="onDarkMuted" style={styles.heldNote}>
+            {/* Settlement skips a replaced account for a day. The balance is
+                still owed, so the figure above is not wrong — it just waits. */}
+            {`New account: nothing is paid into it before ${dateTime(account.data.payouts_held_until)}.`}
+          </Text>
+        ) : null}
+        {account.isPending ? null : (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/payout-account')}
+            hitSlop={8}
+            style={styles.changeLink}
+          >
+            <Text variant="tiny" tone="primary">
+              {account.data?.connected ? 'Change payout account' : 'Add a payout account'}
+            </Text>
+          </Pressable>
+        )}
 
         {/* The canvas says "tonight 11:00 pm". The settlement batch is a daily
             cron and nothing publishes its next run over HTTP, so naming a time
@@ -330,6 +350,8 @@ const styles = StyleSheet.create({
   },
   heroHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   heroValue: { marginTop: space.sm, marginBottom: 2 },
+  heldNote: { marginTop: space.xs, lineHeight: 16 },
+  changeLink: { marginTop: space.sm, alignSelf: 'flex-start' },
   heroNote: {
     flexDirection: 'row',
     gap: space.sm,
