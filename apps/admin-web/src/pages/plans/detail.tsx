@@ -44,10 +44,13 @@ function isPayable(status: InstallmentStatus): boolean {
   return !TERMINAL.includes(status);
 }
 
-/** `YYYY-MM-DD`, a week from today — the server's own default for re-collecting. */
-function aWeekFromToday(): string {
+/**
+ * `YYYY-MM-DD`, `days` from today. A week is the server's own default for
+ * re-collecting; today is the earliest it accepts.
+ */
+function daysFromToday(days: number): string {
   const d = new Date();
-  d.setDate(d.getDate() + 7);
+  d.setDate(d.getDate() + days);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
@@ -94,7 +97,7 @@ export function PlanDetailPage() {
     mode: RefundMode;
     reason: string;
     dueDate: string;
-  }>({ mode: 'forgive', reason: '', dueDate: aWeekFromToday() });
+  }>({ mode: 'forgive', reason: '', dueDate: daysFromToday(7) });
   const [formError, setFormError] = useState<string | null>(null);
 
   if (plan.isPending) return <LoadingState />;
@@ -115,7 +118,7 @@ export function PlanDetailPage() {
 
   function onRefund(row: InstallmentScheduleRow) {
     refund.reset();
-    setRefundForm({ mode: 'forgive', reason: '', dueDate: aWeekFromToday() });
+    setRefundForm({ mode: 'forgive', reason: '', dueDate: daysFromToday(7) });
     setRefunding(row);
   }
 
@@ -345,6 +348,7 @@ export function PlanDetailPage() {
                     <Input
                       id="refund-due"
                       type="date"
+                      min={daysFromToday(0)}
                       value={refundForm.dueDate}
                       onChange={(e) => setRefundForm((f) => ({ ...f, dueDate: e.target.value }))}
                     />

@@ -216,6 +216,14 @@ export class PlanCashLedger {
        * platform kept the fee as revenue and the seller's clawback covered it.
        */
       lateFeePesewas?: number;
+      /**
+       * The interest and fees inside `amountPesewas`, on a refund that forgives
+       * the instalment. Once the plan's finance income is booked that money is
+       * revenue, so it comes back out of revenue rather than re-opening debt
+       * the customer no longer owes. Zero on a re-collect: the customer pays
+       * it again, and the plan's finance income stands.
+       */
+      financeSharePesewas?: number;
     },
     tx: LedgerExecutor,
   ): Promise<void> {
@@ -226,21 +234,53 @@ export class PlanCashLedger {
 
     // Debit wherever the cash currently sits, which is not necessarily where
     // the collection first put it: a later accrual and its sweep may have moved
-    // it from float into receivable. Inverting the original collection would
-    // then debit an empty float and drive it negative. Float first, receivable
-    // for the remainder — the collect waterfall run backwards.
+    // it from float into receivable, and completion moves float into revenue.
+    // Inverting the original collection would debit an empty account and drive
+    // it negative. So, in order:
     //
-    // This runs after reverseAccrualsForRefund, which has already released the
-    // merchant's side by crediting receivable; without this leg that credit
-    // stands alone and one refund releases receivable twice.
+    // 1. Any credit balance on `receivable`. A forgive's clawback (booked just
+    //    before this) credits receivable with the instalment's order share; on
+    //    a plan whose receivable was already retired — the payments had moved
+    //    on to float — that credit has nothing to offset, and taking float
+    //    first left it standing for good while finance income came up short.
+    // 2. `customer_float` — cash collected beyond what was owed, not yet income.
+    // 3. `revenue`, for the finance share only, once finance income is booked.
+    // 4. `receivable` for the rest: the customer owes it again (a re-collect),
+    //    or owed less of the order than they had paid (a forgive part-way).
+    let remaining = input.amountPesewas;
+    const overRetired = Math.max(
+      0,
+      await this.ledger.balanceOf('receivable', input.customerPlanId, tx),
+    );
+    const fromCredit = Math.min(remaining, overRetired);
+    remaining -= fromCredit;
+
     const heldInFloat = Math.max(
       0,
       await this.ledger.balanceOf('customer_float', input.customerPlanId, tx),
     );
-    const fromFloat = Math.min(input.amountPesewas, heldInFloat);
-    const fromReceivable = input.amountPesewas - fromFloat;
+    const fromFloat = Math.min(remaining, heldInFloat);
+    remaining -= fromFloat;
 
-    const metadata = { schedule_id: input.scheduleId, plan_id: input.customerPlanId };
+    const financeShare = Math.max(0, input.financeSharePesewas ?? 0);
+    const fromIncome =
+      financeShare > 0 &&
+      (await this.ledger.transactionExists(`finance-income:${input.customerPlanId}`, tx))
+        ? Math.min(remaining, financeShare)
+        : 0;
+    remaining -= fromIncome;
+
+    // One receivable row and one revenue row per transaction (the posting
+    // identity index), so the legs that share an account are summed.
+    const fromReceivable = fromCredit + remaining;
+    const fromRevenue = fromIncome + lateFee;
+
+    const metadata = {
+      schedule_id: input.scheduleId,
+      plan_id: input.customerPlanId,
+      ...(fromIncome > 0 ? { finance_income_refunded_pesewas: fromIncome } : {}),
+      ...(lateFee > 0 ? { late_fee_refunded_pesewas: lateFee } : {}),
+    };
     await this.ledger.record(
       [
         {
@@ -266,8 +306,8 @@ export class PlanCashLedger {
           accountType: 'revenue' as const,
           accountRef: PLATFORM_ACCOUNT_REF,
           direction: 'debit' as const,
-          amountPesewas: lateFee,
-          description: 'Late fee handed back with refunded installment',
+          amountPesewas: fromRevenue,
+          description: 'Late fee and finance income handed back with refunded installment',
           metadata,
         },
         {

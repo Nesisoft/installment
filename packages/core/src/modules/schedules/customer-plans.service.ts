@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte } from 'drizzle-orm';
+import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
@@ -15,6 +15,7 @@ import { recordManualPaymentSchema, refundInstallmentSchema } from './dto';
 import {
   CustomerPlanNotFoundError,
   InstallmentNotPayableError,
+  InstallmentRefundDueDateInPastError,
   InstallmentRefundNotForgivableError,
   InstallmentRefundNotRecollectableError,
   PlanActivationError,
@@ -25,6 +26,7 @@ import {
   ScheduleNotFoundError,
 } from './errors';
 import { buildStatement, type Statement } from '../statements/statement';
+import { orderShareOf } from './refund-shares';
 import { buildReceipt, type Receipt } from '../receipts/receipt';
 import type { PayoutRecorder, RecordPayoutAccrualInput } from '../settlements/payout-recorder';
 import type { ReserveReleaseService } from '../settlements/reserve-release.service';
@@ -37,6 +39,7 @@ const sched = schema.installment_schedule;
 const apps = schema.applications;
 const merchants = schema.merchants;
 const customers = schema.customers;
+const auditEvents = schema.audit_events;
 
 export type CustomerPlan = typeof schema.customer_plans.$inferSelect;
 export type InstallmentScheduleRow = typeof schema.installment_schedule.$inferSelect;
@@ -122,7 +125,10 @@ export class CustomerPlansService {
   /**
    * Books one accrual and, when it withholds reserve, records the matching
    * held-reserve tracking row — both inside the caller's transaction. Returns
-   * nothing; callers fire it per trigger.
+   * nothing; callers fire it per trigger. A replayed accrual books nothing, so
+   * it tracks nothing either: a plan that completes, re-opens on a re-collect
+   * and completes again would otherwise hold its reserve twice, and the second
+   * row would release money the ledger never withheld.
    */
   private async accrueAndTrack(
     tx: TransactionalTx,
@@ -131,7 +137,7 @@ export class CustomerPlansService {
   ): Promise<void> {
     if (!this.payoutRecorder) return;
     const breakdown = await this.payoutRecorder.recordPayoutAccrual(input, tx);
-    if (breakdown && breakdown.reservePesewas > 0 && this.reserveRelease) {
+    if (breakdown && !breakdown.replayed && breakdown.reservePesewas > 0 && this.reserveRelease) {
       await this.reserveRelease.recordHeldReserve(
         {
           merchantId: input.merchantId,
@@ -393,9 +399,10 @@ export class CustomerPlansService {
    * to the debt is the caller's choice (`refundInstallmentSchema`):
    *
    * - `forgive` (default) — the instalment is written off. `outstanding` is
-   *   left where the payment put it, the seller gives back what they were
-   *   credited for it (`reverseAccrualsForRefund`), and the plan completes
-   *   when the rest is paid. A cancellation or a return.
+   *   left where the payment put it and the plan completes when the rest is
+   *   paid. The seller gives back what they were credited for its order share
+   *   (`reverseAccrualsForRefund`), and the platform gives back its interest
+   *   and fees (`refund-shares.ts`). A cancellation or a return.
    * - `recollect` — the customer still owes it. `outstanding` goes back up by
    *   the instalment, the plan re-opens if it had completed, the seller keeps
    *   the sale, and a new instalment for the same amount is scheduled.
@@ -452,14 +459,22 @@ export class CustomerPlansService {
       if (input.mode === 'recollect' && plan.status !== 'active' && plan.status !== 'completed') {
         throw new InstallmentRefundNotRecollectableError(plan.id, plan.status);
       }
-      if (input.mode === 'forgive' && this.payoutRecorder && principalRefunded > 0) {
+      const today = nowIso.slice(0, 10);
+      if (input.mode === 'recollect' && input.due_date !== undefined && input.due_date < today) {
+        throw new InstallmentRefundDueDateInPastError(input.due_date, today);
+      }
+
+      // A forgive splits the instalment: the order share is the seller's to
+      // give back, the rest is the platform's interest and fees.
+      const orderShare =
+        input.mode === 'forgive'
+          ? Math.min(principalRefunded, await this.orderShareOf(tx, plan, installment.id))
+          : 0;
+      const financeShare = input.mode === 'forgive' ? principalRefunded - orderShare : 0;
+      if (input.mode === 'forgive' && this.payoutRecorder && orderShare > 0) {
         const credited = await this.payoutRecorder.creditedNotReversed(plan.id, tx);
-        if (credited < principalRefunded) {
-          throw new InstallmentRefundNotForgivableError(
-            installment.id,
-            credited,
-            principalRefunded,
-          );
+        if (credited < orderShare) {
+          throw new InstallmentRefundNotForgivableError(installment.id, credited, orderShare);
         }
       }
 
@@ -496,6 +511,9 @@ export class CustomerPlansService {
         if (!row) throw new Error('customer_plans update returned no row');
         updatedPlan = row;
         if (reopen) {
+          // Money is owed on it again, so its reserve buffers live risk: the
+          // release clock restarts at the next completion.
+          await this.reserveRelease?.markPlanReopened(plan.id, tx);
           await this.audit.append(tx, {
             entityType: 'customer_plan',
             entityId: plan.id,
@@ -542,22 +560,27 @@ export class CustomerPlansService {
           refund_amount_pesewas: refundAmount,
           late_fee_refunded_pesewas: lateFeeRefunded,
           mode: input.mode,
+          ...(input.mode === 'forgive'
+            ? { order_share_pesewas: orderShare, finance_share_pesewas: financeShare }
+            : {}),
           ...(recollect
             ? { recollect_schedule_id: recollect.id, recollect_due_date: recollect.due_date }
             : {}),
         },
       });
 
-      // Forgiving makes the seller bear the refund: they give back what they
-      // were credited for it. Re-collecting leaves the sale standing, so the
-      // seller keeps their credit and the new instalment pays it off.
-      if (input.mode === 'forgive' && this.payoutRecorder && principalRefunded > 0) {
+      // Forgiving makes the seller bear the refund of what they sold: they give
+      // back what they were credited for the order share. Re-collecting leaves
+      // the sale standing, so the seller keeps their credit and the new
+      // instalment pays it off.
+      if (input.mode === 'forgive' && this.payoutRecorder && orderShare > 0) {
         await this.payoutRecorder.reverseAccrualsForRefund(
           {
             customerPlanId: plan.id,
             scheduleId: installment.id,
-            // The instalment only. The late fee was never the seller's.
-            refundAmountPesewas: principalRefunded,
+            // The order share only. The interest, fees and late fee were never
+            // the seller's.
+            refundAmountPesewas: orderShare,
             model: plan.business_model as BusinessModel,
             // Mirror the forward accrual exactly.
             mdrBps: plan.mdr_bps,
@@ -576,6 +599,7 @@ export class CustomerPlansService {
           customerPlanId: plan.id,
           amountPesewas: principalRefunded,
           lateFeePesewas: lateFeeRefunded,
+          financeSharePesewas: financeShare,
         },
         tx,
       );
@@ -595,6 +619,55 @@ export class CustomerPlansService {
 
       return { schedule: updatedSchedule, plan: updatedPlan, ...(recollect ? { recollect } : {}) };
     });
+  }
+
+  /**
+   * The order share of one instalment (`refund-shares.ts`). A re-collected
+   * instalment is a copy of the one it replaced, and carries that one's share:
+   * it is traced back through the refund that created it to a row the
+   * generator wrote.
+   */
+  private async orderShareOf(
+    tx: TransactionalTx,
+    plan: CustomerPlan,
+    scheduleId: string,
+  ): Promise<number> {
+    const rows = await tx
+      .select({
+        id: sched.id,
+        sequence_number: sched.sequence_number,
+        amount_due_pesewas: sched.amount_due_pesewas,
+      })
+      .from(sched)
+      .where(eq(sched.customer_plan_id, plan.id));
+    const copies = await tx
+      .select({
+        replaced: auditEvents.entity_id,
+        copy: sql<string | null>`${auditEvents.metadata} ->> 'recollect_schedule_id'`,
+      })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.entity_type, 'installment_schedule'),
+          eq(auditEvents.event_type, 'schedule.refund_issued'),
+          inArray(
+            auditEvents.entity_id,
+            rows.map((r) => r.id),
+          ),
+        ),
+      );
+    const copiedFrom = new Map<string, string>();
+    for (const c of copies) if (c.copy) copiedFrom.set(c.copy, c.replaced);
+
+    let origin = scheduleId;
+    for (let hops = 0; copiedFrom.has(origin) && hops <= rows.length; hops++) {
+      origin = copiedFrom.get(origin)!;
+    }
+    return orderShareOf(
+      plan,
+      rows.filter((r) => !copiedFrom.has(r.id)),
+      origin,
+    );
   }
 
   /**

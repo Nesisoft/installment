@@ -754,6 +754,8 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
       schedule[0]!.id,
       { mode: 'recollect', due_date: '2026-12-01' },
       ACTOR,
+      // Pinned: a date in the past is refused, and this one will be one day.
+      new Date('2026-10-27T09:00:00Z'),
     );
     expect(recollect!.due_date).toBe('2026-12-01');
     expect(after.outstanding_pesewas).toBe(100_000);
@@ -791,10 +793,11 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
     expect(target.amount_due_pesewas).toBe(20_000);
     await plans.refundInstallment(target.id, {}, ACTOR);
 
-    // scaleBps = round(20_000 * 10_000 / 100_000) = 2_000.
-    // Down accrual (gross 40k):  40_000 × 2000/10000 = 8_000 gross
+    // Split in proportion to each accrual's gross: 20_000 × 40k/100k = 8_000
+    // on the down accrual, and the 12_000 left on the completion accrual.
+    // Down accrual (gross 40k):  8_000 gross
     //   mdr  = 8_000 × 4%  = 320;  reserve = 8_000 × 7% = 560;  net = 7_120
-    // Completion accrual (gross 60k): 60_000 × 2000/10000 = 12_000 gross
+    // Completion accrual (gross 60k): 12_000 gross
     //   mdr  = 12_000 × 4% = 480;  reserve = 12_000 × 7% = 840; net = 10_680
     // Totals: gross 20_000, net 17_800, reserve 1_400.
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(89_000 - 17_800);

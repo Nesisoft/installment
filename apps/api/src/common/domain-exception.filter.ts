@@ -139,6 +139,7 @@ export const NAME_STATUS: Record<string, number> = {
   // seller was credited, or re-collecting on a plan that is not running.
   InstallmentRefundNotForgivableError: HttpStatus.UNPROCESSABLE_ENTITY,
   InstallmentRefundNotRecollectableError: HttpStatus.UNPROCESSABLE_ENTITY,
+  InstallmentRefundDueDateInPastError: HttpStatus.UNPROCESSABLE_ENTITY,
   PlanActivationError: HttpStatus.UNPROCESSABLE_ENTITY,
   LedgerError: HttpStatus.UNPROCESSABLE_ENTITY,
   // Commerce. The addressed resource is fine; something it depends on is not.

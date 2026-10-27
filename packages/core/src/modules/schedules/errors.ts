@@ -79,6 +79,19 @@ export class InstallmentRefundNotForgivableError extends Error {
   }
 }
 
+/**
+ * A re-collected instalment asked to fall due before today. It would be
+ * created already late: charged weeks of late fees at once, sent to
+ * collections, and recorded against the customer's credit as a missed payment
+ * they never had the chance to make.
+ */
+export class InstallmentRefundDueDateInPastError extends Error {
+  constructor(dueDate: string, today: string) {
+    super(`A re-collected instalment cannot fall due on ${dueDate}, before today (${today}).`);
+    this.name = 'InstallmentRefundDueDateInPastError';
+  }
+}
+
 /** Refund-and-re-collect asked of a plan that is not running or completed. */
 export class InstallmentRefundNotRecollectableError extends Error {
   constructor(planId: string, status: string) {

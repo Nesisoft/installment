@@ -33,10 +33,15 @@ export const refundInstallmentSchema = z
   .object({
     mode: z.enum(REFUND_MODES).default('forgive'),
     reason: z.string().trim().min(1).max(500).optional(),
-    /** `YYYY-MM-DD`; re-collect only. Defaults to seven days from now. */
+    /**
+     * `YYYY-MM-DD`; re-collect only. Defaults to seven days from now; one in
+     * the past is refused by the service, which knows what "now" is.
+     */
     due_date: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD')
+      // A real day: `2026-02-30` used to reach Postgres and come back a 500.
+      .refine(isCalendarDate, 'not a real calendar date')
       .optional(),
   })
   .refine((v) => v.mode === 'recollect' || v.due_date === undefined, {
@@ -44,3 +49,8 @@ export const refundInstallmentSchema = z
     path: ['due_date'],
   });
 export type RefundInstallmentInput = z.infer<typeof refundInstallmentSchema>;
+
+function isCalendarDate(value: string): boolean {
+  const d = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}

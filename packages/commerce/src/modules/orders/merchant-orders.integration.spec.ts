@@ -571,6 +571,20 @@ describe.skipIf(!RUN_DB)('MerchantOrdersService (integration)', () => {
     expect(after.late).toBe(false);
   });
 
+  it('skips a refunded instalment when it says what is due next', async () => {
+    const { merchantId, storeId } = await shop();
+    const sale = await sellFinanced(storeId, 40_000);
+    const before = (await queue.detail(merchantId, sale.order.id)).plan!;
+    const schedule = await plans.getSchedule(before.id);
+    await db
+      .update(schema.installment_schedule)
+      .set({ status: 'refunded', amount_paid_pesewas: 0 })
+      .where(eq(schema.installment_schedule.id, schedule[0]!.id));
+
+    const after = (await queue.detail(merchantId, sale.order.id)).plan!;
+    expect(after.nextDueDate).toBe(after.installments[1]!.due_date);
+  });
+
   it('derives lateness from the schedule, because a plan has no late status', async () => {
     const { merchantId, storeId } = await shop();
     // Activated two months ago, so every row is past its grace date. Escalation

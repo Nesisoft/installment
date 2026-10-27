@@ -320,7 +320,7 @@ export class MerchantPlansService {
              count(*) FILTER (WHERE s.status = 'paid')::int              AS paid_count,
              count(*)::int                                              AS installments,
              min(s.due_date) FILTER (
-               WHERE s.status NOT IN ('paid', 'waived')
+               WHERE s.status NOT IN ('paid', 'waived', 'refunded')
              )::text                                                     AS next_due,
              bool_or(s.status IN (${sql.join(
                LATE_INSTALLMENT_STATUSES.map((status) => sql`${status}`),

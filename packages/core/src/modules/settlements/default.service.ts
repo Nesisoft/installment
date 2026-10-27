@@ -41,8 +41,16 @@ export interface DefaultAllocation {
  *   - hybrid/rto:  the merchant, from `merchant_payable` (driving it negative —
  *                  future payouts shrink until it clears). These models share
  *                  risk, which is why they withhold 7% and 12%.
- *   - layaway:     no accrual was ever booked (it pays out only at completion),
- *                  so there's nothing to write off at the settlement layer
+ *   - layaway:     nothing is fronted before completion (it pays out only
+ *                  then), so a default before it finds no open receivable and
+ *                  books nothing — forfeiture is handled outside the ledger.
+ *                  The one open receivable a layaway plan can have is a
+ *                  re-collected instalment after completion: the seller was
+ *                  paid in full against a paid-up plan, and handing the money
+ *                  back and billing the customer again was the platform's
+ *                  call, so past the reserve it is the platform's loss, as for
+ *                  bnpl. It used to return early and leave that receivable
+ *                  open for good.
  *
  * The loss is what the platform fronted that the customer has not repaid: the
  * receivable still open on the plan. Accruals book it as the merchant is
@@ -80,9 +88,6 @@ export class DefaultService {
   ): Promise<DefaultAllocation | null> {
     const { customerPlanId, merchantId, model } = input;
     if (input.unrecoveredAmountPesewas <= 0) return null;
-    // Layaway never accrues before completion, so a default has no settlement
-    // footprint — forfeiture is handled outside the ledger.
-    if (model === 'layaway') return null;
 
     const transactionId = `default:${customerPlanId}`;
     const exec: ReserveExecutor = tx ?? this.db;
@@ -140,7 +145,7 @@ export class DefaultService {
     }
 
     if (beyondReserve > 0) {
-      if (model === 'bnpl') {
+      if (model === 'bnpl' || model === 'layaway') {
         // Merchant exposure is capped at the reserve; the platform fronted the
         // cash and carries everything past it.
         fromPool = beyondReserve;
