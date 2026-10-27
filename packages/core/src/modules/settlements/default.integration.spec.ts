@@ -188,7 +188,7 @@ describe.skipIf(!RUN_DB)('DefaultService (integration)', () => {
     expect(find('default_pool')).toBe(70_000);
   });
 
-  it('rent_to_own default: claws the reserve first, then the merchant payable', async () => {
+  it('rent_to_own default: the reserve first, then the platform pool — not the seller', async () => {
     const merchantId = await freshMerchant();
     const customerId = await freshCustomer();
     const { plan } = await activate(rtoTemplateId, merchantId, customerId);
@@ -197,11 +197,18 @@ describe.skipIf(!RUN_DB)('DefaultService (integration)', () => {
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(83_000);
     expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(12_000);
 
-    // Default the full 100k. Reserve (12k) absorbs first; remaining 88k claws the merchant.
+    // Default the full 100k. Reserve (12k) absorbs first; the remaining 88k is
+    // the platform's, as on BNPL. It used to claw the seller to −5,000 — a seller
+    // charged the highest MDR and reserve of any model for that very risk.
     await plans.markPlanDefaulted(plan.id, {}, ACTOR);
 
     expect(await ledger.balanceOf('reserve_held', plan.id)).toBe(0); // fully consumed
-    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(83_000 - 88_000); // −5_000
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(83_000); // untouched
+    const rows = await db
+      .select()
+      .from(schema.ledger_entries)
+      .where(eq(schema.ledger_entries.transaction_id, `default:${plan.id}`));
+    expect(rows.find((r) => r.account_type === 'default_pool')?.amount_pesewas).toBe(88_000);
 
     // held_reserves row marked consumed + closed.
     const held = (
