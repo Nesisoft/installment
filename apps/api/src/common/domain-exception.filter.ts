@@ -135,6 +135,10 @@ export const NAME_STATUS: Record<string, number> = {
   GhanaCardNotAttachedError: HttpStatus.UNPROCESSABLE_ENTITY,
   GhanaCardVerificationFailedError: HttpStatus.UNPROCESSABLE_ENTITY,
   PlanTemplateInactiveError: HttpStatus.UNPROCESSABLE_ENTITY,
+  // A refund the plan cannot take in the mode asked: forgiving more than the
+  // seller was credited, or re-collecting on a plan that is not running.
+  InstallmentRefundNotForgivableError: HttpStatus.UNPROCESSABLE_ENTITY,
+  InstallmentRefundNotRecollectableError: HttpStatus.UNPROCESSABLE_ENTITY,
   PlanActivationError: HttpStatus.UNPROCESSABLE_ENTITY,
   LedgerError: HttpStatus.UNPROCESSABLE_ENTITY,
   // Commerce. The addressed resource is fine; something it depends on is not.

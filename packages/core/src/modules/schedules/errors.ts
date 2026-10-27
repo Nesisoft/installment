@@ -59,3 +59,30 @@ export class PlanDefaultError extends Error {
     this.name = 'PlanDefaultError';
   }
 }
+
+/**
+ * Refund-and-forgive asked of a plan whose seller has not been credited enough
+ * to give the instalment back. Forgiving makes the seller bear the refund by
+ * reversing what they were credited — and on a layaway plan before completion
+ * (or a hybrid one past its deposit split) nothing, or not enough, has been. The
+ * completion accrual would then credit them the full order for goods the
+ * customer was refunded for. Re-collect it instead, or cancel the plan.
+ */
+export class InstallmentRefundNotForgivableError extends Error {
+  constructor(scheduleId: string, creditedPesewas: number, refundPesewas: number) {
+    super(
+      `Installment ${scheduleId} cannot be refunded and forgiven: the seller has been credited ` +
+        `${creditedPesewas} pesewas on this plan, less than the ${refundPesewas} being refunded. ` +
+        `Refund and re-collect it instead.`,
+    );
+    this.name = 'InstallmentRefundNotForgivableError';
+  }
+}
+
+/** Refund-and-re-collect asked of a plan that is not running or completed. */
+export class InstallmentRefundNotRecollectableError extends Error {
+  constructor(planId: string, status: string) {
+    super(`Plan ${planId} is "${status}"; only an active or completed plan can re-collect.`);
+    this.name = 'InstallmentRefundNotRecollectableError';
+  }
+}

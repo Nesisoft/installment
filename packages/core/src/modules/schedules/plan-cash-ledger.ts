@@ -204,10 +204,23 @@ export class PlanCashLedger {
    * stays there until the money physically returns (S7).
    */
   async reverseCollection(
-    input: { scheduleId: string; customerPlanId: string; amountPesewas: number },
+    input: {
+      scheduleId: string;
+      customerPlanId: string;
+      /** The instalment's own amount being handed back — not its late fee. */
+      amountPesewas: number;
+      /**
+       * The late fee paid on it, handed back too. `collect` booked the fee to
+       * `revenue`, so that is where it comes back from. It used to be folded
+       * into `amountPesewas` and re-opened as debt the customer owed, while the
+       * platform kept the fee as revenue and the seller's clawback covered it.
+       */
+      lateFeePesewas?: number;
+    },
     tx: LedgerExecutor,
   ): Promise<void> {
-    if (input.amountPesewas <= 0) return;
+    const lateFee = Math.max(0, input.lateFeePesewas ?? 0);
+    if (input.amountPesewas + lateFee <= 0) return;
     const transactionId = `refund-cash:${input.scheduleId}`;
     if (await this.alreadyBooked(transactionId, tx)) return;
 
@@ -250,13 +263,22 @@ export class PlanCashLedger {
         },
         {
           transactionId,
+          accountType: 'revenue' as const,
+          accountRef: PLATFORM_ACCOUNT_REF,
+          direction: 'debit' as const,
+          amountPesewas: lateFee,
+          description: 'Late fee handed back with refunded installment',
+          metadata,
+        },
+        {
+          transactionId,
           // The cash has not physically moved yet — it is still in the provider
           // account. This records the obligation; S7 discharges it with
           // DEBIT refund_payable / CREDIT paystack_settlement.
           accountType: 'refund_payable' as const,
           accountRef: input.customerPlanId,
           direction: 'credit' as const,
-          amountPesewas: input.amountPesewas,
+          amountPesewas: input.amountPesewas + lateFee,
           description: 'Owed back to customer',
           metadata,
         },

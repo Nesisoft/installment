@@ -1,4 +1,4 @@
-import { eq, like } from 'drizzle-orm';
+import { and, eq, like, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { Money } from '../../shared/money/money';
 import { LedgerService, type LedgerExecutor } from '../../shared/ledger/ledger.service';
@@ -350,5 +350,30 @@ export class PayoutRecorder {
     }
 
     return { totalReversedGrossPesewas: totalReversedGross, reversals };
+  }
+
+  /**
+   * What the seller has been credited on this plan and not yet given back:
+   * every accrual's gross, less what earlier refunds reversed.
+   *
+   * A refund that forgives the instalment makes the seller bear it, by
+   * reversing that much of their credit. When the plan has not credited them
+   * that much yet — layaway before completion, a hybrid plan past its deposit
+   * split — there is nothing to reverse, and the completion accrual would later
+   * credit the full order for goods the customer was refunded for.
+   */
+  async creditedNotReversed(customerPlanId: string, tx?: LedgerExecutor): Promise<number> {
+    const exec: LedgerExecutor = tx ?? this.db;
+    const [row] = await exec
+      .select({
+        accrued: sql<string>`coalesce(sum(${ledger.amount_pesewas}) filter (
+          where ${ledger.transaction_id} like ${`${accrualTransactionIdPrefix(customerPlanId)}%`}
+            and ${ledger.direction} = 'debit'), 0)`,
+        reversed: sql<string>`coalesce(sum(${ledger.amount_pesewas}) filter (
+          where ${ledger.transaction_id} like 'refund:%' and ${ledger.direction} = 'credit'), 0)`,
+      })
+      .from(ledger)
+      .where(and(eq(ledger.account_type, 'receivable'), eq(ledger.account_ref, customerPlanId)));
+    return Number(row?.accrued ?? 0) - Number(row?.reversed ?? 0);
   }
 }

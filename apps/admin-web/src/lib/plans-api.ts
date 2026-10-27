@@ -79,7 +79,9 @@ export function useRefundInstallment(planId: string) {
       const { data } = await api.post(
         `/admin/installments/${args.scheduleId}/refund`,
         args.input,
-        idempotent(`refund-${args.scheduleId}`),
+        // Per mode: a refused "forgive" retried as "re-collect" is a different
+        // request, and reusing the key for it would be refused as a conflict.
+        idempotent(`refund-${args.scheduleId}-${args.input.mode ?? 'forgive'}`),
       );
       return data;
     },
