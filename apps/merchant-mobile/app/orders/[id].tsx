@@ -413,8 +413,8 @@ function PlanCard({ plan }: { plan: MerchantOrderPlan }): React.ReactElement {
           false for half of them, and on a layaway order it would contradict
           the settlement card directly above. The risk is per model too: a
           write-off draws the plan's reserve first, then Ejua's pool on bnpl and
-          the seller's payable on hybrid and rent_to_own (`DefaultService`) — so
-          "Ejua carries the risk" was false for two of the four. The settlement
+          rent_to_own and the seller's payable on hybrid (`DefaultService`) — so
+          "Ejua carries the risk" is false for hybrid. The settlement
           card is the single place that states the money, because it reads the
           ledger. */}
       <Text variant="small" tone="soft" style={styles.planBody}>

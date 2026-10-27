@@ -9,17 +9,16 @@ import { modelLabel } from './fees';
  * write-off runs, does something narrower. The loss is the part of the order
  * the merchant was credited for that the customer had not paid. The plan's
  * withheld reserve covers it first, for every model. Past the reserve, Ejua's
- * default pool takes the rest on BNPL, and the merchant's payable takes it on
- * hybrid and rent to own: their future payouts shrink until it clears. Those
- * two models share the risk, which is why they withhold 7% and 12% rather than
- * 5%. A seller deciding whether to offer them should read that before the sale,
- * not on a statement afterwards.
+ * default pool takes the rest on BNPL and rent to own — both pay the seller the
+ * whole order at approval — and the merchant's payable takes it on hybrid:
+ * their future payouts shrink until it clears. A seller deciding whether to
+ * offer hybrid should read that before the sale, not on a statement afterwards.
  *
  * A late payment on its own moves nothing. Only the write-off at the end of
  * collections does.
  */
 export function sharesDefaultLoss(model: BusinessModel): boolean {
-  return model === 'hybrid' || model === 'rent_to_own';
+  return model === 'hybrid';
 }
 
 const LATE = 'A late payment takes nothing back from you.';
@@ -37,4 +36,4 @@ export function defaultRiskSentence(model: BusinessModel): string {
 }
 
 /** The same, for a screen that covers every plan type at once. */
-export const DEFAULT_RISK_SUMMARY = `${LATE} If a customer stops paying for good, the plan's reserve covers the loss first. On BNPL Ejua carries the rest; on hybrid and rent to own plans, the rest comes off your future payouts.`;
+export const DEFAULT_RISK_SUMMARY = `${LATE} If a customer stops paying for good, the plan's reserve covers the loss first. On BNPL and rent to own Ejua carries the rest; on hybrid plans, the rest comes off your future payouts.`;
