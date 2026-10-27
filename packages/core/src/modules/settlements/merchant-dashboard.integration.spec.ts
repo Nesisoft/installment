@@ -257,7 +257,10 @@ describe.skipIf(!RUN_DB)('MerchantDashboardService (integration)', () => {
 
     expect(view.defaultWrittenOffPesewas).toBe(100_000);
     expect(view.defaultConsumedFromReservePesewas).toBe(12_000); // full reserve
-    expect(view.defaultClawedFromMerchantPesewas).toBe(88_000); // remainder
+    // The remaining 88k is Ejua's on rent to own, as on BNPL; the seller,
+    // paid the whole order at approval, is not clawed. (Hybrid, which is, is
+    // covered in default.integration.spec.ts.)
+    expect(view.defaultClawedFromMerchantPesewas).toBe(0);
   });
 
   it('getPlanSettlement returns null for an unknown plan', async () => {

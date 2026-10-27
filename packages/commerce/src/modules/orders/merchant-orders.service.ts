@@ -640,7 +640,11 @@ export class MerchantOrdersService {
 
     const collectedPesewas = installments.reduce((n, i) => n + i.amount_paid_pesewas, 0);
     const paidCount = installments.filter((i) => i.status === 'paid').length;
-    const next = installments.find((i) => i.status !== 'paid' && i.status !== 'waived');
+    // A refunded row is settled either way: forgiven, or re-collected by a new
+    // row of its own further down the schedule.
+    const next = installments.find(
+      (i) => i.status !== 'paid' && i.status !== 'waived' && i.status !== 'refunded',
+    );
 
     return {
       id: plan.id,

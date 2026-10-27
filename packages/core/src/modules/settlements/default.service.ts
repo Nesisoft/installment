@@ -7,6 +7,18 @@ import type { BusinessModel } from './model-config';
 
 const ledger = schema.ledger_entries;
 
+/**
+ * The models on which the platform carries a default past the plan's reserve.
+ * BNPL and rent to own pay the merchant the whole order at approval. Layaway
+ * pays it at completion, after which the only debt a customer can default on
+ * is an instalment the platform refunded and chose to collect again.
+ */
+export const PLATFORM_BEARS_BEYOND_RESERVE: ReadonlySet<BusinessModel> = new Set([
+  'bnpl',
+  'rent_to_own',
+  'layaway',
+]);
+
 export interface HandleDefaultInput {
   customerPlanId: string;
   merchantId: string;
@@ -35,14 +47,30 @@ export interface DefaultAllocation {
  * Every model draws the plan's `reserve_held` first — that is the entire
  * purpose of withholding it. What differs is who covers the remainder:
  *
- *   - bnpl:        the platform, from `default_pool`. The merchant's exposure
- *                  is capped at the 5% reserve; the platform fronted the cash
- *                  and carries the rest of the risk.
- *   - hybrid/rto:  the merchant, from `merchant_payable` (driving it negative —
- *                  future payouts shrink until it clears). These models share
- *                  risk, which is why they withhold 7% and 12%.
- *   - layaway:     no accrual was ever booked (it pays out only at completion),
- *                  so there's nothing to write off at the settlement layer
+ *   - bnpl, rto:   the platform, from `default_pool`. The merchant's exposure
+ *                  is capped at the reserve; the platform paid the merchant
+ *                  the whole order at approval and carries the rest of the
+ *                  risk. Rent-to-own used to claw the rest from the merchant
+ *                  too — while charging them the highest MDR (5%) and reserve
+ *                  (12%) of any model for that very risk, and with no
+ *                  repossession process through which they could recover the
+ *                  goods. A seller paying Ejua's price for the risk should not
+ *                  also be carrying it.
+ *   - hybrid:      the merchant, from `merchant_payable` (driving it negative —
+ *                  future payouts shrink until it clears). A hybrid seller is
+ *                  credited 40% up front and 60% only at completion, so the
+ *                  slice a defaulting customer never paid is one the seller was
+ *                  never credited; they share the risk, which is the 7% reserve.
+ *   - layaway:     nothing is fronted before completion (it pays out only
+ *                  then), so a default before it finds no open receivable and
+ *                  books nothing — forfeiture is handled outside the ledger.
+ *                  The one open receivable a layaway plan can have is a
+ *                  re-collected instalment after completion: the seller was
+ *                  paid in full against a paid-up plan, and handing the money
+ *                  back and billing the customer again was the platform's
+ *                  call, so past the reserve it is the platform's loss, as for
+ *                  bnpl. It used to return early and leave that receivable
+ *                  open for good.
  *
  * The loss is what the platform fronted that the customer has not repaid: the
  * receivable still open on the plan. Accruals book it as the merchant is
@@ -80,9 +108,6 @@ export class DefaultService {
   ): Promise<DefaultAllocation | null> {
     const { customerPlanId, merchantId, model } = input;
     if (input.unrecoveredAmountPesewas <= 0) return null;
-    // Layaway never accrues before completion, so a default has no settlement
-    // footprint — forfeiture is handled outside the ledger.
-    if (model === 'layaway') return null;
 
     const transactionId = `default:${customerPlanId}`;
     const exec: ReserveExecutor = tx ?? this.db;
@@ -140,9 +165,9 @@ export class DefaultService {
     }
 
     if (beyondReserve > 0) {
-      if (model === 'bnpl') {
-        // Merchant exposure is capped at the reserve; the platform fronted the
-        // cash and carries everything past it.
+      if (PLATFORM_BEARS_BEYOND_RESERVE.has(model)) {
+        // Merchant exposure is capped at the reserve; the platform paid the
+        // whole order out and carries everything past it.
         fromPool = beyondReserve;
         entries.push({
           transactionId,
@@ -154,7 +179,7 @@ export class DefaultService {
           metadata,
         });
       } else {
-        // hybrid / rent_to_own share the risk — claw the rest from the merchant.
+        // hybrid shares the risk — claw the rest from the merchant.
         fromMerchant = beyondReserve;
         entries.push({
           transactionId,

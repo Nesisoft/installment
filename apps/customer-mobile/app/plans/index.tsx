@@ -295,11 +295,21 @@ function PlanSchedule({
             </Text>
           </View>
           <View style={styles.scheduleText}>
-            <Text variant="smallMedium" tone={row.status === 'paid' ? 'faint' : 'ink'}>
+            <Text
+              variant="smallMedium"
+              tone={row.status === 'paid' || row.status === 'refunded' ? 'faint' : 'ink'}
+            >
               {ghs(row.payable_pesewas)}
             </Text>
             <Text variant="tiny" tone="muted">
-              {row.status === 'paid' ? 'Paid' : 'Due'} {shortDate(row.due_date)}
+              {/* A refunded instalment is not owed: it was written off, or
+                  re-collected as a new instalment further down. */}
+              {row.status === 'paid'
+                ? 'Paid'
+                : row.status === 'refunded'
+                  ? 'Refunded · was due'
+                  : 'Due'}{' '}
+              {shortDate(row.due_date)}
               {row.is_down_payment ? ' · deposit' : ''}
             </Text>
           </View>

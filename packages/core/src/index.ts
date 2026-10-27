@@ -63,7 +63,14 @@ export {
   type InstallmentKind,
 } from './modules/schedules/schedule-generator';
 export * from './modules/schedules/errors';
-export { recordManualPaymentSchema, type RecordManualPaymentInput } from './modules/schedules/dto';
+export {
+  recordManualPaymentSchema,
+  refundInstallmentSchema,
+  REFUND_MODES,
+  type RecordManualPaymentInput,
+  type RefundInstallmentInput,
+  type RefundMode,
+} from './modules/schedules/dto';
 export {
   CustomerPlansService,
   type CustomerPlan,

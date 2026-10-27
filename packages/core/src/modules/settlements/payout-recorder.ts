@@ -1,4 +1,4 @@
-import { eq, like } from 'drizzle-orm';
+import { and, eq, like, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { Money } from '../../shared/money/money';
 import { LedgerService, type LedgerExecutor } from '../../shared/ledger/ledger.service';
@@ -91,7 +91,7 @@ export class PayoutRecorder {
   async recordPayoutAccrual(
     input: RecordPayoutAccrualInput,
     tx?: LedgerExecutor,
-  ): Promise<PayoutBreakdown | null> {
+  ): Promise<(PayoutBreakdown & { replayed?: boolean }) | null> {
     const breakdown = PayoutCalculator.calculate(
       input.orderAmountPesewas,
       input.model,
@@ -106,13 +106,16 @@ export class PayoutRecorder {
     const transactionId = this.buildTransactionId(input);
     const exec: LedgerExecutor = tx ?? this.db;
 
-    // Idempotency: a replay returns the same breakdown without re-booking.
+    // Idempotency: a replay returns the same breakdown without re-booking —
+    // marked, so a caller tracking what was booked (the held reserve) does
+    // not track it twice. A plan that completes, re-opens on a re-collect and
+    // completes again replays its completion accrual.
     const existing = await exec
       .select({ transaction_id: ledger.transaction_id })
       .from(ledger)
       .where(eq(ledger.transaction_id, transactionId))
       .limit(1);
-    if (existing[0]) return breakdown;
+    if (existing[0]) return { ...breakdown, replayed: true };
 
     const metadata = {
       model: input.model,
@@ -203,13 +206,14 @@ export class PayoutRecorder {
       .reduce((sum, r) => sum + Number(r.amount_pesewas), 0);
     if (totalAccruedGross === 0) return null;
 
-    // Refund's fraction of the total accrued (cap at 100% — can't reverse more
-    // than what was booked).
-    const scaleBps = Math.min(
-      10_000,
-      Math.round((input.refundAmountPesewas * 10_000) / totalAccruedGross),
-    );
-    if (scaleBps === 0) return null;
+    // The refund is spread over the accruals in proportion to each one's
+    // gross, to the pesewa: every accrual but the last takes its exact share
+    // rounded down, and the last takes what remains, so the reversals add up
+    // to the refund itself. Scaling by a whole number of basis points instead
+    // rounded every reversal — a 2,508 instalment clawed 2,509 — so a plan's
+    // instalments, forgiven one by one, reversed more than the seller was
+    // credited and the last could not be forgiven at all.
+    const refund = Math.min(input.refundAmountPesewas, totalAccruedGross);
 
     const byTransactionId = new Map<string, typeof accrualRows>();
     for (const row of accrualRows) {
@@ -217,6 +221,22 @@ export class PayoutRecorder {
       if (bucket) bucket.push(row);
       else byTransactionId.set(row.transaction_id, [row]);
     }
+    const accrualIds = [...byTransactionId.keys()].sort();
+    const grossOf = (txId: string) =>
+      byTransactionId
+        .get(txId)!
+        .filter((r) => r.account_type === 'receivable' && r.direction === 'debit')
+        .reduce((sum, r) => sum + Number(r.amount_pesewas), 0);
+    const shares = new Map<string, number>();
+    let allocated = 0;
+    accrualIds.forEach((txId, i) => {
+      const share =
+        i === accrualIds.length - 1
+          ? refund - allocated
+          : Number((BigInt(grossOf(txId)) * BigInt(refund)) / BigInt(totalAccruedGross));
+      shares.set(txId, share);
+      allocated += share;
+    });
 
     const config = MODEL_CONFIG[input.model];
     const reversals: RefundReversalSummary['reversals'] = [];
@@ -235,18 +255,13 @@ export class PayoutRecorder {
       await this.ledger.balanceOf('reserve_held', input.customerPlanId, tx),
     );
 
-    for (const [accrualTxId, rows] of byTransactionId) {
+    for (const accrualTxId of accrualIds) {
+      const rows = byTransactionId.get(accrualTxId)!;
       const triggerSuffix = accrualTxId.slice(accrualPrefix.length);
       const refundTxId = `refund:${input.scheduleId}:${triggerSuffix}`;
 
-      const reversalGross = Money.fromPesewas(
-        rows
-          .filter((r) => r.account_type === 'receivable' && r.direction === 'debit')
-          .reduce((sum, r) => sum + Number(r.amount_pesewas), 0),
-      )
-        .multiplyBps(scaleBps)
-        .toNumber();
-      if (reversalGross === 0) continue;
+      const reversalGross = shares.get(accrualTxId) ?? 0;
+      if (reversalGross <= 0) continue;
 
       // mdr/reserve recomputed from gross so the row sums stay balanced
       // regardless of rounding (net absorbs the residual).
@@ -350,5 +365,30 @@ export class PayoutRecorder {
     }
 
     return { totalReversedGrossPesewas: totalReversedGross, reversals };
+  }
+
+  /**
+   * What the seller has been credited on this plan and not yet given back:
+   * every accrual's gross, less what earlier refunds reversed.
+   *
+   * A refund that forgives the instalment makes the seller bear it, by
+   * reversing that much of their credit. When the plan has not credited them
+   * that much yet — layaway before completion, a hybrid plan past its deposit
+   * split — there is nothing to reverse, and the completion accrual would later
+   * credit the full order for goods the customer was refunded for.
+   */
+  async creditedNotReversed(customerPlanId: string, tx?: LedgerExecutor): Promise<number> {
+    const exec: LedgerExecutor = tx ?? this.db;
+    const [row] = await exec
+      .select({
+        accrued: sql<string>`coalesce(sum(${ledger.amount_pesewas}) filter (
+          where ${ledger.transaction_id} like ${`${accrualTransactionIdPrefix(customerPlanId)}%`}
+            and ${ledger.direction} = 'debit'), 0)`,
+        reversed: sql<string>`coalesce(sum(${ledger.amount_pesewas}) filter (
+          where ${ledger.transaction_id} like 'refund:%' and ${ledger.direction} = 'credit'), 0)`,
+      })
+      .from(ledger)
+      .where(and(eq(ledger.account_type, 'receivable'), eq(ledger.account_ref, customerPlanId)));
+    return Number(row?.accrued ?? 0) - Number(row?.reversed ?? 0);
   }
 }

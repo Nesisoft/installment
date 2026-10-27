@@ -140,6 +140,21 @@ export class ReserveReleaseService {
   }
 
   /**
+   * Clears `plan_completed_at` on the plan's still-open reserves when the plan
+   * re-opens — a refund that re-collects an instalment. The reserve buffers
+   * against the plan's risk, and a plan with money still to collect carries
+   * that risk again, so its clock restarts at the next completion instead of
+   * running out from the first one while the re-collected instalment is owed.
+   */
+  async markPlanReopened(customerPlanId: string, tx?: ReserveExecutor): Promise<void> {
+    const exec: ReserveExecutor = tx ?? this.db;
+    await exec
+      .update(held)
+      .set({ plan_completed_at: null })
+      .where(and(eq(held.customer_plan_id, customerPlanId), isNull(held.fully_released_at)));
+  }
+
+  /**
    * Stamps `delivered_at` on every still-open reserve for the plan (drives the
    * `after_delivery` release policy used by layaway).
    */

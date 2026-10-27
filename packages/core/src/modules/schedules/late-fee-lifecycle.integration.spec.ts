@@ -10,6 +10,9 @@ import { MockGhanaCardVerifier } from '../customers/ghana-card-verifier';
 import { PlanTemplatesService } from '../plans/plan-templates.service';
 import { ApplicationsService } from '../applications/applications.service';
 import { CustomerPlansService } from './customer-plans.service';
+import { PlanCashLedger } from './plan-cash-ledger';
+import { LedgerService } from '../../shared/ledger/ledger.service';
+import { PLATFORM_ACCOUNT_REF } from '../settlements/payout-recorder';
 import { LateFeeService } from './late-fee.service';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
@@ -42,6 +45,17 @@ describe.skipIf(!RUN_DB)('late fee lifecycle (integration)', () => {
   const planTemplates = new PlanTemplatesService(db, audit);
   const apps = new ApplicationsService(db, audit);
   const plans = new CustomerPlansService(db, audit);
+  const ledger = new LedgerService(db);
+  // With the cash leg wired, so a refund's ledger effect can be read back.
+  const plansWithCash = new CustomerPlansService(
+    db,
+    audit,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    new PlanCashLedger(ledger),
+  );
   const lateFees = new LateFeeService(db, audit);
   const ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 
@@ -173,6 +187,7 @@ describe.skipIf(!RUN_DB)('late fee lifecycle (integration)', () => {
   });
 
   it('refunding a late-paid instalment restores the debt it settled, not the fee too', async () => {
+    const plans = plansWithCash;
     const appId = await approved(await templateWithLateFee());
     const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
     const first = schedule[0]!;
@@ -190,7 +205,17 @@ describe.skipIf(!RUN_DB)('late fee lifecycle (integration)', () => {
     const { plan: afterPay } = await plans.recordManualPayment(first.id, {}, ACTOR);
     expect(afterPay.outstanding_pesewas).toBe(outstandingBefore - first.amount_due_pesewas);
 
-    const { plan: afterRefund } = await plans.refundInstallment(first.id, {}, ACTOR);
+    const revenueBefore = await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF);
+    const { plan: afterRefund } = await plans.refundInstallment(
+      first.id,
+      { mode: 'recollect' },
+      ACTOR,
+    );
+
+    // The fee comes back out of revenue, where collection booked it. It used
+    // to be re-opened as debt the customer owed, while revenue kept it.
+    expect(await ledger.balanceOf('revenue', PLATFORM_ACCOUNT_REF)).toBe(revenueBefore - fee);
+    expect(await ledger.balanceOf('refund_payable', plan.id)).toBe(first.amount_due_pesewas + fee);
 
     // The customer is handed back amount_due + fee, but the plan's debt only
     // ever fell by amount_due — so that is all the refund may restore. Adding

@@ -836,6 +836,8 @@ export interface Statement {
     totalFees: string;
     totalPayable: string;
     amountPaid: string;
+    /** Instalments refunded and written off. */
+    forgiven: string;
     outstanding: string;
     installmentCount: number;
   };
