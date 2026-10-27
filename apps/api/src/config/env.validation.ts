@@ -26,6 +26,13 @@ export const envSchema = z.object({
     .transform((v) => v !== false && v !== 'false' && v !== '0')
     .default(true),
   RATE_LIMIT_LIMIT: z.coerce.number().int().positive().default(300),
+  /**
+   * The daily sellers-owing alert fires once what sellers owe Ejua in total
+   * (negative payables, mostly from returns) reaches this, in pesewas. It also
+   * fires, whatever the total, for any seller who owes and can no longer be
+   * paid out. Default GHS 5,000.
+   */
+  SELLERS_OWING_ALERT_PESEWAS: z.coerce.number().int().min(0).default(500_000),
   RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
   // Behind a proxy/load balancer the client IP arrives in X-Forwarded-For. Set
   // this to the hop count (or 'true') so the limiter buckets real clients rather

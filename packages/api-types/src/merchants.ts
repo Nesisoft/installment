@@ -145,3 +145,32 @@ export interface ListMerchantsParams {
   limit?: number;
   offset?: number;
 }
+
+// --- Sellers owing Ejua -------------------------------------------------------
+
+/** One seller whose payable has gone negative. Mirrors `SellerOwingRow` in core. */
+export interface SellerOwingRow {
+  merchant_id: string;
+  business_name: string;
+  status: string;
+  owed_pesewas: number;
+  /** Suspended or offboarded: nothing will be paid to them, so nothing nets this off. */
+  unrecoverable: boolean;
+  seller_age_days: number;
+  returns_90d_pesewas: number;
+  returns_90d_count: number;
+  last_payout_at: string | null;
+  last_payout_pesewas: number | null;
+}
+
+/** `GET /admin/settlements/sellers-owing`. */
+export interface SellersOwing {
+  summary: {
+    sellers: number;
+    owed_pesewas: number;
+    unrecoverable_sellers: number;
+    unrecoverable_pesewas: number;
+    new_sellers: number;
+  };
+  rows: SellerOwingRow[];
+}

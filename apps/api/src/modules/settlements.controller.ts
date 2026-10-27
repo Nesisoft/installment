@@ -1,5 +1,10 @@
-import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
-import { PERMISSIONS, ReconciliationService, SettlementService } from '@installment/core';
+import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
+import {
+  PERMISSIONS,
+  ReconciliationService,
+  SellersOwingReport,
+  SettlementService,
+} from '@installment/core';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../auth/decorators';
 import { Idempotent } from '../common/idempotent.decorator';
@@ -15,7 +20,21 @@ export class SettlementsController {
   constructor(
     private readonly settlements: SettlementService,
     private readonly reconciliation: ReconciliationService,
+    private readonly sellersOwing: SellersOwingReport,
   ) {}
+
+  /**
+   * Sellers whose payable has gone negative — owing Ejua, usually after
+   * returns. The ones suspended or offboarded come first: nothing will be
+   * paid to them again, so nothing nets the debt off.
+   */
+  @Get('sellers-owing')
+  @RequirePermissions(PERMISSIONS.MERCHANTS_READ)
+  @ApiOperation({ summary: 'Sellers owing Ejua (negative payable), worst first' })
+  async owing() {
+    const rows = await this.sellersOwing.list();
+    return { summary: this.sellersOwing.summarise(rows), rows };
+  }
 
   @Post('run')
   @Idempotent()
