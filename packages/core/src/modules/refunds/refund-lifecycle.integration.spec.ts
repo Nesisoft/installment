@@ -240,10 +240,27 @@ describe.skipIf(!RUN_DB)('Refund lifecycle (integration)', () => {
 
     // Before S7 this read GHS 250.00 paid against GHS 1,000.00 outstanding —
     // the same cedis credited as paid *and* added back to the balance.
+    // Forgiven, the instalment is neither paid nor owed: GHS 750.00 is what
+    // the other three still come to.
     expect(statement.summary.amountPaid).toBe('GHS 0.00');
-    expect(statement.summary.outstanding).toBe('GHS 1,000.00');
+    expect(statement.summary.outstanding).toBe('GHS 750.00');
     expect(statement.lines[0]!.status).toBe('refunded');
     expect(statement.lines[0]!.amountPaid).toBe('GHS 0.00');
+  });
+
+  it('shows a re-collected instalment as owed again, on its new line', async () => {
+    const refunds = serviceWith(refundClient());
+    const plans = plansWith(refunds);
+    const { plan, schedule } = await activate(plans);
+
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    await plans.refundInstallment(schedule[0]!.id, { mode: 'recollect' }, ACTOR);
+    const statement = await plans.getStatement(plan.id);
+
+    expect(statement.summary.amountPaid).toBe('GHS 0.00');
+    expect(statement.summary.outstanding).toBe('GHS 1,000.00');
+    expect(statement.lines).toHaveLength(schedule.length + 1);
+    expect(statement.lines.at(-1)!.status).toBe('pending');
   });
 
   it('marks an out-of-band payment for manual return and never sends it to the provider', async () => {

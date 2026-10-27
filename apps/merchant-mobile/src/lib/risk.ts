@@ -26,8 +26,11 @@ const LATE = 'A late payment takes nothing back from you.';
 /** What a customer who stops paying would cost the seller on one plan. */
 export function defaultRiskSentence(model: BusinessModel): string {
   if (model === 'layaway') {
-    // Nothing accrues before completion, so a default has no settlement footprint.
-    return 'On layaway nothing is credited to you until the customer has paid in full, so a customer who stops paying takes nothing back from you.';
+    // Nothing accrues before completion, so a default before it has no
+    // settlement footprint. (After it, only an instalment Ejua refunded and
+    // chose to collect again can go unpaid, and Ejua carries that past the
+    // reserve.)
+    return 'On layaway nothing is credited to you until the customer has paid in full, so a customer who stops paying before then takes nothing back from you.';
   }
   if (!sharesDefaultLoss(model)) {
     return `${LATE} If the customer stops paying for good, this plan's reserve covers the loss first and Ejua carries the rest — what has been credited to you stays yours.`;

@@ -8,12 +8,15 @@ import type { BusinessModel } from './model-config';
 const ledger = schema.ledger_entries;
 
 /**
- * The models that pay the merchant the whole order at approval, and so leave
- * the platform carrying a default past the plan's reserve.
+ * The models on which the platform carries a default past the plan's reserve.
+ * BNPL and rent to own pay the merchant the whole order at approval. Layaway
+ * pays it at completion, after which the only debt a customer can default on
+ * is an instalment the platform refunded and chose to collect again.
  */
 export const PLATFORM_BEARS_BEYOND_RESERVE: ReadonlySet<BusinessModel> = new Set([
   'bnpl',
   'rent_to_own',
+  'layaway',
 ]);
 
 export interface HandleDefaultInput {
@@ -58,8 +61,16 @@ export interface DefaultAllocation {
  *                  credited 40% up front and 60% only at completion, so the
  *                  slice a defaulting customer never paid is one the seller was
  *                  never credited; they share the risk, which is the 7% reserve.
- *   - layaway:     no accrual was ever booked (it pays out only at completion),
- *                  so there's nothing to write off at the settlement layer
+ *   - layaway:     nothing is fronted before completion (it pays out only
+ *                  then), so a default before it finds no open receivable and
+ *                  books nothing — forfeiture is handled outside the ledger.
+ *                  The one open receivable a layaway plan can have is a
+ *                  re-collected instalment after completion: the seller was
+ *                  paid in full against a paid-up plan, and handing the money
+ *                  back and billing the customer again was the platform's
+ *                  call, so past the reserve it is the platform's loss, as for
+ *                  bnpl. It used to return early and leave that receivable
+ *                  open for good.
  *
  * The loss is what the platform fronted that the customer has not repaid: the
  * receivable still open on the plan. Accruals book it as the merchant is
@@ -97,9 +108,6 @@ export class DefaultService {
   ): Promise<DefaultAllocation | null> {
     const { customerPlanId, merchantId, model } = input;
     if (input.unrecoveredAmountPesewas <= 0) return null;
-    // Layaway never accrues before completion, so a default has no settlement
-    // footprint — forfeiture is handled outside the ledger.
-    if (model === 'layaway') return null;
 
     const transactionId = `default:${customerPlanId}`;
     const exec: ReserveExecutor = tx ?? this.db;
@@ -159,7 +167,7 @@ export class DefaultService {
     if (beyondReserve > 0) {
       if (PLATFORM_BEARS_BEYOND_RESERVE.has(model)) {
         // Merchant exposure is capped at the reserve; the platform paid the
-        // whole order out at approval and carries everything past it.
+        // whole order out and carries everything past it.
         fromPool = beyondReserve;
         entries.push({
           transactionId,

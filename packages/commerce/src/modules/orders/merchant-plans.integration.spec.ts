@@ -213,6 +213,25 @@ describe.skipIf(!RUN_DB)('MerchantPlansService (integration)', () => {
     expect(after.nextDueDate).not.toBe(before.nextDueDate);
   });
 
+  it('does not count a refunded instalment as the next one due', async () => {
+    // Refunded is settled: forgiven, or re-collected by a new row of its own.
+    const { merchantId, storeId } = await shop();
+    const sale = await sellFinanced(storeId, 40_000);
+    const planId = sale.order.customer_plan_id!;
+    const schedule = await db
+      .select()
+      .from(schema.installment_schedule)
+      .where(eq(schema.installment_schedule.customer_plan_id, planId))
+      .orderBy(schema.installment_schedule.sequence_number);
+    await db
+      .update(schema.installment_schedule)
+      .set({ status: 'refunded', amount_paid_pesewas: 0 })
+      .where(eq(schema.installment_schedule.id, schedule[0]!.id));
+
+    const row = (await merchantPlans.list(merchantId)).rows[0]!;
+    expect(row.nextDueDate).toBe(schedule[1]!.due_date);
+  });
+
   it('derives lateness from the schedule, because a plan in arrears is still active', async () => {
     const { merchantId, storeId } = await shop();
     const sale = await sellFinanced(storeId, 40_000);

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte } from 'drizzle-orm';
+import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction, type TransactionalTx } from '../../shared/event-bus/transaction';
@@ -11,10 +11,13 @@ import {
   type ScheduleEvent,
   type ScheduleStatus,
 } from './state-machine';
-import { recordManualPaymentSchema } from './dto';
+import { recordManualPaymentSchema, refundInstallmentSchema } from './dto';
 import {
   CustomerPlanNotFoundError,
   InstallmentNotPayableError,
+  InstallmentRefundDueDateInPastError,
+  InstallmentRefundNotForgivableError,
+  InstallmentRefundNotRecollectableError,
   PlanActivationError,
   PlanAlreadyActiveError,
   PlanDefaultError,
@@ -23,6 +26,7 @@ import {
   ScheduleNotFoundError,
 } from './errors';
 import { buildStatement, type Statement } from '../statements/statement';
+import { orderShareOf } from './refund-shares';
 import { buildReceipt, type Receipt } from '../receipts/receipt';
 import type { PayoutRecorder, RecordPayoutAccrualInput } from '../settlements/payout-recorder';
 import type { ReserveReleaseService } from '../settlements/reserve-release.service';
@@ -35,6 +39,7 @@ const sched = schema.installment_schedule;
 const apps = schema.applications;
 const merchants = schema.merchants;
 const customers = schema.customers;
+const auditEvents = schema.audit_events;
 
 export type CustomerPlan = typeof schema.customer_plans.$inferSelect;
 export type InstallmentScheduleRow = typeof schema.installment_schedule.$inferSelect;
@@ -120,7 +125,10 @@ export class CustomerPlansService {
   /**
    * Books one accrual and, when it withholds reserve, records the matching
    * held-reserve tracking row — both inside the caller's transaction. Returns
-   * nothing; callers fire it per trigger.
+   * nothing; callers fire it per trigger. A replayed accrual books nothing, so
+   * it tracks nothing either: a plan that completes, re-opens on a re-collect
+   * and completes again would otherwise hold its reserve twice, and the second
+   * row would release money the ledger never withheld.
    */
   private async accrueAndTrack(
     tx: TransactionalTx,
@@ -129,7 +137,7 @@ export class CustomerPlansService {
   ): Promise<void> {
     if (!this.payoutRecorder) return;
     const breakdown = await this.payoutRecorder.recordPayoutAccrual(input, tx);
-    if (breakdown && breakdown.reservePesewas > 0 && this.reserveRelease) {
+    if (breakdown && !breakdown.replayed && breakdown.reservePesewas > 0 && this.reserveRelease) {
       await this.reserveRelease.recordHeldReserve(
         {
           merchantId: input.merchantId,
@@ -387,10 +395,24 @@ export class CustomerPlansService {
   }
 
   /**
-   * Reverses a paid installment: schedule → refunded, plan outstanding bumped
-   * back up (un-completing it if the refund re-opens balance), and a
-   * proportional ledger reversal of every accrual that has fired for the plan.
-   * All atomic in one transaction.
+   * Refunds a paid installment. The money goes back either way; what happens
+   * to the debt is the caller's choice (`refundInstallmentSchema`):
+   *
+   * - `forgive` (default) — the instalment is written off. `outstanding` is
+   *   left where the payment put it and the plan completes when the rest is
+   *   paid. The seller gives back what they were credited for its order share
+   *   (`reverseAccrualsForRefund`), and the platform gives back its interest
+   *   and fees (`refund-shares.ts`). A cancellation or a return.
+   * - `recollect` — the customer still owes it. `outstanding` goes back up by
+   *   the instalment, the plan re-opens if it had completed, the seller keeps
+   *   the sale, and a new instalment for the same amount is scheduled.
+   *
+   * There used to be one refund that did half of each: it put the debt back on
+   * the plan, reversed the seller's credit, and left no instalment to collect
+   * the debt with — `refunded` is terminal — so the plan could never complete.
+   *
+   * Either way the late fee paid on it is handed back from revenue, where
+   * collection booked it, and is not re-collected.
    *
    * The state machine enforces the precondition (only `paid` may refund);
    * replays land on `refunded`, which is terminal, so a re-call throws
@@ -398,10 +420,11 @@ export class CustomerPlansService {
    */
   async refundInstallment(
     scheduleId: string,
-    opts: { reason?: string } = {},
+    rawInput: unknown,
     actor: PlanActor,
     now: Date = new Date(),
-  ): Promise<ManualPaymentResult> {
+  ): Promise<ManualPaymentResult & { recollect?: InstallmentScheduleRow }> {
+    const input = refundInstallmentSchema.parse(rawInput ?? {});
     const nowIso = now.toISOString();
     return runInTransaction(this.db, async (tx) => {
       const installment = (
@@ -422,17 +445,38 @@ export class CustomerPlansService {
       )[0];
       if (!plan) throw new CustomerPlanNotFoundError(installment.customer_plan_id);
 
-      // Two different numbers, and conflating them inflates the plan's debt.
-      // `refundAmount` is cash going back to the customer: they paid the
-      // instalment *and* its late fee, so both come back. `restoredDebt` is
-      // what the plan owes again — and `finalisePaidInstallment` only ever
-      // took `amount_due` off `outstanding_pesewas`, because a late fee is a
-      // penalty on top of the contract, not part of `total_payable_pesewas`.
-      // Adding the fee back here raised `outstanding` above `total_payable`
-      // and the CHECK aborted the whole refund, so a late payer could not be
-      // refunded at all.
+      // What goes back to the customer is everything they paid on it: the
+      // instalment and any late fee. The two are handed back from different
+      // places, so they are kept apart. `restoredDebt` (re-collect only) is the
+      // instalment alone: `finalisePaidInstallment` only ever took `amount_due`
+      // off `outstanding_pesewas`, because a late fee is a penalty on top of
+      // the contract, not part of `total_payable_pesewas`.
       const refundAmount = installment.amount_paid_pesewas;
+      const lateFeeRefunded = Math.min(installment.late_fee_pesewas, refundAmount);
+      const principalRefunded = refundAmount - lateFeeRefunded;
       const restoredDebt = installment.amount_due_pesewas;
+
+      if (input.mode === 'recollect' && plan.status !== 'active' && plan.status !== 'completed') {
+        throw new InstallmentRefundNotRecollectableError(plan.id, plan.status);
+      }
+      const today = nowIso.slice(0, 10);
+      if (input.mode === 'recollect' && input.due_date !== undefined && input.due_date < today) {
+        throw new InstallmentRefundDueDateInPastError(input.due_date, today);
+      }
+
+      // A forgive splits the instalment: the order share is the seller's to
+      // give back, the rest is the platform's interest and fees.
+      const orderShare =
+        input.mode === 'forgive'
+          ? Math.min(principalRefunded, await this.orderShareOf(tx, plan, installment.id))
+          : 0;
+      const financeShare = input.mode === 'forgive' ? principalRefunded - orderShare : 0;
+      if (input.mode === 'forgive' && this.payoutRecorder && orderShare > 0) {
+        const credited = await this.payoutRecorder.creditedNotReversed(plan.id, tx);
+        if (credited < orderShare) {
+          throw new InstallmentRefundNotForgivableError(installment.id, credited, orderShare);
+        }
+      }
 
       const [updatedSchedule] = await tx
         .update(sched)
@@ -441,9 +485,7 @@ export class CustomerPlansService {
           status_changed_at: nowIso,
           // Nothing was net paid on this installment any more. Leaving the
           // column intact double-counted the money: `buildStatement` sums
-          // `amount_paid_pesewas` across every row regardless of status, while
-          // the refund also adds the amount back to `outstanding_pesewas` — so
-          // a refunded customer saw the same cedis credited as paid *and* owed.
+          // `amount_paid_pesewas` across every row regardless of status.
           // The amount survives on the refunds row and in the audit event.
           amount_paid_pesewas: 0,
           version: installment.version + 1,
@@ -452,20 +494,58 @@ export class CustomerPlansService {
         .returning();
       if (!updatedSchedule) throw new ScheduleConcurrencyError(installment.id);
 
-      // Re-open the plan if the refund pushes outstanding back above zero.
-      // (Conceptually the order is no longer satisfied — the customer is owed
-      // money back, so the plan can't remain in `completed`.)
-      const newOutstanding = plan.outstanding_pesewas + restoredDebt;
-      const reopen = plan.status === 'completed' && newOutstanding > 0;
-      const [updatedPlan] = await tx
-        .update(cp)
-        .set({
-          outstanding_pesewas: newOutstanding,
-          ...(reopen ? { status: 'active', completed_at: null } : {}),
-        })
-        .where(eq(cp.id, plan.id))
-        .returning();
-      if (!updatedPlan) throw new Error('customer_plans update returned no row');
+      let updatedPlan = plan;
+      let recollect: InstallmentScheduleRow | undefined;
+      if (input.mode === 'recollect') {
+        // The debt is back, so the plan is no longer satisfied.
+        const newOutstanding = plan.outstanding_pesewas + restoredDebt;
+        const reopen = plan.status === 'completed' && newOutstanding > 0;
+        const [row] = await tx
+          .update(cp)
+          .set({
+            outstanding_pesewas: newOutstanding,
+            ...(reopen ? { status: 'active', completed_at: null } : {}),
+          })
+          .where(eq(cp.id, plan.id))
+          .returning();
+        if (!row) throw new Error('customer_plans update returned no row');
+        updatedPlan = row;
+        if (reopen) {
+          // Money is owed on it again, so its reserve buffers live risk: the
+          // release clock restarts at the next completion.
+          await this.reserveRelease?.markPlanReopened(plan.id, tx);
+          await this.audit.append(tx, {
+            entityType: 'customer_plan',
+            entityId: plan.id,
+            eventType: 'customer_plan.reopened',
+            fromState: 'completed',
+            toState: 'active',
+            actorId: actor.actorId,
+            actorType: actor.actorType,
+            reason: 'refund_issued',
+          });
+        }
+
+        // And something to collect it with: the same amount, after the last
+        // instalment, on the date asked for.
+        const [last] = await tx
+          .select({ n: sched.sequence_number })
+          .from(sched)
+          .where(eq(sched.customer_plan_id, plan.id))
+          .orderBy(desc(sched.sequence_number))
+          .limit(1);
+        const dueDate = input.due_date ?? addDays(nowIso.slice(0, 10), 7);
+        [recollect] = await tx
+          .insert(sched)
+          .values({
+            customer_plan_id: plan.id,
+            sequence_number: (last?.n ?? 0) + 1,
+            amount_due_pesewas: restoredDebt,
+            due_date: dueDate,
+            grace_until_date: addDays(dueDate, plan.grace_period_days),
+          })
+          .returning();
+      }
 
       await this.audit.append(tx, {
         entityType: 'installment_schedule',
@@ -475,28 +555,32 @@ export class CustomerPlansService {
         toState: 'refunded',
         actorId: actor.actorId,
         actorType: actor.actorType,
-        reason: opts.reason,
-        metadata: { refund_amount_pesewas: refundAmount },
+        reason: input.reason,
+        metadata: {
+          refund_amount_pesewas: refundAmount,
+          late_fee_refunded_pesewas: lateFeeRefunded,
+          mode: input.mode,
+          ...(input.mode === 'forgive'
+            ? { order_share_pesewas: orderShare, finance_share_pesewas: financeShare }
+            : {}),
+          ...(recollect
+            ? { recollect_schedule_id: recollect.id, recollect_due_date: recollect.due_date }
+            : {}),
+        },
       });
-      if (reopen) {
-        await this.audit.append(tx, {
-          entityType: 'customer_plan',
-          entityId: plan.id,
-          eventType: 'customer_plan.reopened',
-          fromState: 'completed',
-          toState: 'active',
-          actorId: actor.actorId,
-          actorType: actor.actorType,
-          reason: 'refund_issued',
-        });
-      }
 
-      if (this.payoutRecorder && refundAmount > 0) {
+      // Forgiving makes the seller bear the refund of what they sold: they give
+      // back what they were credited for the order share. Re-collecting leaves
+      // the sale standing, so the seller keeps their credit and the new
+      // instalment pays it off.
+      if (input.mode === 'forgive' && this.payoutRecorder && orderShare > 0) {
         await this.payoutRecorder.reverseAccrualsForRefund(
           {
             customerPlanId: plan.id,
             scheduleId: installment.id,
-            refundAmountPesewas: refundAmount,
+            // The order share only. The interest, fees and late fee were never
+            // the seller's.
+            refundAmountPesewas: orderShare,
             model: plan.business_model as BusinessModel,
             // Mirror the forward accrual exactly.
             mdrBps: plan.mdr_bps,
@@ -506,14 +590,17 @@ export class CustomerPlansService {
         );
       }
 
-      // Undo the collection's own credit. reverseAccrualsForRefund only claws
-      // the accrual back from the merchant; without this the installment's
-      // cash-in credit stands, so one refund releases `receivable` twice and
-      // understates what the customer still owes. The obligation to return the
-      // money lands in `refund_payable` and stays there until it physically
-      // leaves (S7).
+      // Undo the collection's own credit, and record what is owed back. The
+      // obligation lands in `refund_payable` and stays there until the money
+      // physically leaves (S7).
       await this.cashLedger?.reverseCollection(
-        { scheduleId: installment.id, customerPlanId: plan.id, amountPesewas: refundAmount },
+        {
+          scheduleId: installment.id,
+          customerPlanId: plan.id,
+          amountPesewas: principalRefunded,
+          lateFeePesewas: lateFeeRefunded,
+          financeSharePesewas: financeShare,
+        },
         tx,
       );
 
@@ -530,8 +617,57 @@ export class CustomerPlansService {
         tx,
       );
 
-      return { schedule: updatedSchedule, plan: updatedPlan };
+      return { schedule: updatedSchedule, plan: updatedPlan, ...(recollect ? { recollect } : {}) };
     });
+  }
+
+  /**
+   * The order share of one instalment (`refund-shares.ts`). A re-collected
+   * instalment is a copy of the one it replaced, and carries that one's share:
+   * it is traced back through the refund that created it to a row the
+   * generator wrote.
+   */
+  private async orderShareOf(
+    tx: TransactionalTx,
+    plan: CustomerPlan,
+    scheduleId: string,
+  ): Promise<number> {
+    const rows = await tx
+      .select({
+        id: sched.id,
+        sequence_number: sched.sequence_number,
+        amount_due_pesewas: sched.amount_due_pesewas,
+      })
+      .from(sched)
+      .where(eq(sched.customer_plan_id, plan.id));
+    const copies = await tx
+      .select({
+        replaced: auditEvents.entity_id,
+        copy: sql<string | null>`${auditEvents.metadata} ->> 'recollect_schedule_id'`,
+      })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.entity_type, 'installment_schedule'),
+          eq(auditEvents.event_type, 'schedule.refund_issued'),
+          inArray(
+            auditEvents.entity_id,
+            rows.map((r) => r.id),
+          ),
+        ),
+      );
+    const copiedFrom = new Map<string, string>();
+    for (const c of copies) if (c.copy) copiedFrom.set(c.copy, c.replaced);
+
+    let origin = scheduleId;
+    for (let hops = 0; copiedFrom.has(origin) && hops <= rows.length; hops++) {
+      origin = copiedFrom.get(origin)!;
+    }
+    return orderShareOf(
+      plan,
+      rows.filter((r) => !copiedFrom.has(r.id)),
+      origin,
+    );
   }
 
   /**
@@ -933,4 +1069,11 @@ export class CustomerPlansService {
       merchantName: merch?.name ?? null,
     };
   }
+}
+
+/** `YYYY-MM-DD` plus whole days, in UTC — a due date has no time of day. */
+function addDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
