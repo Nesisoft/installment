@@ -23,6 +23,7 @@ import {
   ghsToPesewas,
   type InstallmentScheduleRow,
   type InstallmentStatus,
+  type RefundMode,
 } from '@installment/api-types';
 import { apiErrorMessage, useApi } from '@installment/web-kit';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
@@ -42,6 +43,32 @@ const TERMINAL: InstallmentStatus[] = ['paid', 'refunded', 'waived', 'defaulted'
 function isPayable(status: InstallmentStatus): boolean {
   return !TERMINAL.includes(status);
 }
+
+/**
+ * `YYYY-MM-DD`, `days` from today. A week is the server's own default for
+ * re-collecting; today is the earliest it accepts.
+ */
+function daysFromToday(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+const REFUND_CHOICES: { mode: RefundMode; title: string; detail: string }[] = [
+  {
+    mode: 'forgive',
+    title: 'Refund and forgive',
+    detail:
+      'The customer gets their money back and does not owe this instalment again. The seller gives back what they were paid for it. For a cancellation or a return.',
+  },
+  {
+    mode: 'recollect',
+    title: 'Refund and re-collect',
+    detail:
+      'The customer gets their money back and still owes it: a new instalment for the same amount is scheduled. For a charge taken from the wrong account.',
+  },
+];
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -63,6 +90,14 @@ export function PlanDetailPage() {
   const defaultPlan = useDefaultPlan(id);
 
   const [writeOff, setWriteOff] = useState({ reason: '', amount: '' });
+  // The instalment being refunded, and how. One refund was all there was, and
+  // it put the debt back with nothing left to collect it — so it asks now.
+  const [refunding, setRefunding] = useState<InstallmentScheduleRow | null>(null);
+  const [refundForm, setRefundForm] = useState<{
+    mode: RefundMode;
+    reason: string;
+    dueDate: string;
+  }>({ mode: 'forgive', reason: '', dueDate: daysFromToday(7) });
   const [formError, setFormError] = useState<string | null>(null);
 
   if (plan.isPending) return <LoadingState />;
@@ -82,14 +117,25 @@ export function PlanDetailPage() {
   }
 
   function onRefund(row: InstallmentScheduleRow) {
-    if (
-      !window.confirm(
-        `Refund installment #${row.sequence_number}? This reverses the ledger accrual.`,
-      )
-    ) {
-      return;
-    }
-    refund.mutate({ scheduleId: row.id, input: {} });
+    refund.reset();
+    setRefundForm({ mode: 'forgive', reason: '', dueDate: daysFromToday(7) });
+    setRefunding(row);
+  }
+
+  function confirmRefund(e: FormEvent) {
+    e.preventDefault();
+    if (!refunding) return;
+    refund.mutate(
+      {
+        scheduleId: refunding.id,
+        input: {
+          mode: refundForm.mode,
+          ...(refundForm.reason.trim() ? { reason: refundForm.reason.trim() } : {}),
+          ...(refundForm.mode === 'recollect' ? { due_date: refundForm.dueDate } : {}),
+        },
+      },
+      { onSuccess: () => setRefunding(null) },
+    );
   }
 
   async function viewReceipt(scheduleId: string) {
@@ -122,7 +168,8 @@ export function PlanDetailPage() {
     defaultPlan.mutate(parsed.data, { onSuccess: () => setWriteOff({ reason: '', amount: '' }) });
   }
 
-  const actionError = recordPayment.error ?? refund.error;
+  // A refund's error shows in its own panel, beside the choice that caused it.
+  const actionError = recordPayment.error ?? (refunding ? null : refund.error);
 
   return (
     <div className="space-y-6">
@@ -263,6 +310,72 @@ export function PlanDetailPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      {refunding ? (
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Refund installment #{refunding.sequence_number} (
+              {formatGhs(refunding.amount_paid_pesewas)})
+            </CardTitle>
+            <CardDescription>
+              The money goes back to the customer either way. Choose what happens to the debt.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={confirmRefund} className="space-y-4">
+              <fieldset className="space-y-3">
+                {REFUND_CHOICES.map((c) => (
+                  <label key={c.mode} className="flex cursor-pointer gap-3 text-sm">
+                    <input
+                      type="radio"
+                      name="refund-mode"
+                      className="mt-1"
+                      checked={refundForm.mode === c.mode}
+                      onChange={() => setRefundForm((f) => ({ ...f, mode: c.mode }))}
+                    />
+                    <span>
+                      <span className="font-medium">{c.title}</span>
+                      <span className="block text-muted-foreground">{c.detail}</span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+              <div className="flex flex-wrap items-end gap-3">
+                {refundForm.mode === 'recollect' ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="refund-due">Collect again on</Label>
+                    <Input
+                      id="refund-due"
+                      type="date"
+                      min={daysFromToday(0)}
+                      value={refundForm.dueDate}
+                      onChange={(e) => setRefundForm((f) => ({ ...f, dueDate: e.target.value }))}
+                    />
+                  </div>
+                ) : null}
+                <div className="flex-1 space-y-2">
+                  <Label htmlFor="refund-reason">Reason (optional)</Label>
+                  <Input
+                    id="refund-reason"
+                    value={refundForm.reason}
+                    onChange={(e) => setRefundForm((f) => ({ ...f, reason: e.target.value }))}
+                  />
+                </div>
+                <Button type="submit" variant="destructive" disabled={refund.isPending}>
+                  {refund.isPending ? 'Refunding…' : 'Refund'}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setRefunding(null)}>
+                  Cancel
+                </Button>
+              </div>
+              {refund.isError ? (
+                <p className="text-sm text-destructive">{apiErrorMessage(refund.error)}</p>
+              ) : null}
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {p.status === 'active' ? (
         <Card className="border-destructive/40">

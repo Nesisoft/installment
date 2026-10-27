@@ -15,6 +15,7 @@ import { CustomerPlansService } from './customer-plans.service';
 import { PlanCashLedger } from './plan-cash-ledger';
 import {
   InstallmentNotPayableError,
+  InstallmentRefundNotForgivableError,
   PlanActivationError,
   PlanAlreadyActiveError,
   ReceiptNotAvailableError,
@@ -662,7 +663,7 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
     return app.id;
   }
 
-  it('refunds a paid BNPL installment, reverses 25% of the accrual, bumps outstanding', async () => {
+  it('refunds and forgives a paid BNPL installment, reversing 25% of the accrual', async () => {
     const merchantId = await freshMerchant();
     const customerId = await freshCustomer();
     const appId = await approved(bnplTemplateId, merchantId, customerId);
@@ -679,8 +680,10 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
     );
 
     expect(refunded.status).toBe('refunded');
-    // Outstanding goes from 75k (after the 25k payment) back up to 100k.
-    expect(reopenedPlan.outstanding_pesewas).toBe(100_000);
+    // Forgiven: the customer does not owe it again, so outstanding stays at the
+    // 75k the payment left. It used to go back up to 100k with no instalment
+    // left to collect the difference, so the plan could never complete.
+    expect(reopenedPlan.outstanding_pesewas).toBe(75_000);
     expect(reopenedPlan.status).toBe('active');
 
     // 25k refund of 100k accrued = 25% reversal: 22,750 net + 1,000 mdr + 1,250 reserve = 25,000 gross
@@ -689,7 +692,7 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
     expect(await ledger.balanceOf('receivable', plan.id)).toBe(-100_000 + 25_000);
   });
 
-  it('reopens a completed plan when the final installment is refunded', async () => {
+  it('keeps a completed plan completed when its final installment is forgiven', async () => {
     const merchantId = await freshMerchant();
     const customerId = await freshCustomer();
     const appId = await approved(bnplTemplateId, merchantId, customerId);
@@ -698,10 +701,64 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
     for (const row of schedule) await plans.recordManualPayment(row.id, {}, ACTOR);
     expect((await plans.get(plan.id)).status).toBe('completed');
 
-    const { plan: reopened } = await plans.refundInstallment(schedule.at(-1)!.id, {}, ACTOR);
-    expect(reopened.status).toBe('active');
-    expect(reopened.outstanding_pesewas).toBe(25_000);
-    expect(reopened.completed_at).toBeNull();
+    const { plan: after } = await plans.refundInstallment(schedule.at(-1)!.id, {}, ACTOR);
+    expect(after.status).toBe('completed');
+    expect(after.outstanding_pesewas).toBe(0);
+  });
+
+  it('re-collects: reopens a completed plan and schedules the instalment again', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(bnplTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+
+    for (const row of schedule) await plans.recordManualPayment(row.id, {}, ACTOR);
+    const payableBefore = await ledger.balanceOf('merchant_payable', merchantId);
+
+    const now = new Date('2026-10-27T09:00:00Z');
+    const result = await plans.refundInstallment(
+      schedule.at(-1)!.id,
+      { mode: 'recollect', reason: 'charged the wrong wallet' },
+      ACTOR,
+      now,
+    );
+    expect(result.plan.status).toBe('active');
+    expect(result.plan.outstanding_pesewas).toBe(25_000);
+    expect(result.plan.completed_at).toBeNull();
+    // Something to collect it with, after the last instalment, a week out by
+    // default, with the plan's own grace.
+    expect(result.recollect).toMatchObject({
+      sequence_number: schedule.length + 1,
+      amount_due_pesewas: 25_000,
+      due_date: '2026-11-03',
+      status: 'pending',
+    });
+    // The sale stands: the seller keeps what they were credited.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(payableBefore);
+
+    // Paying the new instalment completes the plan again.
+    const { plan: done } = await plans.recordManualPayment(result.recollect!.id, {}, ACTOR);
+    expect(done.status).toBe('completed');
+    expect(done.outstanding_pesewas).toBe(0);
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(0);
+  });
+
+  it('re-collects on the date asked for', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(bnplTemplateId, merchantId, customerId);
+    const { schedule } = await plans.activateFromApplication(appId, ACTOR);
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+
+    const { recollect, plan: after } = await plans.refundInstallment(
+      schedule[0]!.id,
+      { mode: 'recollect', due_date: '2026-12-01' },
+      ACTOR,
+      // Pinned: a date in the past is refused, and this one will be one day.
+      new Date('2026-10-27T09:00:00Z'),
+    );
+    expect(recollect!.due_date).toBe('2026-12-01');
+    expect(after.outstanding_pesewas).toBe(100_000);
   });
 
   it('refunds the hybrid down-payment installment in full when only that accrual has fired', async () => {
@@ -736,10 +793,11 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
     expect(target.amount_due_pesewas).toBe(20_000);
     await plans.refundInstallment(target.id, {}, ACTOR);
 
-    // scaleBps = round(20_000 * 10_000 / 100_000) = 2_000.
-    // Down accrual (gross 40k):  40_000 × 2000/10000 = 8_000 gross
+    // Split in proportion to each accrual's gross: 20_000 × 40k/100k = 8_000
+    // on the down accrual, and the 12_000 left on the completion accrual.
+    // Down accrual (gross 40k):  8_000 gross
     //   mdr  = 8_000 × 4%  = 320;  reserve = 8_000 × 7% = 560;  net = 7_120
-    // Completion accrual (gross 60k): 60_000 × 2000/10000 = 12_000 gross
+    // Completion accrual (gross 60k): 12_000 gross
     //   mdr  = 12_000 × 4% = 480;  reserve = 12_000 × 7% = 840; net = 10_680
     // Totals: gross 20_000, net 17_800, reserve 1_400.
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(89_000 - 17_800);
@@ -751,7 +809,23 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
     expect(await ledger.balanceOf('refund_payable', plan.id)).toBe(20_000);
   });
 
-  it('refunds a layaway installment with no ledger reversal before completion', async () => {
+  it('will not forgive a layaway instalment before the seller has been credited anything', async () => {
+    // Forgiving makes the seller bear the refund, and a layaway seller is
+    // credited only at completion. Forgiving now would let that accrual credit
+    // the full order for goods the customer was refunded for.
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(layawayTemplateId, merchantId, customerId);
+    const { schedule } = await plans.activateFromApplication(appId, ACTOR);
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+
+    await expect(plans.refundInstallment(schedule[0]!.id, {}, ACTOR)).rejects.toBeInstanceOf(
+      InstallmentRefundNotForgivableError,
+    );
+    expect((await plans.getInstallment(schedule[0]!.id)).status).toBe('paid');
+  });
+
+  it('re-collects a layaway instalment with no ledger reversal before completion', async () => {
     const merchantId = await freshMerchant();
     const customerId = await freshCustomer();
     const appId = await approved(layawayTemplateId, merchantId, customerId);
@@ -763,14 +837,63 @@ describe.skipIf(!RUN_DB)('CustomerPlansService (integration) — refunds', () =>
 
     const { schedule: refunded, plan: updated } = await plans.refundInstallment(
       schedule[0]!.id,
-      {},
+      { mode: 'recollect' },
       ACTOR,
     );
     expect(refunded.status).toBe('refunded');
-    expect(updated.outstanding_pesewas).toBe(100_000); // bumped back to full
+    expect(updated.outstanding_pesewas).toBe(100_000); // owed again, and now collectable
     // Still nothing to reverse — no accruals existed.
     expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(0);
     expect(await ledger.balanceOf('receivable', plan.id)).toBe(0);
+  });
+
+  it('forgives a late-paid instalment: the fee comes back from revenue, not the seller', async () => {
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(bnplTemplateId, merchantId, customerId);
+    const { plan, schedule } = await plans.activateFromApplication(appId, ACTOR);
+    const fee = 2_000;
+    await db
+      .update(schema.installment_schedule)
+      .set({ late_fee_pesewas: fee })
+      .where(eq(schema.installment_schedule.id, schedule[0]!.id));
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    const revenueBefore = await ledger.balanceOf('revenue', 'platform');
+
+    await plans.refundInstallment(schedule[0]!.id, {}, ACTOR);
+
+    // The seller gives back the instalment's share only — the same 22,750 as
+    // with no fee. The fee was never theirs; it was clawed from them before.
+    expect(await ledger.balanceOf('merchant_payable', merchantId)).toBe(91_000 - 22_750);
+    // Revenue gives back the 1,000 MDR on the instalment and the 2,000 fee.
+    expect(await ledger.balanceOf('revenue', 'platform')).toBe(revenueBefore - 1_000 - fee);
+    expect(await ledger.balanceOf('refund_payable', plan.id)).toBe(25_000 + fee);
+    // And the customer owes nothing new for it.
+    expect(await ledger.balanceOf('receivable', plan.id)).toBe(-75_000);
+  });
+
+  it('counts earlier refunds against what the seller can still give back', async () => {
+    // A hybrid plan credits 40% at the deposit. Forgiving the deposit gives all
+    // of that back; forgiving the next instalment would then reverse nothing,
+    // and completion would credit the seller in full.
+    const merchantId = await freshMerchant();
+    const customerId = await freshCustomer();
+    const appId = await approved(hybridTemplateId, merchantId, customerId);
+    const { schedule } = await plans.activateFromApplication(appId, ACTOR);
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    await plans.recordManualPayment(schedule[1]!.id, {}, ACTOR);
+
+    await plans.refundInstallment(schedule[0]!.id, {}, ACTOR);
+    await expect(plans.refundInstallment(schedule[1]!.id, {}, ACTOR)).rejects.toBeInstanceOf(
+      InstallmentRefundNotForgivableError,
+    );
+    // Re-collecting it is still open.
+    const { recollect } = await plans.refundInstallment(
+      schedule[1]!.id,
+      { mode: 'recollect' },
+      ACTOR,
+    );
+    expect(recollect!.amount_due_pesewas).toBe(schedule[1]!.amount_due_pesewas);
   });
 
   it('refuses to refund an unpaid installment', async () => {

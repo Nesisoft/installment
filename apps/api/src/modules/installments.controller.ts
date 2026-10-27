@@ -3,7 +3,7 @@ import { CustomerPlansService, PERMISSIONS, renderReceiptHtml } from '@installme
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
-import { recordManualPaymentSchema } from '@installment/core';
+import { recordManualPaymentSchema, refundInstallmentSchema } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
 import { Idempotent } from '../common/idempotent.decorator';
 
@@ -29,20 +29,26 @@ export class InstallmentsController {
     return this.plans.recordManualPayment(scheduleId, body, actorOf(user));
   }
 
+  /**
+   * `mode: 'forgive'` (the default) writes the instalment off and the seller
+   * gives back what they were credited for it; `mode: 'recollect'` keeps the
+   * debt and schedules a new instalment for it on `due_date`. Either way the
+   * money goes back to the customer.
+   */
   @Post(':scheduleId/refund')
   @Idempotent()
+  @ApiZodBody(refundInstallmentSchema)
   @RequirePermissions(PERMISSIONS.COLLECTIONS_ACT)
   @HttpCode(200)
   @ApiOperation({
-    summary:
-      'Refund a paid installment — flips schedule to refunded, bumps outstanding, and reverses the proportional ledger accrual',
+    summary: 'Refund a paid installment, and forgive it or re-collect it',
   })
   refund(
     @Param('scheduleId') scheduleId: string,
-    @Body() body: { reason?: string } | undefined,
+    @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.plans.refundInstallment(scheduleId, { reason: body?.reason }, actorOf(user));
+    return this.plans.refundInstallment(scheduleId, body ?? {}, actorOf(user));
   }
 
   @Get(':scheduleId/receipt')

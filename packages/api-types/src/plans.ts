@@ -7,8 +7,20 @@ export const recordManualPaymentSchema = z.object({
 });
 export type RecordManualPaymentInput = z.infer<typeof recordManualPaymentSchema>;
 
+/**
+ * Mirrors `refundInstallmentSchema` in core. `forgive` writes the instalment
+ * off; `recollect` keeps the debt and schedules it again on `due_date`.
+ */
+export const REFUND_MODES = ['forgive', 'recollect'] as const;
+export type RefundMode = (typeof REFUND_MODES)[number];
 export const refundInstallmentSchema = z.object({
+  mode: z.enum(REFUND_MODES).optional(),
   reason: z.string().trim().min(1).max(500).optional(),
+  /** `YYYY-MM-DD`; re-collect only. The server defaults it to a week out. */
+  due_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a date')
+    .optional(),
 });
 export type RefundInstallmentInput = z.infer<typeof refundInstallmentSchema>;
 

@@ -18,6 +18,12 @@ export interface StatementSummary {
   totalFees: string;
   totalPayable: string;
   amountPaid: string;
+  /**
+   * Instalments refunded and written off. Without it a statement for a plan
+   * with a forgiven instalment did not add up: the refund took the money out
+   * of "Amount paid" and the debt never went back into "Outstanding".
+   */
+  forgiven: string;
   outstanding: string;
   installmentCount: number;
 }
@@ -49,6 +55,18 @@ const dateOnly = (iso: string | null): string | null => (iso ? iso.slice(0, 10) 
 export function buildStatement(input: StatementInput): Statement {
   const { plan, schedule } = input;
   const amountPaid = schedule.reduce((sum, r) => sum + r.amount_paid_pesewas, 0);
+  // What was forgiven is what the contract asked for that is neither paid nor
+  // still owed. Late fees are left out of the paid side — they were never part
+  // of `total_payable`. A re-collected refund nets to nothing here: its debt
+  // went back into `outstanding`, and its copy is paid or owed like any row.
+  const instalmentsPaid = schedule.reduce(
+    (sum, r) => sum + r.amount_paid_pesewas - Math.min(r.late_fee_pesewas, r.amount_paid_pesewas),
+    0,
+  );
+  const forgiven = Math.max(
+    0,
+    plan.total_payable_pesewas - plan.outstanding_pesewas - instalmentsPaid,
+  );
 
   return {
     generatedAt: (input.now ?? new Date()).toISOString(),
@@ -66,6 +84,7 @@ export function buildStatement(input: StatementInput): Statement {
       totalFees: ghs(plan.total_fees_pesewas),
       totalPayable: ghs(plan.total_payable_pesewas),
       amountPaid: ghs(amountPaid),
+      forgiven: ghs(forgiven),
       outstanding: ghs(plan.outstanding_pesewas),
       installmentCount: schedule.length,
     },
@@ -110,6 +129,7 @@ export function renderStatementCsv(s: Statement): string {
     csvRow(['Fees', s.summary.totalFees]),
     csvRow(['Total payable', s.summary.totalPayable]),
     csvRow(['Amount paid', s.summary.amountPaid]),
+    csvRow(['Forgiven', s.summary.forgiven]),
     csvRow(['Outstanding', s.summary.outstanding]),
     '',
     csvRow(['Sequence', 'Due date', 'Amount due', 'Amount paid', 'Status', 'Paid at']),
@@ -140,6 +160,7 @@ export function renderStatementHtml(s: Statement): string {
     ['Fees', s.summary.totalFees],
     ['Total payable', s.summary.totalPayable],
     ['Amount paid', s.summary.amountPaid],
+    ['Forgiven', s.summary.forgiven],
     ['Outstanding', s.summary.outstanding],
   ]
     .map(([k, v]) => `<tr><th>${esc(k!)}</th><td>${esc(v!)}</td></tr>`)
