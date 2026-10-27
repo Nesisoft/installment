@@ -96,6 +96,7 @@ import { RedisTelcoHealthStore } from './redis-telco-store';
 import type { Env } from '../config/env.validation';
 import { RedisOtpStore } from './redis-otp-store';
 import { createSmsSender } from './sms-sender.factory';
+import { StandInDomainCheck } from '../config/standin-domain.check';
 import { createPushSender } from './push-sender.factory';
 import { BullMqRetryScheduler } from '../workers/bullmq-retry-scheduler';
 import { createDriverFromEnv, resolveMediaBaseUrl } from './storage.factory';
@@ -113,6 +114,8 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
 @Global()
 @Module({
   providers: [
+    // Warns at boot when the stand-in email domain would deliver mail.
+    StandInDomainCheck,
     { provide: AuditLogger, useFactory: () => new AuditLogger() },
     { provide: PasswordService, useFactory: () => new PasswordService() },
     {

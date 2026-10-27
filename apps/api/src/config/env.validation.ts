@@ -177,7 +177,10 @@ export const envSchema = z.object({
    * Where a customer's address goes when Paystack would refuse it. Accounts
    * opened with a phone number have no email and store one on a reserved
    * domain, which Paystack rejects outright; see `chargeableEmail`. A domain
-   * Ejua controls, so nothing Paystack sends to it reaches anyone else.
+   * Ejua controls, so nothing Paystack sends to it reaches anyone else — and
+   * one that publishes a null MX (`MX 0 .`), so mail to it is refused.
+   * `StandInDomainCheck` warns at boot in production when it does not; see
+   * docs/runbooks/standin-email-domain.md.
    */
   PAYSTACK_STANDIN_EMAIL_DOMAIN: z.string().default('customers.ejua.gh'),
   SENTRY_DSN: z.string().default(''),
