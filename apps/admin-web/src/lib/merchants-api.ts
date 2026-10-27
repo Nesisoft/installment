@@ -10,6 +10,7 @@ import type {
   MerchantHeldReserveRow,
   MerchantPayoutsPage,
   MerchantProfile,
+  SellersOwing,
   Store,
   TransitionMerchantInput,
   TransitionStoreInput,
@@ -28,6 +29,18 @@ export function useMerchants(params: ListMerchantsParams) {
       return data;
     },
     placeholderData: (prev) => prev,
+  });
+}
+
+/**
+ * Sellers whose payable has gone negative — owing Ejua, usually after returns.
+ * The ones nothing will be paid to again come first.
+ */
+export function useSellersOwing() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['settlements', 'sellers-owing'],
+    queryFn: async () => (await api.get<SellersOwing>('/admin/settlements/sellers-owing')).data,
   });
 }
 

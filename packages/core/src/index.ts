@@ -126,6 +126,12 @@ export {
   type DeclineReasonRow,
 } from './modules/payments/decline-reason-report';
 export {
+  NEW_SELLER_DAYS,
+  SellersOwingReport,
+  type SellerOwingRow,
+  type SellersOwingSummary,
+} from './modules/settlements/sellers-owing-report';
+export {
   RETRY_POLICY,
   MAX_ATTEMPTS,
   MAX_VERIFY_POLLS,
