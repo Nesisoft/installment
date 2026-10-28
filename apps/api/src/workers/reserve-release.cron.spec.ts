@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ConfigService } from '@nestjs/config';
 import type { PinoLogger } from 'nestjs-pino';
 import { ReserveReleaseCron } from './reserve-release.cron';
+import * as alerting from '../common/alerting';
 import type { Env } from '../config/env.validation';
 
 function makeConfig(enabled: boolean): ConfigService<Env, true> {
@@ -36,6 +37,47 @@ describe('ReserveReleaseCron', () => {
       totalReleasedPesewas: 8_000,
       merchantsWithRelease: 2,
     });
+  });
+
+  it('alerts with each failed release, its plan, merchant and error', async () => {
+    const capture = vi.spyOn(alerting, 'captureAlert').mockImplementation(() => {});
+    const summary = {
+      asOf: '2026-10-01T07:00:00.000Z',
+      merchantsChecked: 2,
+      totalReleasedPesewas: 0,
+      failedReleases: 2,
+      perMerchant: [
+        {
+          merchantId: 'm1',
+          totalReleasedPesewas: 0,
+          releases: [],
+          failures: [{ heldReserveId: 'hr1', customerPlanId: 'p1', error: 'lock timeout' }],
+        },
+        {
+          merchantId: 'm2',
+          totalReleasedPesewas: 0,
+          releases: [],
+          // The sweep could not read this merchant's reserves at all.
+          failures: [{ heldReserveId: '', customerPlanId: '', error: 'connection reset' }],
+        },
+      ],
+    };
+    const cron = new ReserveReleaseCron(
+      { runSweep: vi.fn(async () => summary) } as never,
+      makeConfig(true),
+      makeLogger(),
+    );
+
+    await cron.run();
+
+    expect(capture).toHaveBeenCalledWith('reserve releases could not be booked', 'error', {
+      failedReleases: 2,
+      failures: [
+        { merchantId: 'm1', heldReserveId: 'hr1', customerPlanId: 'p1', error: 'lock timeout' },
+        { merchantId: 'm2', heldReserveId: '', customerPlanId: '', error: 'connection reset' },
+      ],
+    });
+    capture.mockRestore();
   });
 
   it('is a no-op when ENABLE_SCHEDULED_WORKERS is false', async () => {

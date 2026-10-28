@@ -211,13 +211,17 @@ phone and waits 24 hours, with a notice (#127, #130).
   scores it.
 - Rate limiting: a Redis-backed limit on every route (`RATE_LIMIT_*`), tighter on sign-in, the
   storefront and payout-account changes. Paystack webhooks are exempt.
-- Runbooks: refunds, ledger imbalance, money repairs, the stand-in email domain.
+- Runbooks: refunds, payouts, collections, reserve release, ledger imbalance, money repairs, the
+  stand-in email domain ([`runbooks/`](./runbooks/)).
+- `docs/api/openapi.json` regenerated (#141).
+- [`partner-integration.md`](./partner-integration.md): the partner flow as it runs today, and
+  why it cannot be opened to partners yet.
 
 **Remaining:**
 
-- Regenerate `docs/api/openapi.json` (last emitted 2026-08-28) and write the partner
-  integration guide.
-- Runbooks for failed payouts, collections and reserve release.
+- A partner API: partner credentials, routes scoped to the partner, decisions made by scoring
+  rather than the caller, and outbound webhooks — see
+  [`partner-integration.md`](./partner-integration.md) §3. Not needed for a marketplace pilot.
 - Dashboards and a log sink beyond Sentry.
 - Staff cannot change or reset their own password.
 - The pilot itself: a pilot merchant, a pilot buyer, and the first real transactions.
@@ -295,9 +299,12 @@ out of the build. Struck-through items are settled; the text after each says how
 
 Close out Phase 16 and run the pilot:
 
-1. Regenerate `docs/api/openapi.json` and write the partner integration guide.
-2. Runbooks for failed payouts, collections and reserve release, beside the refunds runbook.
-3. Dashboards and a log sink, so ops can see the system without reading Sentry.
-4. Settle §6 items 9 and 13 before real money moves: the payroll tier lends against a
+1. Dashboards and a log sink, so ops can see the system without reading Sentry.
+2. Settle §6 items 9 and 13 before real money moves: the payroll tier lends against a
    collection channel that does not exist, and the receipt domain is unregistered.
-5. Pilot: one merchant, one buyer, pay-now and instalment, end to end on live Paystack.
+3. Paystack transfers enabled on the live account — in test mode every payout was refused with
+   "You cannot initiate third party payouts as a starter business"
+   ([`runbooks/payouts.md`](./runbooks/payouts.md)).
+4. Pilot: one merchant, one buyer, pay-now and instalment, end to end on live Paystack.
+5. Before any outside partner: the partner API in
+   [`partner-integration.md`](./partner-integration.md) §3.

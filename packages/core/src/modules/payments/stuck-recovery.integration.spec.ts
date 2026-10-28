@@ -240,6 +240,45 @@ describe.skipIf(!RUN_DB)('Stuck-state recovery (integration)', () => {
     expect(alerted).toContain(scheduleId);
   });
 
+  it('names the attempt and its Paystack reference when it cannot resolve one', async () => {
+    const { scheduleId, planId } = await freshSchedule();
+    await scheduleState.applyEvent(scheduleId, 'due_date_reached', ACTOR);
+    await scheduleState.applyEvent(scheduleId, 'debit_initiated', ACTOR);
+    const reference = `INSTL-${scheduleId}-1`;
+    const attempt = await attempts.create({
+      scheduleId,
+      customerPlanId: planId,
+      channel: 'auto_debit',
+      paymentMethod: 'momo',
+      amountPesewas: 100_000,
+      idempotencyKey: `${scheduleId}:1`,
+      providerReference: reference,
+    });
+
+    // Paystack cannot be reached: the attempt stays unresolved.
+    const unreachable: PaystackChargeClient = {
+      ...paystack({ reference, status: 'success' }),
+      verifyTransaction: async () => {
+        throw new Error('connect ETIMEDOUT');
+      },
+    };
+    const alerts: Array<Record<string, unknown>> = [];
+    const runner = new StuckScheduleRunner(
+      db,
+      attempts,
+      new PaymentService(plans, scheduleState, attempts, unreachable),
+      { stuck: (d) => void alerts.push(d) },
+    );
+
+    await runner.sweep(new Date(Date.now() + 60_000), RECON);
+    // The console shows no attempts; the alert is where the reference has to be.
+    expect(alerts.find((a) => a.scheduleId === scheduleId)).toMatchObject({
+      outcome: 'unresolved',
+      attemptId: attempt.id,
+      providerReference: reference,
+    });
+  });
+
   // --- verify budget -------------------------------------------------------
 
   it('parks an attempt in unknown when the verify budget runs out, never failed', async () => {
