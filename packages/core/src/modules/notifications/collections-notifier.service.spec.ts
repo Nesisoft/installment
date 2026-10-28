@@ -49,16 +49,33 @@ describe('CollectionsNotifierService.notifyStageEntered', () => {
     }
   });
 
-  it('skips a customer with no MoMo on file', async () => {
+  it('texts the wallet number when one is on file', async () => {
     const { svc, sendToCustomer } = deps({
-      customer: { id: 'c1', first_name: 'Ama', momo_phone: null },
+      customer: { id: 'c1', first_name: 'Ama', momo_phone: '0244000000', phone: '+233200000000' },
     });
     await svc.notifyStageEntered({
       customerPlanId: 'p1',
       scheduleId: 's1',
       stage: 'soft_reminder',
     });
-    expect(sendToCustomer).not.toHaveBeenCalled();
+    expect(sendToCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({ toAddress: '0244000000' }),
+    );
+  });
+
+  // A card payer, or a customer with nothing saved, was never told an
+  // instalment was overdue — not even the legal notice.
+  it('texts the account phone when no wallet is on file', async () => {
+    const { svc, sendToCustomer } = deps({
+      customer: { id: 'c1', first_name: 'Ama', momo_phone: null, phone: '+233200000000' },
+    });
+    await svc.notifyStageEntered({ customerPlanId: 'p1', scheduleId: 's1', stage: 'legal_threat' });
+    expect(sendToCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toAddress: '+233200000000',
+        templateId: 'collections_legal_threat',
+      }),
+    );
   });
 
   it('never throws even if the lookup fails (best-effort)', async () => {

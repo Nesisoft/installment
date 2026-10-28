@@ -24,10 +24,11 @@ export class ChargeReceiptService {
       const installment = await this.plans.getInstallment(scheduleId);
       const plan = await this.plans.get(installment.customer_plan_id);
       const customer = await this.customers.get(plan.customer_id);
-      if (!customer.momo_phone) return; // nothing to send to
+      const to = recipientPhone(customer);
+      if (!to) return; // nothing to send to
       await this.notifications.sendToCustomer({
         customerId: customer.id,
-        toAddress: customer.momo_phone,
+        toAddress: to,
         templateId: 'payment_succeeded',
         variables: {
           name: customer.first_name,
@@ -45,10 +46,11 @@ export class ChargeReceiptService {
       const installment = await this.plans.getInstallment(scheduleId);
       const plan = await this.plans.get(installment.customer_plan_id);
       const customer = await this.customers.get(plan.customer_id);
-      if (!customer.momo_phone) return;
+      const to = recipientPhone(customer);
+      if (!to) return;
       await this.notifications.sendToCustomer({
         customerId: customer.id,
-        toAddress: customer.momo_phone,
+        toAddress: to,
         templateId: 'payment_failed',
         variables: {
           name: customer.first_name,
@@ -59,6 +61,18 @@ export class ChargeReceiptService {
       // best-effort
     }
   }
+}
+
+/**
+ * The wallet number when there is one, else the account phone.
+ *
+ * Receipts went only to the MoMo number, so a customer who pays by card — the
+ * auto-debit's first choice when a card is saved — got no receipt and no
+ * notice that a debit failed, by SMS or by push. The texts name no
+ * instrument, so either number reads correctly.
+ */
+function recipientPhone(customer: { momo_phone: string | null; phone: string }): string | null {
+  return customer.momo_phone ?? customer.phone ?? null;
 }
 
 /** Pesewas → "1,234.56" (no currency prefix; templates already say "GHS"). */

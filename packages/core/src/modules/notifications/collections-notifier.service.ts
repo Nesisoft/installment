@@ -37,13 +37,19 @@ export class CollectionsNotifierService {
     try {
       const plan = await this.plans.get(args.customerPlanId);
       const customer = await this.customers.get(plan.customer_id);
-      if (!customer.momo_phone) return;
+      // The account phone when no wallet is on file. This used to return early
+      // instead, so a customer who pays by card — or has nothing saved — was
+      // never told an instalment was overdue, by SMS or by push, all the way
+      // to the legal notice. The texts name no instrument, so either number
+      // reads correctly.
+      const to = customer.momo_phone ?? customer.phone;
+      if (!to) return;
 
       // Outstanding plan balance is the right "ask the customer to pay" number.
       const amount = plan.outstanding_pesewas;
       await this.notifications.sendToCustomer({
         customerId: customer.id,
-        toAddress: customer.momo_phone,
+        toAddress: to,
         templateId,
         variables: {
           name: customer.first_name,
