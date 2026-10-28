@@ -111,6 +111,7 @@ export const NAME_STATUS: Record<string, number> = {
   ScheduleConcurrencyError: HttpStatus.CONFLICT,
   PlanDefaultError: HttpStatus.CONFLICT,
   RefundNotSettleableError: HttpStatus.CONFLICT,
+  RefundOutcomeConflictError: HttpStatus.CONFLICT,
   // Commerce: uniqueness collisions and illegal state transitions.
   CategoryConflictError: HttpStatus.CONFLICT,
   ProductConflictError: HttpStatus.CONFLICT,

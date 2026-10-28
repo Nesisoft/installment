@@ -1,6 +1,12 @@
-import { Body, Controller, HttpCode, Inject, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from '@nestjs/common';
 import { PERMISSIONS } from '@installment/core';
-import { OrdersService, cancelOrderSchema, confirmOrderPaymentSchema } from '@installment/commerce';
+import {
+  AdminOrdersService,
+  OrdersService,
+  cancelOrderSchema,
+  confirmOrderPaymentSchema,
+  listAdminOrdersSchema,
+} from '@installment/commerce';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf } from '../auth/current-actor';
@@ -37,7 +43,39 @@ export class OrdersController {
    * RateLimitGuard are explicit. Being explicit is what makes this controller
    * testable at all.
    */
-  constructor(@Inject(OrdersService) private readonly orders: OrdersService) {}
+  constructor(
+    @Inject(OrdersService) private readonly orders: OrdersService,
+    @Inject(AdminOrdersService) private readonly adminOrders: AdminOrdersService,
+  ) {}
+
+  @Get()
+  @RequirePermissions(PERMISSIONS.PLANS_READ)
+  @ApiOperation({
+    summary: 'Orders across every seller, newest first',
+    description:
+      'Filter by `status` or `payment_type`; `q` matches part of an order number, or an ' +
+      'order id exactly. Each row names the customer, the seller and the store.',
+  })
+  list(@Query() query: Record<string, string>) {
+    return this.adminOrders.list(listAdminOrdersSchema.parse(query));
+  }
+
+  // Declared before `:id`, which would otherwise take "counts" as one.
+  @Get('counts')
+  @RequirePermissions(PERMISSIONS.PLANS_READ)
+  @ApiOperation({ summary: 'How many orders are in each status' })
+  counts() {
+    return this.adminOrders.counts();
+  }
+
+  @Get(':id')
+  @RequirePermissions(PERMISSIONS.PLANS_READ)
+  @ApiOperation({
+    summary: 'One order: items, delivery, history, what the ledger booked, the plan, and returns',
+  })
+  detail(@Param('id') id: string) {
+    return this.adminOrders.detail(id);
+  }
 
   /**
    * Records that a pay-in-full order has been paid.

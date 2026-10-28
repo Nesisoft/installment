@@ -29,6 +29,7 @@ import {
 } from '../../lib/plan-templates-api';
 import { PageHeader } from '../../components/page-header';
 import { ErrorState, LoadingState } from '../../components/data-states';
+import { parseApiDate } from '../../lib/format';
 
 const MODELS: BusinessModel[] = ['bnpl', 'layaway', 'hybrid', 'rent_to_own'];
 const FREQUENCIES: InstallmentFrequencyDays[] = [7, 14, 30];
@@ -49,9 +50,8 @@ function localToIso(s: string): string {
   return new Date(s).toISOString();
 }
 function isoToLocal(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 16);
+  const d = parseApiDate(iso);
+  return d ? d.toISOString().slice(0, 16) : '';
 }
 
 function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
