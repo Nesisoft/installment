@@ -46,9 +46,22 @@ describe('ChargeReceiptService', () => {
     );
   });
 
-  it('skips when the customer has no phone', async () => {
+  // A customer who pays by card got no receipt and no failure notice.
+  it('sends receipts to the account phone when no wallet is on file', async () => {
     const { svc, sendToCustomer } = deps({
-      customer: { id: 'c1', first_name: 'Ama', momo_phone: null },
+      customer: { id: 'c1', first_name: 'Ama', momo_phone: null, phone: '+233200000000' },
+    });
+    await svc.notifyChargeSucceeded('s1', 25_000);
+    await svc.notifyChargeFailed('s1', 25_000);
+    expect(sendToCustomer).toHaveBeenCalledTimes(2);
+    for (const [args] of sendToCustomer.mock.calls as unknown as [{ toAddress: string }][]) {
+      expect(args.toAddress).toBe('+233200000000');
+    }
+  });
+
+  it('skips when the customer has no number at all', async () => {
+    const { svc, sendToCustomer } = deps({
+      customer: { id: 'c1', first_name: 'Ama', momo_phone: null, phone: null },
     });
     await svc.notifyChargeSucceeded('s1', 25_000);
     expect(sendToCustomer).not.toHaveBeenCalled();
