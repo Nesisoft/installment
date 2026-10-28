@@ -15,4 +15,5 @@ export * from './stores';
 export * from './catalog';
 export * from './storefront';
 export * from './orders';
+export * from './operations';
 export * from './http';

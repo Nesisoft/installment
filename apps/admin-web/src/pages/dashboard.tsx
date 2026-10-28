@@ -1,10 +1,23 @@
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton, StatusBadge } from '@installment/ui';
-import { Activity, ClipboardList, PhoneCall, Store } from 'lucide-react';
+import {
+  Activity,
+  BookCheck,
+  ClipboardList,
+  PhoneCall,
+  ShoppingBag,
+  Store,
+  Undo2,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { TelcoHealth, TelcoHealthStatus } from '@installment/api-types';
-import { useApplications, useTelcoHealth } from '../lib/admin-api';
+import { formatGhs, type TelcoHealth, type TelcoHealthStatus } from '@installment/api-types';
+import { useApplications, useLedgerIntegrity, useTelcoHealth } from '../lib/admin-api';
 import { useMerchants } from '../lib/merchants-api';
+import { useCollectionsCases } from '../lib/collections-api';
+import { useAdminOrderCounts } from '../lib/orders-api';
+import { useRefundSummary } from '../lib/refunds-api';
+import { REFUND_QUEUE_INFO } from '../lib/refunds';
+import { formatDateTime } from '../lib/format';
 import { PageHeader } from '../components/page-header';
 
 const SAMPLE = 200;
@@ -72,6 +85,18 @@ export function DashboardPage() {
   const manual = useApplications({ status: 'manual_review', limit: SAMPLE });
   const merchants = useMerchants({ status: 'active', limit: SAMPLE });
   const telco = useTelcoHealth();
+  const cases = useCollectionsCases({ open: true, limit: SAMPLE });
+  const orderCounts = useAdminOrderCounts();
+  const refunds = useRefundSummary();
+  const ledger = useLedgerIntegrity();
+
+  // Refunds a person has to act on: Paystack refused it, it has to be paid by
+  // hand, or nobody knows whether it went.
+  const owed = (refunds.data ?? []).filter((t) => REFUND_QUEUE_INFO[t.queue].attention);
+  const owedCount = owed.reduce((n, t) => n + t.count, 0);
+  const owedAmount = owed.reduce((n, t) => n + t.amount_pesewas, 0);
+  const awaitingPayment =
+    (orderCounts.data?.pending_payment ?? 0) + (orderCounts.data?.payment_failed ?? 0);
 
   const reviewCount = (pending.data?.length ?? 0) + (manual.data?.length ?? 0);
   const reviewLoading = pending.isPending || manual.isPending;
@@ -99,8 +124,30 @@ export function DashboardPage() {
           to="/collections"
           label="Open collections cases"
           icon={<PhoneCall className="size-4 text-primary" />}
-          value="—"
-          hint="Awaiting collections HTTP endpoints"
+          loading={cases.isPending}
+          value={cap(cases.data?.length ?? 0)}
+          hint="Customers behind on a plan"
+        />
+        <StatCard
+          to="/orders"
+          label="Orders awaiting payment"
+          icon={<ShoppingBag className="size-4 text-primary" />}
+          loading={orderCounts.isPending}
+          value={awaitingPayment}
+          hint="Pay-in-full orders not yet paid, or whose charge failed"
+        />
+        <StatCard
+          to="/refunds"
+          label="Refunds needing a person"
+          icon={<Undo2 className="size-4 text-primary" />}
+          loading={refunds.isPending}
+          value={owedCount}
+          badge={
+            owedCount > 0 ? (
+              <StatusBadge status="failed" tone="warning" label={formatGhs(owedAmount)} />
+            ) : null
+          }
+          hint="Refused, to pay by hand, or unresolved"
         />
         <StatCard
           to="/merchants"
@@ -118,6 +165,30 @@ export function DashboardPage() {
           value={`${healthy}/${telcoRows.length || 3}`}
           badge={telcoRows.length ? <StatusBadge status={worstTelco(telcoRows)} /> : null}
           hint="MoMo networks healthy"
+        />
+        <StatCard
+          to="/ledger"
+          label="Ledger"
+          icon={<BookCheck className="size-4 text-primary" />}
+          loading={ledger.isPending}
+          value={ledger.isError ? '—' : ledger.data?.healthy ? 'Balanced' : 'Drifted'}
+          badge={
+            ledger.data && !ledger.data.healthy ? (
+              <StatusBadge
+                status="failed"
+                label={`${ledger.data.unbalancedTransactions.length} unbalanced`}
+              />
+            ) : null
+          }
+          hint={
+            ledger.isError
+              ? 'Needs the audit:read permission'
+              : ledger.data
+                ? ledger.data.healthy
+                  ? `Debits equal credits · checked ${formatDateTime(ledger.data.checkedAt)}`
+                  : 'The books do not balance — open it'
+                : 'Debits equal credits'
+          }
         />
       </div>
 

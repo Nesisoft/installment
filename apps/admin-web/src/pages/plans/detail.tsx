@@ -35,7 +35,8 @@ import {
   useRecordManualPayment,
   useRefundInstallment,
 } from '../../lib/plans-api';
-import { formatDate } from '../../lib/format';
+import { usePlanRefunds } from '../../lib/refunds-api';
+import { formatDate, formatDateTime } from '../../lib/format';
 import { PageHeader } from '../../components/page-header';
 import { EmptyState, ErrorState, LoadingState } from '../../components/data-states';
 
@@ -311,6 +312,8 @@ export function PlanDetailPage() {
         </CardContent>
       </Card>
 
+      <PlanRefunds planId={id} />
+
       {refunding ? (
         <Card className="border-destructive/40">
           <CardHeader>
@@ -416,5 +419,68 @@ export function PlanDetailPage() {
         </Card>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * What the plan owes back, and where each refund stands. A refund used to
+ * vanish from the console once issued: the instalment read "Refunded" whether
+ * or not the customer had been paid.
+ */
+function PlanRefunds({ planId }: { planId: string }) {
+  const refunds = usePlanRefunds(planId);
+  const rows = refunds.data ?? [];
+  if (refunds.isPending || (refunds.isSuccess && rows.length === 0)) return null;
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <div className="space-y-1.5">
+          <CardTitle className="text-base">Refunds</CardTitle>
+          <CardDescription>Money owed back to the customer on this plan.</CardDescription>
+        </div>
+        <Link to="/refunds" className="text-sm text-primary hover:underline">
+          All refunds
+        </Link>
+      </CardHeader>
+      <CardContent className="p-0">
+        {refunds.isError ? (
+          <ErrorState error={refunds.error} onRetry={() => void refunds.refetch()} />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Requested</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>How</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Reference</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell className="text-muted-foreground">
+                    {formatDateTime(r.requested_at)}
+                  </TableCell>
+                  <TableCell>{formatGhs(r.amount_pesewas)}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {r.method === 'manual' ? 'By hand' : 'Paystack'}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={r.status} />
+                    {r.last_error && r.status !== 'succeeded' ? (
+                      <p className="mt-1 max-w-xs text-xs text-muted-foreground">{r.last_error}</p>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {r.reference}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }

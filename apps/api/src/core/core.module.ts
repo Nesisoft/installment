@@ -73,6 +73,7 @@ import {
   MediaService,
   MerchantStatsService,
   MerchantOrdersService,
+  AdminOrdersService,
   MerchantPlansService,
   CustomerReturnsService,
   MerchantReturnsService,
@@ -524,6 +525,12 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
       inject: [DRIZZLE],
     },
     {
+      provide: AdminOrdersService,
+      useFactory: (db: Database, orders: MerchantOrdersService) =>
+        new AdminOrdersService(db, orders),
+      inject: [DRIZZLE, MerchantOrdersService],
+    },
+    {
       provide: MerchantPlansService,
       useFactory: (db: Database, orders: MerchantOrdersService) =>
         new MerchantPlansService(db, orders),
@@ -941,6 +948,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
     MerchantDashboardService,
     MerchantStatsService,
     MerchantOrdersService,
+    AdminOrdersService,
     MerchantPlansService,
     CustomerReturnsService,
     MerchantReturnsService,

@@ -3,6 +3,7 @@ import { useApi } from '@installment/web-kit';
 import type {
   Application,
   CreditProfile,
+  LedgerIntegrityReport,
   ListApplicationsParams,
   RecordDecisionInput,
   ScoreResult,
@@ -107,5 +108,18 @@ export function useRecordDecision(id: string) {
       void qc.invalidateQueries({ queryKey: ['application', id] });
       void qc.invalidateQueries({ queryKey: ['applications'] });
     },
+  });
+}
+
+/** Whether the books still balance. The hourly cron alerts on drift; this shows it. */
+export function useLedgerIntegrity() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['ledger-integrity'],
+    queryFn: async () => {
+      const { data } = await api.get<LedgerIntegrityReport>('/admin/ledger/integrity');
+      return data;
+    },
+    refetchInterval: 5 * 60_000,
   });
 }

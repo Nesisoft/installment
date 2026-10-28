@@ -20,6 +20,10 @@ import { CollectionsListPage } from './pages/collections/list';
 import { CollectionsDetailPage } from './pages/collections/detail';
 import { PlanLookupPage } from './pages/plans/lookup';
 import { PlanDetailPage } from './pages/plans/detail';
+import { OrdersListPage } from './pages/orders/list';
+import { OrderDetailPage } from './pages/orders/detail';
+import { RefundsPage } from './pages/refunds/list';
+import { LedgerPage } from './pages/ledger';
 
 export function App() {
   const { isAuthenticated } = useAuth();
@@ -39,6 +43,11 @@ export function App() {
 
           <Route path="/plans" element={<PlanLookupPage />} />
           <Route path="/plans/:id" element={<PlanDetailPage />} />
+
+          <Route path="/orders" element={<OrdersListPage />} />
+          <Route path="/orders/:id" element={<OrderDetailPage />} />
+          <Route path="/refunds" element={<RefundsPage />} />
+          <Route path="/ledger" element={<LedgerPage />} />
 
           <Route path="/merchants" element={<MerchantsListPage />} />
           <Route path="/merchants/new" element={<MerchantNewPage />} />

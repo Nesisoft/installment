@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import { z } from 'zod';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction } from '../../shared/event-bus/transaction';
@@ -9,6 +10,9 @@ import { refundRejection, type ProviderRefundRef } from './provider-refund-rejec
 const refunds = schema.refunds;
 const attempts = schema.payment_attempts;
 const orders = schema.orders;
+const plans = schema.customer_plans;
+const returns = schema.order_returns;
+const customers = schema.customers;
 
 export type Refund = typeof schema.refunds.$inferSelect;
 
@@ -71,6 +75,101 @@ export interface RefundSweepSummary {
   unknown: number;
   results: DisburseResult[];
 }
+
+/**
+ * Where a refund stands, from the point of view of the person who has to make
+ * sure the customer gets their money:
+ *
+ * - `to_send` — waiting for the worker (or "Send now") to submit it to Paystack.
+ * - `in_flight` — Paystack accepted it; the reconciler is waiting on the outcome.
+ * - `unresolved` — sent, or possibly sent, with no answer we could act on. The
+ *   reconciler keeps asking Paystack; nobody may send it again, because
+ *   Paystack's refund API takes no client reference and a second send is a
+ *   second refund.
+ * - `failed` — Paystack refused it. The customer is still owed and has to be
+ *   paid some other way, then marked paid by hand.
+ * - `to_pay_by_hand` — the money came in outside Paystack, so it goes back the
+ *   same way.
+ * - `paid` — done.
+ */
+export const REFUND_QUEUES = [
+  'to_send',
+  'in_flight',
+  'unresolved',
+  'failed',
+  'to_pay_by_hand',
+  'paid',
+] as const;
+export type RefundQueue = (typeof REFUND_QUEUES)[number];
+
+/** The queue as SQL, so the list filter and the summary cannot disagree. */
+const QUEUE_SQL: SQL<RefundQueue> = sql<RefundQueue>`CASE
+  WHEN ${refunds.status} = 'succeeded' THEN 'paid'
+  WHEN ${refunds.status} = 'failed' THEN 'failed'
+  WHEN ${refunds.status} = 'pending_confirmation' THEN 'in_flight'
+  WHEN ${refunds.status} = 'unknown' THEN 'unresolved'
+  WHEN ${refunds.method} = 'manual' THEN 'to_pay_by_hand'
+  WHEN ${refunds.submitted_at} IS NOT NULL THEN 'unresolved'
+  ELSE 'to_send'
+END`;
+
+export interface RefundListRow {
+  id: string;
+  reference: string;
+  amount_pesewas: number;
+  method: RefundMethod;
+  status: RefundStatus;
+  queue: RefundQueue;
+  last_error: string | null;
+  /** The charge being refunded, as Paystack knows it — what to look up there. */
+  provider_transaction_reference: string | null;
+  paystack_refund_id: string | null;
+  requested_at: string;
+  submitted_at: string | null;
+  succeeded_at: string | null;
+  failed_at: string | null;
+  /** An instalment refund's plan and row; null for an order return's. */
+  customer_plan_id: string | null;
+  schedule_id: string | null;
+  /** An order return's; null for an instalment refund's. */
+  order_return_id: string | null;
+  order_id: string | null;
+  order_number: string | null;
+  customer_id: string | null;
+  customer_name: string | null;
+}
+
+export interface RefundQueueTotal {
+  queue: RefundQueue;
+  count: number;
+  amount_pesewas: number;
+  /** The longest anyone in this queue has been waiting. */
+  oldest_requested_at: string | null;
+}
+
+export interface ListRefundsInput {
+  queue?: RefundQueue;
+  limit?: number;
+  offset?: number;
+}
+
+/** Query for GET /admin/refunds. Strings off the URL, coerced. */
+export const listRefundsSchema = z.object({
+  queue: z.enum(REFUND_QUEUES).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+/** Body for POST /admin/refunds/:reference/settle-manual. */
+export const settleRefundManuallySchema = z.object({
+  /** How it was paid: a transfer reference, a receipt number, who handed it over. */
+  note: z.string().trim().min(1).max(300).optional(),
+  /**
+   * For an `unresolved` refund only: the person paying it by hand has looked
+   * the charge up in the Paystack dashboard and it carries no refund.
+   */
+  checked_paystack: z.boolean().optional(),
+});
 
 export class RefundNotFoundError extends Error {
   constructor(reference: string) {
@@ -373,7 +472,17 @@ export class RefundService {
   async confirmRefund(
     reference: string,
     outcome: 'succeeded' | 'failed',
-    opts: { providerRefundId?: string; error?: string; actor?: RefundActor } = {},
+    opts: {
+      providerRefundId?: string;
+      error?: string;
+      actor?: RefundActor;
+      /**
+       * A person paid it by hand (see {@link settleManual}). Whether that is
+       * allowed is decided here, under the row lock, against the status the
+       * row has now — not the one it had when they pressed the button.
+       */
+      byHand?: { note?: string; checkedPaystack?: boolean };
+    } = {},
   ): Promise<Refund> {
     return runInTransaction(this.db, async (tx) => {
       const row = (
@@ -385,7 +494,15 @@ export class RefundService {
           .limit(1)
       )[0];
       if (!row) throw new RefundNotFoundError(reference);
-      if (row.status === 'succeeded' || row.status === 'failed') return row; // already terminal
+      // Already terminal. A refused refund is the one exception: the customer
+      // is still owed, and paying them some other way is what settles it.
+      if (row.status === 'succeeded') return row;
+      if (opts.byHand) {
+        const refusal = handPaymentRefusal(row, opts.byHand);
+        if (refusal) throw new RefundNotSettleableError(reference, refusal);
+      } else if (row.status === 'failed') {
+        return row;
+      }
 
       const nowIso = new Date().toISOString();
       if (outcome === 'succeeded') {
@@ -443,7 +560,20 @@ export class RefundService {
         actorId: opts.actor?.actorId ?? 'system',
         actorType: opts.actor?.actorType ?? 'system',
         reason: opts.error,
-        metadata: { reference, amount_pesewas: row.amount_pesewas },
+        metadata: {
+          reference,
+          amount_pesewas: row.amount_pesewas,
+          ...(opts.byHand
+            ? {
+                paid_by_hand: true,
+                ...(opts.byHand.note ? { note: opts.byHand.note } : {}),
+                ...(row.status === 'failed' ? { paid_by_hand_after_provider_failure: true } : {}),
+                ...(row.method === 'paystack' && row.status !== 'failed'
+                  ? { checked_paystack_holds_no_refund: true }
+                  : {}),
+              }
+            : {}),
+        },
       });
 
       return updated;
@@ -451,22 +581,114 @@ export class RefundService {
   }
 
   /**
-   * Records that an out-of-band refund was physically returned — the cash a
-   * field agent handed back, the bank transfer an operator made. Books the same
+   * Records that a refund was physically returned by hand — the cash a field
+   * agent handed back, the bank transfer an operator made. Books the same
    * discharge a provider refund does; the difference is only who moved it.
+   *
+   * Two kinds of refund are paid this way. One whose money came in outside
+   * Paystack goes back outside it. And one Paystack refused: that used to be
+   * final, with the customer still owed and nothing in the system able to
+   * record paying them, so the liability stood on the books for good.
+   *
+   * Never a refund Paystack accepted and is still processing (`in_flight`):
+   * paying that by hand as well pays the customer twice. An `unresolved` one —
+   * sent, or possibly sent, with no answer — only when the person paying it has
+   * looked the charge up in the Paystack dashboard and found no refund on it,
+   * says so (`checkedPaystack`), and says how they paid. The reconciler parks
+   * such a refund for good when Paystack holds nothing for the charge, and
+   * nothing else could ever pay it.
    */
-  async settleManual(reference: string, actor: RefundActor): Promise<Refund> {
-    const row = (
-      await this.db.select().from(refunds).where(eq(refunds.reference, reference)).limit(1)
-    )[0];
-    if (!row) throw new RefundNotFoundError(reference);
-    if (row.method !== 'manual') {
-      throw new RefundNotSettleableError(
-        reference,
-        'it is a provider refund — the worker settles it',
-      );
-    }
-    return this.confirmRefund(reference, 'succeeded', { actor });
+  async settleManual(
+    reference: string,
+    actor: RefundActor,
+    opts: { note?: string; checkedPaystack?: boolean } = {},
+  ): Promise<Refund> {
+    return this.confirmRefund(reference, 'succeeded', { actor, byHand: opts });
+  }
+
+  /**
+   * Refunds across every plan and return, newest first, with who they are for.
+   * The console's refunds page; `queue` narrows it to one kind of work.
+   */
+  async list(input: ListRefundsInput = {}): Promise<{ rows: RefundListRow[]; total: number }> {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+    const offset = Math.max(input.offset ?? 0, 0);
+    const where = input.queue ? sql`${QUEUE_SQL} = ${input.queue}` : undefined;
+
+    const [{ total } = { total: 0 }] = await this.db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(refunds)
+      .where(where);
+
+    const rows = await this.db
+      .select({
+        id: refunds.id,
+        reference: refunds.reference,
+        amount_pesewas: refunds.amount_pesewas,
+        method: refunds.method,
+        status: refunds.status,
+        queue: QUEUE_SQL,
+        last_error: refunds.last_error,
+        provider_transaction_reference: refunds.provider_transaction_reference,
+        paystack_refund_id: refunds.paystack_refund_id,
+        requested_at: refunds.requested_at,
+        submitted_at: refunds.submitted_at,
+        succeeded_at: refunds.succeeded_at,
+        failed_at: refunds.failed_at,
+        customer_plan_id: refunds.customer_plan_id,
+        schedule_id: refunds.schedule_id,
+        order_return_id: refunds.order_return_id,
+        order_id: returns.order_id,
+        order_number: orders.order_number,
+        customer_id: sql<string | null>`coalesce(${plans.customer_id}, ${returns.customer_id})`,
+        customer_name: sql<
+          string | null
+        >`nullif(trim(concat(${customers.first_name}, ' ', ${customers.last_name})), '')`,
+      })
+      .from(refunds)
+      .leftJoin(plans, eq(plans.id, refunds.customer_plan_id))
+      .leftJoin(returns, eq(returns.id, refunds.order_return_id))
+      .leftJoin(orders, eq(orders.id, returns.order_id))
+      .leftJoin(
+        customers,
+        sql`${customers.id} = coalesce(${plans.customer_id}, ${returns.customer_id})`,
+      )
+      .where(where)
+      .orderBy(desc(refunds.requested_at), desc(refunds.id))
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      rows: rows.map((r) => ({
+        ...r,
+        method: r.method as RefundMethod,
+        status: r.status as RefundStatus,
+      })),
+      total,
+    };
+  }
+
+  /** Every queue, with how many refunds and how much money is in it. */
+  async summary(): Promise<RefundQueueTotal[]> {
+    const rows = await this.db
+      .select({
+        queue: QUEUE_SQL,
+        count: sql<number>`count(*)::int`,
+        amount: sql<string>`coalesce(sum(${refunds.amount_pesewas}), 0)::text`,
+        oldest: sql<string | null>`min(${refunds.requested_at})`,
+      })
+      .from(refunds)
+      .groupBy(QUEUE_SQL);
+    const byQueue = new Map(rows.map((r) => [r.queue, r]));
+    return REFUND_QUEUES.map((queue) => {
+      const r = byQueue.get(queue);
+      return {
+        queue,
+        count: r?.count ?? 0,
+        amount_pesewas: Number(r?.amount ?? 0),
+        oldest_requested_at: r?.oldest ?? null,
+      };
+    });
   }
 
   /** Refunds for one plan, newest first — the console's "what do we owe" view. */
@@ -613,4 +835,28 @@ function refundPayableRef(row: Refund): string {
   const ref = row.customer_plan_id ?? row.order_return_id;
   if (!ref) throw new Error(`Refund ${row.reference} has neither a plan nor a return`);
   return ref;
+}
+
+/**
+ * Why this refund may not be marked paid by hand right now, or null if it may.
+ * See {@link RefundService.settleManual}.
+ */
+function handPaymentRefusal(
+  row: Refund,
+  opts: { note?: string; checkedPaystack?: boolean },
+): string | null {
+  // The money came in outside Paystack, or Paystack refused to send it back:
+  // either way nothing but a person will pay it.
+  if (row.method === 'manual' || row.status === 'failed') return null;
+  if (row.status === 'initiated' && !row.submitted_at) {
+    return 'it has not been sent to Paystack yet — send it, or wait for the worker';
+  }
+  if (row.status === 'pending_confirmation') {
+    return 'Paystack accepted it and is still processing it — paying it by hand as well would pay the customer twice';
+  }
+  // `unknown`, or claimed for sending with nothing recorded after.
+  if (!opts.checkedPaystack || !opts.note) {
+    return 'it may have reached Paystack — look the charge up in the Paystack dashboard first, and only if it carries no refund, pay it by hand and say so, with how you paid';
+  }
+  return null;
 }

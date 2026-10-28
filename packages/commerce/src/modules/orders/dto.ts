@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ORDER_STATUSES } from './order-state';
 
 // --- Addresses --------------------------------------------------------------
 
@@ -118,3 +119,15 @@ export const confirmOrderPaymentSchema = z.object({
   provider_reference: z.string().trim().min(1).max(200),
 });
 export type ConfirmOrderPaymentInput = z.infer<typeof confirmOrderPaymentSchema>;
+
+// --- Admin order list -------------------------------------------------------
+
+/** Query for GET /admin/orders. Strings off the URL, coerced. */
+export const listAdminOrdersSchema = z.object({
+  status: z.enum(ORDER_STATUSES).optional(),
+  payment_type: z.enum(['full', 'installment']).optional(),
+  q: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+export type ListAdminOrdersQuery = z.infer<typeof listAdminOrdersSchema>;
