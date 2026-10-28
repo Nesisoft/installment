@@ -44,12 +44,14 @@ export class ReserveReleaseCron {
       // a partial run no longer surfaces as a thrown error. A reserve that
       // would not release is a merchant still owed their money — say so.
       if (summary.failedReleases > 0) {
+        // Each failure with its plan, merchant and error. This used to carry the
+        // row ids alone, and the errors were dropped: whoever was alerted could
+        // see that releases failed, but not why, and nothing logged it either.
         captureAlert('reserve releases could not be booked', 'error', {
           failedReleases: summary.failedReleases,
-          heldReserveIds: summary.perMerchant
-            .flatMap((m) => m.failures)
-            .map((f) => f.heldReserveId)
-            .filter(Boolean),
+          failures: summary.perMerchant
+            .flatMap((m) => m.failures.map((f) => ({ merchantId: m.merchantId, ...f })))
+            .slice(0, 50),
         });
       }
     } catch (err) {

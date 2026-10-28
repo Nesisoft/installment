@@ -16,6 +16,8 @@ export interface StuckOutcome {
    */
   outcome: 'resolved' | 'pending' | 'unresolved' | 'orphaned';
   attemptId?: string;
+  /** The attempt's Paystack reference — what to search for in the dashboard. */
+  providerReference?: string;
   reason?: string;
 }
 
@@ -34,6 +36,13 @@ export interface StuckScheduleAlertSink {
     scheduleId: string;
     outcome: StuckOutcome['outcome'];
     stuckSinceIso: string;
+    /**
+     * The attempt and its Paystack reference, when there is one. The console
+     * does not show attempts, so without these whoever is alerted has to go
+     * to the database before they can look the charge up at Paystack.
+     */
+    attemptId?: string;
+    providerReference?: string;
     reason?: string;
   }): Promise<void> | void;
 }
@@ -99,6 +108,8 @@ export class StuckScheduleRunner {
           scheduleId: row.id,
           outcome: outcome.outcome,
           stuckSinceIso: row.since,
+          ...(outcome.attemptId ? { attemptId: outcome.attemptId } : {}),
+          ...(outcome.providerReference ? { providerReference: outcome.providerReference } : {}),
           reason: outcome.reason,
         });
       }
@@ -115,24 +126,28 @@ export class StuckScheduleRunner {
       return { scheduleId, outcome: 'orphaned', reason: 'no unresolved attempt for schedule' };
     }
 
+    const found = {
+      attemptId: attempt.id,
+      ...(attempt.provider_reference ? { providerReference: attempt.provider_reference } : {}),
+    };
     try {
       const result = await this.payments.verifyAttempt(attempt.id, actor);
       if (result.status === 'succeeded' || result.status === 'failed') {
-        return { scheduleId, attemptId: attempt.id, outcome: 'resolved', reason: result.status };
+        return { scheduleId, ...found, outcome: 'resolved', reason: result.status };
       }
       if (result.status === 'pending') {
-        return { scheduleId, attemptId: attempt.id, outcome: 'pending' };
+        return { scheduleId, ...found, outcome: 'pending' };
       }
       return {
         scheduleId,
-        attemptId: attempt.id,
+        ...found,
         outcome: 'unresolved',
         reason: result.failureReason ?? 'verify returned unknown',
       };
     } catch (err) {
       return {
         scheduleId,
-        attemptId: attempt.id,
+        ...found,
         outcome: 'unresolved',
         reason: err instanceof Error ? err.message : String(err),
       };
