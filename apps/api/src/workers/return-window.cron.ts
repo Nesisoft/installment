@@ -2,6 +2,8 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { FulfilmentService } from '@installment/commerce';
 import { SYSTEM_ACTORS } from '@installment/core';
+import { captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const SYSTEM_ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as const };
 
@@ -29,15 +31,20 @@ export class ReturnWindowCron {
 
   @Cron(CronExpression.EVERY_HOUR, { name: 'return-window-close' })
   async run(): Promise<void> {
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const closed = await this.fulfilment.completeElapsedReturnWindows(SYSTEM_ACTOR);
       if (closed.length > 0) {
         this.logger.log(`return window closed on ${closed.length} order(s)`);
       }
     } catch (err) {
+      outcome = 'failure';
       // A failed sweep must not take the process down; the next run picks up
       // exactly the same set, because the query is driven by order state.
       this.logger.error(`return window sweep failed: ${(err as Error).message}`);
+      captureWorkerError(err, 'return-window-close');
+    } finally {
+      recordJobRun('return-window-close', outcome);
     }
   }
 }

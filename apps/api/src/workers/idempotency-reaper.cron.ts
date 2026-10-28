@@ -7,6 +7,7 @@ import type { Database } from '@installment/db';
 import { DRIZZLE } from '../db/db.module';
 import type { Env } from '../config/env.validation';
 import { captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 /**
  * Purges expired idempotency keys (daily).
@@ -32,14 +33,18 @@ export class IdempotencyReaperCron {
   @Cron(CronExpression.EVERY_DAY_AT_3AM, { name: 'idempotency-reaper' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const purged = await this.store.purgeExpired();
       if (purged > 0) {
         this.logger.info({ purged }, 'idempotency-reaper purged expired keys');
       }
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'idempotency-reaper failed');
       captureWorkerError(err, 'idempotency-reaper');
+    } finally {
+      recordJobRun('idempotency-reaper', outcome);
     }
   }
 }

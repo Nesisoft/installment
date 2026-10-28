@@ -7,6 +7,7 @@ import { DbModule } from './db/db.module';
 import { RedisModule } from './redis/redis.module';
 import { CoreModule } from './core/core.module';
 import { HealthModule } from './health/health.module';
+import { ObservabilityModule } from './observability/observability.module';
 import { WorkersModule } from './workers/workers.module';
 import { AuthController } from './auth/auth.controller';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -73,6 +74,7 @@ import { IdempotencyInterceptor } from './common/idempotency.interceptor';
     RedisModule,
     CoreModule,
     HealthModule,
+    ObservabilityModule,
     WorkersModule,
   ],
   controllers: [

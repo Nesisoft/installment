@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ReminderRunner } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const DAY_MS = 86_400_000;
 
@@ -28,6 +29,7 @@ export class ReminderCron {
   @Cron(CronExpression.EVERY_DAY_AT_5PM, { name: 'pre-debit-reminders' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const tomorrow = new Date(Date.now() + DAY_MS).toISOString().slice(0, 10);
       const summary = await this.reminders.sendUpcomingReminders(tomorrow);
@@ -42,8 +44,11 @@ export class ReminderCron {
         'pre-debit reminders sent',
       );
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'pre-debit reminder sweep failed');
       captureWorkerError(err, 'reminder');
+    } finally {
+      recordJobRun('pre-debit-reminders', outcome);
     }
   }
 }

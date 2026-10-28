@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { SYSTEM_ACTORS, VerifyRunner } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.VERIFY_WORKER, actorType: 'system' as const };
 
@@ -37,6 +38,7 @@ export class VerifyPollCron {
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'verify-poll' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const staleBefore = new Date(Date.now() - STALE_AFTER_MS);
       const summary = await this.verifyRunner.sweepStale(staleBefore, ACTOR);
@@ -53,8 +55,11 @@ export class VerifyPollCron {
         'verify-poll sweep complete',
       );
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'verify-poll sweep failed');
       captureWorkerError(err, 'verify-poll');
+    } finally {
+      recordJobRun('verify-poll', outcome);
     }
   }
 }

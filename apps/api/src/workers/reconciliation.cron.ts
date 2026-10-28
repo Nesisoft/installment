@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ReconciliationService } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureAlert, captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const RECONCILE_BATCH_LIMIT = 100;
 
@@ -29,6 +30,7 @@ export class ReconciliationCron {
   @Cron(CronExpression.EVERY_30_MINUTES, { name: 'payout-reconciliation' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const summary = await this.reconciliation.reconcilePendingPayouts({
         limit: RECONCILE_BATCH_LIMIT,
@@ -58,8 +60,11 @@ export class ReconciliationCron {
         });
       }
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'payout reconciliation sweep failed');
       captureWorkerError(err, 'reconciliation');
+    } finally {
+      recordJobRun('payout-reconciliation', outcome);
     }
   }
 }

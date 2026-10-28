@@ -193,6 +193,13 @@ export const envSchema = z.object({
   SENTRY_DSN: z.string().default(''),
   SENTRY_ENVIRONMENT: z.string().default('development'),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
+  /**
+   * Bearer token for `GET /metrics`, the Prometheus endpoint. Unset, the
+   * endpoint answers 404: the operational figures it serves (payouts in
+   * flight, refunds owed, sellers owing money) are not for the internet.
+   * See infra/observability/README.md.
+   */
+  METRICS_TOKEN: z.string().min(24).optional(),
   // Scheduled workers (settlement / reserve-release / reconciliation crons).
   // Keep OFF in tests and local single-instance dev; turn ON exactly once per
   // production deployment (a future leader-election step picks the runner).

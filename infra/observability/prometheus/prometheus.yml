@@ -1,0 +1,20 @@
+# Scrapes the API's /metrics. The token is the API's METRICS_TOKEN, mounted as
+# a file so it stays out of this config. See ../README.md.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: installment-api
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics_token
+    static_configs:
+      # The API on the Docker host, for local use. In production, list the
+      # instance that runs the scheduled jobs (ENABLE_SCHEDULED_WORKERS=true):
+      # the job metrics come only from that one.
+      - targets: ['host.docker.internal:3000']

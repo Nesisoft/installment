@@ -548,3 +548,10 @@ export * from './shared/test-fixtures/ghana-card';
 // Generic shared helpers used by @installment/commerce (which owns the domain).
 export * from './shared/validators/slug';
 export * from './shared/db/pg-errors';
+export {
+  OpsMetricsService,
+  OPEN_SCHEDULE_STATUSES,
+  IN_FLIGHT_PAYOUT_STATUSES,
+  STUCK_PROCESSING_MINUTES,
+  type OpsSnapshot,
+} from './modules/observability/ops-metrics.service';

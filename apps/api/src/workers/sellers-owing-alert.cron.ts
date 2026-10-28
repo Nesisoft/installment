@@ -4,7 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Money, SellersOwingReport } from '@installment/core';
 import type { Env } from '../config/env.validation';
-import { captureAlert } from '../common/alerting';
+import { captureAlert, captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const ghs = (pesewas: number) => Money.fromPesewas(pesewas).format();
 
@@ -39,6 +40,7 @@ export class SellersOwingAlertCron {
   @Cron('20 7 * * *', { name: 'sellers-owing-alert' })
   async run(now: Date = new Date()): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const rows = await this.report.list(now);
       const summary = this.report.summarise(rows);
@@ -78,7 +80,11 @@ export class SellersOwingAlertCron {
         { summary, sellers },
       );
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'sellers owing alert failed');
+      captureWorkerError(err, 'sellers-owing-alert');
+    } finally {
+      recordJobRun('sellers-owing-alert', outcome);
     }
   }
 }

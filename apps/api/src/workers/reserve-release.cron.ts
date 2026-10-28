@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ReserveReleaseService } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureAlert, captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 /**
  * Daily reserve maturation sweep (07:00 UTC, an hour after the settlement
@@ -27,6 +28,7 @@ export class ReserveReleaseCron {
   @Cron(CronExpression.EVERY_DAY_AT_7AM, { name: 'reserve-release-sweep' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const summary = await this.reserves.runSweep(new Date());
       this.logger.info(
@@ -55,8 +57,11 @@ export class ReserveReleaseCron {
         });
       }
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'reserve release sweep failed');
       captureWorkerError(err, 'reserve-release');
+    } finally {
+      recordJobRun('reserve-release-sweep', outcome);
     }
   }
 }

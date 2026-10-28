@@ -1,6 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { LateFeeService } from '@installment/core';
+import { captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 /**
  * Accrues late fees on instalments past their grace date.
@@ -22,6 +24,7 @@ export class LateFeeCron {
 
   @Cron(CronExpression.EVERY_DAY_AT_6AM, { name: 'late-fee-accrual' })
   async run(): Promise<void> {
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const applied = await this.lateFees.accrue();
       if (applied.length === 0) return;
@@ -30,9 +33,13 @@ export class LateFeeCron {
         `late fees accrued on ${applied.length} instalment(s), +${total} pesewas (${applied.filter((a) => a.capped).length} at cap)`,
       );
     } catch (err) {
+      outcome = 'failure';
       // A failed sweep must not take the process down: the fee is recomputed
       // from scratch on the next run, so a missed day self-heals.
       this.logger.error(`late fee accrual failed: ${(err as Error).message}`);
+      captureWorkerError(err, 'late-fee-accrual');
+    } finally {
+      recordJobRun('late-fee-accrual', outcome);
     }
   }
 }

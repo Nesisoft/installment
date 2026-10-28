@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { OrdersService } from '@installment/commerce';
 import type { Env } from '../config/env.validation';
 import { captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 /**
  * Releases the stock held by orders that will never be completed (hourly).
@@ -41,6 +42,7 @@ export class OrderExpiryCron {
   @Cron(CronExpression.EVERY_HOUR, { name: 'order-expiry' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const summary = await this.orders.sweepAbandoned(new Date(), {
         paymentTtlHours: this.ttlHours,
@@ -57,8 +59,11 @@ export class OrderExpiryCron {
         this.logger.warn({ failed: summary.failed }, 'order-expiry skipped orders that moved');
       }
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'order-expiry sweep failed');
       captureWorkerError(err, 'order-expiry');
+    } finally {
+      recordJobRun('order-expiry', outcome);
     }
   }
 }

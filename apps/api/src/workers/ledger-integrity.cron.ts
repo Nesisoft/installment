@@ -5,6 +5,11 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { LedgerIntegrityService } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureAlert, captureWorkerError } from '../common/alerting';
+import {
+  ledgerHealthy,
+  ledgerUnbalancedTransactions,
+  recordJobRun,
+} from '../observability/metrics';
 
 /**
  * Hourly ledger integrity check.
@@ -31,8 +36,11 @@ export class LedgerIntegrityCron {
   @Cron(CronExpression.EVERY_HOUR, { name: 'ledger-integrity' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const report = await this.integrity.report();
+      ledgerHealthy.set(report.healthy ? 1 : 0);
+      ledgerUnbalancedTransactions.set(report.unbalancedTransactions.length);
 
       if (report.healthy) {
         this.logger.debug(
@@ -59,8 +67,11 @@ export class LedgerIntegrityCron {
         runbook: 'docs/runbooks/ledger-imbalance.md',
       });
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'ledger integrity check errored');
       captureWorkerError(err, 'ledger-integrity');
+    } finally {
+      recordJobRun('ledger-integrity', outcome);
     }
   }
 }
