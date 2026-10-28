@@ -15,6 +15,7 @@ import {
   ScheduleTerminalStateError,
 } from '../schedules/state-machine';
 import { WebhookSignatureError } from './errors';
+import { RefundOutcomeConflictError } from '../refunds/refund.service';
 
 const we = schema.webhook_events;
 const sched = schema.installment_schedule;
@@ -334,6 +335,12 @@ export class WebhookService {
         error: outcome === 'failed' ? (event.data.gateway_response ?? event.event) : undefined,
       });
     } catch (err) {
+      // A conflict is not a failure to process: retrying the event cannot
+      // change what it says, so it is raised for a person and the event closed.
+      if (err instanceof RefundOutcomeConflictError) {
+        this.alert({ eventType: event.event, reference: refund.reference, reason: err.message });
+        return;
+      }
       this.alert({
         eventType: event.event,
         reference: refund.reference,

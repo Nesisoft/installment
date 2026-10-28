@@ -4,12 +4,15 @@ import { Button, cn } from '@installment/ui';
 import {
   Activity,
   Banknote,
+  BookCheck,
   ClipboardList,
   LayoutDashboard,
   LogOut,
   PhoneCall,
   Receipt,
   ShieldAlert,
+  ShoppingBag,
+  Undo2,
   Store,
   Users,
   type LucideIcon,
@@ -25,12 +28,15 @@ const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/applications', label: 'Applications', icon: ClipboardList },
   { to: '/plans', label: 'Plan operations', icon: Banknote },
+  { to: '/orders', label: 'Orders', icon: ShoppingBag },
+  { to: '/refunds', label: 'Refunds', icon: Undo2 },
   { to: '/collections', label: 'Collections', icon: PhoneCall },
   { to: '/merchants', label: 'Merchants', icon: Store },
   { to: '/customers', label: 'Customers', icon: Users },
   { to: '/templates', label: 'Plan templates', icon: Receipt },
   { to: '/scoring', label: 'Scoring', icon: ShieldAlert },
   { to: '/telco-health', label: 'Telco health', icon: Activity },
+  { to: '/ledger', label: 'Ledger', icon: BookCheck },
 ];
 
 export function AppShell() {

@@ -4,6 +4,7 @@ import {
   GHANA_REGIONS,
   LEDGER_ACCOUNT_TYPES,
   PERMISSIONS,
+  REFUND_QUEUES,
   registerDeviceSchema,
 } from '@installment/core';
 import {
@@ -36,6 +37,7 @@ import {
   dealRuleIssue as mirroredDealRuleIssue,
   PRODUCT_FIELDS as MIRRORED_PRODUCT_FIELDS,
   requestReturnSchema as mirroredRequestReturnSchema,
+  REFUND_QUEUES as MIRRORED_REFUND_QUEUES,
 } from '@installment/api-types';
 
 /**
@@ -94,6 +96,14 @@ describe('api-types mirrors the backend contract', () => {
     // give the app a filter the API refuses.
     expect([...MIRRORED_RETURN_STATUSES]).toEqual([...RETURN_STATUSES]);
     expect([...MIRRORED_MERCHANT_RETURN_BUCKETS]).toEqual([...MERCHANT_RETURN_BUCKETS]);
+  });
+
+  it('lists every queue a refund can be in', () => {
+    // The console's refunds page offers these as its filter and decides which
+    // buttons a row gets from them. The API refuses a queue it does not have,
+    // so a mirror that gained one would be a filter that answers 400, and one
+    // that lost one would hide every refund in it.
+    expect([...MIRRORED_REFUND_QUEUES]).toEqual([...REFUND_QUEUES]);
   });
 
   it('lists every analytics window the merchant stats endpoint will serve', () => {

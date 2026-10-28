@@ -2,10 +2,11 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { OrdersService } from '@installment/commerce';
+import { AdminOrdersService, OrdersService } from '@installment/commerce';
 import { OrdersController } from './orders.controller';
 import { IDEMPOTENT_KEY } from '../common/idempotent.decorator';
 import { PERMISSIONS_KEY } from '../auth/decorators';
+import { DomainExceptionFilter } from '../common/domain-exception.filter';
 
 vi.mock('@sentry/node', () => ({ captureException: vi.fn() }));
 
@@ -25,17 +26,25 @@ describe('OrdersController', () => {
   let app: INestApplication;
   const confirmPayment = vi.fn();
   const cancel = vi.fn();
+  const list = vi.fn();
+  const counts = vi.fn();
+  const detail = vi.fn();
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [OrdersController],
-      providers: [{ provide: OrdersService, useValue: { confirmPayment, cancel } }],
+      providers: [
+        { provide: OrdersService, useValue: { confirmPayment, cancel } },
+        { provide: AdminOrdersService, useValue: { list, counts, detail } },
+      ],
     })
       // The real app applies these globally; here we only care that the
       // controller delegates, so the request runs unguarded.
       .compile();
 
     app = moduleRef.createNestApplication();
+    // As AppModule installs it, so a bad query answers 400 here as it does live.
+    app.useGlobalFilters(new DomainExceptionFilter());
     // Stand in for the global JwtAuthGuard, which populates req.user in the real
     // app. Without it @CurrentUser() is undefined and actorOf() throws.
     app.use((req: { user?: unknown }, _res: unknown, next: () => void) => {
@@ -96,6 +105,38 @@ describe('OrdersController', () => {
     );
     expect(meta, 'confirm-payment must be marked @Idempotent()').toBeDefined();
     expect(meta.required).toBe(true);
+  });
+
+  it('lists orders with the query parsed: a status, a search, and numbers off the URL', async () => {
+    list.mockResolvedValueOnce({ rows: [], total: 0 });
+
+    const res = await request(app.getHttpServer())
+      .get('/admin/orders')
+      .query({ status: 'pending_payment', q: 'ORD-12', limit: '20' });
+
+    expect(res.status).toBe(200);
+    expect(list).toHaveBeenCalledWith({ status: 'pending_payment', q: 'ORD-12', limit: 20 });
+  });
+
+  it('refuses a status the order state machine does not have', async () => {
+    const res = await request(app.getHttpServer()).get('/admin/orders').query({ status: 'lost' });
+    expect(res.status).toBe(400);
+    expect(list).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'lost' }));
+  });
+
+  it('routes /counts to the counts, not to an order called "counts"', async () => {
+    counts.mockResolvedValueOnce({ all: 3 });
+    const res = await request(app.getHttpServer()).get('/admin/orders/counts');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ all: 3 });
+    expect(detail).not.toHaveBeenCalled();
+  });
+
+  it('opens one order', async () => {
+    detail.mockResolvedValueOnce({ id: 'order-3' });
+    const res = await request(app.getHttpServer()).get('/admin/orders/order-3');
+    expect(res.status).toBe(200);
+    expect(detail).toHaveBeenCalledWith('order-3');
   });
 
   it('is gated on settlements:run, the money-movement permission', () => {
