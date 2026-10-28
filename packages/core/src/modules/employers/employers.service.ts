@@ -1,13 +1,15 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, ilike, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import { AuditLogger, type AuditActorType } from '../audit/audit-logger.service';
 import { runInTransaction } from '../../shared/event-bus/transaction';
 import {
   createEmployerSchema,
+  listEmployersForConsoleSchema,
   listEmployersSchema,
   transitionEmployerSchema,
   updateEmployerSchema,
   type CreateEmployerInput,
+  type ListEmployersForConsoleInput,
   type ListEmployersInput,
   type TransitionEmployerInput,
   type UpdateEmployerInput,
@@ -18,6 +20,18 @@ import { nextEmployerStatus, type EmployerEvent, type EmployerStatus } from './s
 const e = schema.employers;
 
 export type Employer = typeof schema.employers.$inferSelect;
+
+/** An employer in the console, with how many of its staff we know and have checked. */
+export interface EmployerConsoleRow extends Employer {
+  /** Links to customers who hold a job there now. */
+  active_links: number;
+  /** Of those, how many have been verified. */
+  verified_links: number;
+  /** Of those, how many have payroll-deduction consent. */
+  consented_links: number;
+}
+
+export type EmployerCounts = Record<'pending' | 'active' | 'paused' | 'terminated' | 'all', number>;
 
 export interface EmployerActor {
   actorId: string;
@@ -65,6 +79,65 @@ export class EmployersService {
     const query = this.db.select().from(e);
     const filtered = input.status ? query.where(eq(e.status, input.status)) : query;
     return filtered.orderBy(desc(e.created_at)).limit(input.limit).offset(input.offset);
+  }
+
+  async listForConsole(
+    rawInput: ListEmployersForConsoleInput = {},
+  ): Promise<{ rows: EmployerConsoleRow[]; total: number }> {
+    const input = listEmployersForConsoleSchema.parse(rawInput);
+    const where: SQL[] = [];
+    if (input.status) where.push(eq(e.status, input.status));
+    if (input.q) {
+      where.push(ilike(e.name, `%${input.q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`));
+    }
+    const filter = where.length ? and(...where) : undefined;
+
+    const [{ total } = { total: 0 }] = await this.db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(e)
+      .where(filter);
+
+    // Qualified by hand: with no join in the outer query, drizzle drops table
+    // names from columns, and a bare "id" would bind to the inner table.
+    const live = sql.raw(
+      `FROM customer_employment l WHERE l.employer_id = employers.id AND l.status = 'active'`,
+    );
+    const rows = await this.db
+      .select({
+        employer: e,
+        active_links: sql<number>`(SELECT count(*)::int ${live})`,
+        verified_links: sql<number>`(SELECT count(*)::int ${live} AND l.verified_at IS NOT NULL)`,
+        consented_links: sql<number>`(
+          SELECT count(*)::int ${live} AND l.payroll_deduction_consent)`,
+      })
+      .from(e)
+      .where(filter)
+      .orderBy(e.name, e.id)
+      .limit(input.limit)
+      .offset(input.offset);
+
+    return {
+      rows: rows.map((r) => ({
+        ...r.employer,
+        active_links: r.active_links,
+        verified_links: r.verified_links,
+        consented_links: r.consented_links,
+      })),
+      total,
+    };
+  }
+
+  async counts(): Promise<EmployerCounts> {
+    const [row] = await this.db
+      .select({
+        pending: sql<number>`count(*) FILTER (WHERE ${e.status} = 'pending')::int`,
+        active: sql<number>`count(*) FILTER (WHERE ${e.status} = 'active')::int`,
+        paused: sql<number>`count(*) FILTER (WHERE ${e.status} = 'paused')::int`,
+        terminated: sql<number>`count(*) FILTER (WHERE ${e.status} = 'terminated')::int`,
+        all: sql<number>`count(*)::int`,
+      })
+      .from(e);
+    return row ?? { pending: 0, active: 0, paused: 0, terminated: 0, all: 0 };
   }
 
   async get(id: string): Promise<Employer> {

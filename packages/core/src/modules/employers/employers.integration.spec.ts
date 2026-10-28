@@ -8,7 +8,13 @@ import { CustomersService } from '../customers/customers.service';
 import { MockGhanaCardVerifier } from '../customers/ghana-card-verifier';
 import { EmployersService } from './employers.service';
 import { CustomerEmploymentService } from './customer-employment.service';
-import { DuplicateEmploymentError, EmployerNotFoundError, EmploymentNotFoundError } from './errors';
+import {
+  DuplicateEmploymentError,
+  EmployerNotFoundError,
+  EmploymentNotAllowedError,
+  EmploymentNotFoundError,
+} from './errors';
+import { CustomerNotFoundError } from '../customers/errors';
 import { IllegalEmployerTransitionError, IllegalEmploymentTransitionError } from './state-machine';
 
 const RUN_DB = Boolean(process.env.DATABASE_URL);
@@ -184,7 +190,11 @@ describe.skipIf(!RUN_DB)('Employers + CustomerEmployment (integration)', () => {
     expect(revoked.payroll_deduction_consent).toBe(false);
     expect(revoked.consent_signed_at).toBeNull();
 
-    const verified = await employment.markVerified(link.id, SYSTEM_ACTOR);
+    const verified = await employment.markVerified(
+      link.id,
+      { method: 'payslip', note: 'September payslip seen' },
+      SYSTEM_ACTOR,
+    );
     expect(verified.verified_at).not.toBeNull();
     expect(await lastAuditEventType(link.id)).toBe('customer_employment.verified');
   });
@@ -205,6 +215,194 @@ describe.skipIf(!RUN_DB)('Employers + CustomerEmployment (integration)', () => {
 
     const byStatus = await employment.list({ status: 'active', limit: 200 });
     expect(byStatus.map((r) => r.id)).toContain(link.id);
+  });
+
+  async function auditRow(entityId: string, eventType: string) {
+    const [row] = await db
+      .select()
+      .from(schema.audit_events)
+      .where(
+        and(
+          eq(schema.audit_events.entity_id, entityId),
+          eq(schema.audit_events.event_type, eventType),
+        ),
+      )
+      .orderBy(desc(schema.audit_events.occurred_at))
+      .limit(1);
+    return row;
+  }
+
+  // Verification moves a first-time customer from the base starter limit to
+  // the employer tier, so it has to say how the job was confirmed, and it
+  // cannot be pinned on a job the customer no longer holds.
+  it('verifies with how the job was confirmed, and only a job the customer holds', async () => {
+    const customerId = await makeCustomer();
+    const employer = await employers.create(employerInput(), SYSTEM_ACTOR);
+    const link = await employment.link(
+      { customer_id: customerId, employer_id: employer.id, salary_band: 'mid' },
+      SYSTEM_ACTOR,
+    );
+
+    await expect(employment.markVerified(link.id, {}, SYSTEM_ACTOR)).rejects.toThrow();
+    const verified = await employment.markVerified(
+      link.id,
+      { method: 'employer_confirmed', note: 'Ama in HR, by phone' },
+      SYSTEM_ACTOR,
+    );
+    expect(verified.verified_at).not.toBeNull();
+    expect(await auditRow(link.id, 'customer_employment.verified')).toMatchObject({
+      reason: 'Ama in HR, by phone',
+      metadata: { method: 'employer_confirmed', reverified: false },
+    });
+
+    await employment.recordPayrollConsent(
+      link.id,
+      { granted: true, note: 'Signed mandate' },
+      SYSTEM_ACTOR,
+    );
+
+    // Leaving ends the verified job and its payroll mandate; rejoining is a
+    // new spell, checked and consented to again.
+    const left = await employment.transition(link.id, { event: 'leave_employer' }, SYSTEM_ACTOR);
+    expect(left).toMatchObject({
+      verified_at: null,
+      payroll_deduction_consent: false,
+      consent_signed_at: null,
+    });
+    expect(await auditRow(link.id, 'customer_employment.leave_employer')).toMatchObject({
+      metadata: { verification_cleared: true, consent_cleared: true },
+    });
+    await expect(
+      employment.markVerified(link.id, { method: 'payslip', note: 'old payslip' }, SYSTEM_ACTOR),
+    ).rejects.toBeInstanceOf(EmploymentNotAllowedError);
+    const back = await employment.transition(link.id, { event: 'rejoin' }, SYSTEM_ACTOR);
+    expect(back).toMatchObject({ verified_at: null, payroll_deduction_consent: false });
+  });
+
+  it('refuses to verify a link to an employer whose partnership has ended', async () => {
+    const customerId = await makeCustomer();
+    const employer = await employers.create(employerInput(), SYSTEM_ACTOR);
+    const link = await employment.link(
+      { customer_id: customerId, employer_id: employer.id, salary_band: 'mid' },
+      SYSTEM_ACTOR,
+    );
+    await employers.transition(employer.id, { event: 'activate' }, SYSTEM_ACTOR);
+    await employers.transition(employer.id, { event: 'terminate' }, SYSTEM_ACTOR);
+    await expect(
+      employment.markVerified(link.id, { method: 'payslip', note: 'payslip seen' }, SYSTEM_ACTOR),
+    ).rejects.toBeInstanceOf(EmploymentNotAllowedError);
+    // …and a new customer cannot be linked to it at all.
+    await expect(
+      employment.link(
+        { customer_id: await makeCustomer(), employer_id: employer.id, salary_band: 'low' },
+        SYSTEM_ACTOR,
+      ),
+    ).rejects.toBeInstanceOf(EmploymentNotAllowedError);
+  });
+
+  it('withdraws a verification with a reason, and does nothing to one never made', async () => {
+    const customerId = await makeCustomer();
+    const employer = await employers.create(employerInput(), SYSTEM_ACTOR);
+    const link = await employment.link(
+      { customer_id: customerId, employer_id: employer.id, salary_band: 'mid' },
+      SYSTEM_ACTOR,
+    );
+    const untouched = await employment.unverify(link.id, { reason: 'Mistake' }, SYSTEM_ACTOR);
+    expect(untouched.verified_at).toBeNull();
+    expect(await auditRow(link.id, 'customer_employment.unverified')).toBeUndefined();
+
+    await employment.markVerified(
+      link.id,
+      { method: 'employer_list', note: 'On the GES October list' },
+      SYSTEM_ACTOR,
+    );
+    const withdrawn = await employment.unverify(
+      link.id,
+      { reason: 'Name matched a different staff member' },
+      SYSTEM_ACTOR,
+    );
+    expect(withdrawn.verified_at).toBeNull();
+    expect(await auditRow(link.id, 'customer_employment.unverified')).toMatchObject({
+      reason: 'Name matched a different staff member',
+    });
+  });
+
+  it('records payroll consent only on a job the customer holds, but always lets it be withdrawn', async () => {
+    const customerId = await makeCustomer();
+    const employer = await employers.create(employerInput(), SYSTEM_ACTOR);
+    const link = await employment.link(
+      { customer_id: customerId, employer_id: employer.id, salary_band: 'mid' },
+      SYSTEM_ACTOR,
+    );
+    await employment.recordPayrollConsent(
+      link.id,
+      { granted: true, note: 'Signed mandate, file 0042' },
+      SYSTEM_ACTOR,
+    );
+    expect(await auditRow(link.id, 'customer_employment.consent_granted')).toMatchObject({
+      reason: 'Signed mandate, file 0042',
+    });
+    await employment.transition(link.id, { event: 'leave_employer' }, SYSTEM_ACTOR);
+    await expect(
+      employment.recordPayrollConsent(link.id, { granted: true }, SYSTEM_ACTOR),
+    ).rejects.toBeInstanceOf(EmploymentNotAllowedError);
+    const withdrawn = await employment.recordPayrollConsent(
+      link.id,
+      { granted: false },
+      SYSTEM_ACTOR,
+    );
+    expect(withdrawn.payroll_deduction_consent).toBe(false);
+  });
+
+  it('answers an unknown customer or employer with not-found, not a database error', async () => {
+    const employer = await employers.create(employerInput(), SYSTEM_ACTOR);
+    await expect(
+      employment.link(
+        { customer_id: randomUUID(), employer_id: employer.id, salary_band: 'low' },
+        SYSTEM_ACTOR,
+      ),
+    ).rejects.toBeInstanceOf(CustomerNotFoundError);
+    await expect(
+      employment.link(
+        { customer_id: await makeCustomer(), employer_id: randomUUID(), salary_band: 'low' },
+        SYSTEM_ACTOR,
+      ),
+    ).rejects.toBeInstanceOf(EmployerNotFoundError);
+  });
+
+  it('lists links with names, the unverified queue oldest first', async () => {
+    const employer = await employers.create(employerInput(), SYSTEM_ACTOR);
+    const first = await employment.link(
+      { customer_id: await makeCustomer(), employer_id: employer.id, salary_band: 'low' },
+      SYSTEM_ACTOR,
+    );
+    const second = await employment.link(
+      { customer_id: await makeCustomer(), employer_id: employer.id, salary_band: 'low' },
+      SYSTEM_ACTOR,
+    );
+    const done = await employment.link(
+      { customer_id: await makeCustomer(), employer_id: employer.id, salary_band: 'low' },
+      SYSTEM_ACTOR,
+    );
+    await employment.markVerified(
+      done.id,
+      { method: 'payslip', note: 'payslip seen' },
+      SYSTEM_ACTOR,
+    );
+
+    const queue = await employment.listForConsole({ employer_id: employer.id, verified: 'false' });
+    expect(queue.rows.map((r) => r.id)).toEqual([first.id, second.id]);
+    expect(queue.total).toBe(2);
+    expect(queue.rows[0]).toMatchObject({
+      customer_name: 'Ama Mensah',
+      employer_name: employer.name,
+      employer_status: 'pending',
+    });
+    const verified = await employment.listForConsole({ employer_id: employer.id, verified: true });
+    expect(verified.rows.map((r) => r.id)).toEqual([done.id]);
+
+    const [row] = (await employers.listForConsole({ q: employer.name })).rows;
+    expect(row).toMatchObject({ id: employer.id, active_links: 3, verified_links: 1 });
   });
 
   it('throws not-found for unknown ids', async () => {

@@ -71,15 +71,18 @@ describe.skipIf(!RUN_DB)('AuthService (integration)', () => {
 
   it('logs a merchant in with email + password and returns tokens + permissions', async () => {
     const e = email();
+    // The merchant's own role. This once granted `admin` to get a permission
+    // back, which a merchant login can no longer hold: merchant_owner carries
+    // no console permissions, and the merchant routes scope by merchant id.
     await users.createMerchantUser(
-      { email: e, name: 'Owner', password: 'longenough', roleNames: ['admin'] },
+      { email: e, name: 'Owner', password: 'longenough' },
       SYSTEM_ACTOR,
     );
     const auth = makeAuth();
 
     const result = await auth.passwordLogin({ email: e, password: 'longenough' });
     expect(result.userType).toBe('merchant');
-    expect(result.permissions).toContain('merchants:write');
+    expect(result.permissions).toEqual([]);
     const claims = jwt.verifyAccess(result.tokens.accessToken);
     expect(claims.sub).toBe(result.userId);
     expect(claims.user_type).toBe('merchant');

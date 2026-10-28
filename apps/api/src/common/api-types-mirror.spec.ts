@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  EMPLOYMENT_VERIFICATION_METHODS,
   GHANA_CARD_STATUSES,
   GHANA_REGIONS,
   LEDGER_ACCOUNT_TYPES,
@@ -38,6 +39,7 @@ import {
   PRODUCT_FIELDS as MIRRORED_PRODUCT_FIELDS,
   requestReturnSchema as mirroredRequestReturnSchema,
   REFUND_QUEUES as MIRRORED_REFUND_QUEUES,
+  EMPLOYMENT_VERIFICATION_METHODS as MIRRORED_EMPLOYMENT_VERIFICATION_METHODS,
 } from '@installment/api-types';
 
 /**
@@ -104,6 +106,14 @@ describe('api-types mirrors the backend contract', () => {
     // so a mirror that gained one would be a filter that answers 400, and one
     // that lost one would hide every refund in it.
     expect([...MIRRORED_REFUND_QUEUES]).toEqual([...REFUND_QUEUES]);
+  });
+
+  it('lists every way a job can be confirmed', () => {
+    // The console offers these as the verification form's choices; the API
+    // refuses any other, so a mirror that drifted would be a form that 400s.
+    expect([...MIRRORED_EMPLOYMENT_VERIFICATION_METHODS]).toEqual([
+      ...EMPLOYMENT_VERIFICATION_METHODS,
+    ]);
   });
 
   it('lists every analytics window the merchant stats endpoint will serve', () => {

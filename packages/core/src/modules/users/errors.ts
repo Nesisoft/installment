@@ -18,3 +18,15 @@ export class RoleNotFoundError extends Error {
     this.name = 'RoleNotFoundError';
   }
 }
+
+/**
+ * A role or account change that would hand a login the wrong kind of access,
+ * leave the console with no administrator, or let staff change their own
+ * access.
+ */
+export class UserAccessChangeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UserAccessChangeError';
+  }
+}

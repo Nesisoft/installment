@@ -130,7 +130,13 @@ describe.skipIf(!RUN_DB)('employer-linked first-timers (integration)', () => {
     // live the moment it is saved, which is exactly why the engine wants
     // `verified_at` and not the bare link.
     expect(link.status).toBe('active');
-    if (opts.verify) await employment.markVerified(link.id, ACTOR);
+    if (opts.verify) {
+      await employment.markVerified(
+        link.id,
+        { method: 'employer_confirmed', note: 'HR confirmed by phone' },
+        ACTOR,
+      );
+    }
     if (opts.employerEvent) {
       await employers.transition(employerId, { event: opts.employerEvent }, ACTOR);
     }
