@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { CollectionsService, SYSTEM_ACTORS } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.COLLECTIONS_BOT, actorType: 'system' as const };
 
@@ -28,6 +29,7 @@ export class CollectionsCron {
   @Cron(CronExpression.EVERY_DAY_AT_8AM, { name: 'collections-sweep' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const summary = await this.collections.runSweep(ACTOR, new Date());
       if (
@@ -50,8 +52,11 @@ export class CollectionsCron {
         'collections sweep complete',
       );
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'collections sweep failed');
       captureWorkerError(err, 'collections');
+    } finally {
+      recordJobRun('collections-sweep', outcome);
     }
   }
 }

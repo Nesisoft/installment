@@ -4,7 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { DeclineReasonReport } from '@installment/core';
 import type { Env } from '../config/env.validation';
-import { captureAlert } from '../common/alerting';
+import { captureAlert, captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const DAY_MS = 86_400_000;
 
@@ -36,6 +37,7 @@ export class DeclineReasonAlertCron {
   @Cron('10 7 * * *', { name: 'decline-reason-alert' })
   async run(now: Date = new Date()): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const rows = await this.report.unrecognised({ since: new Date(now.getTime() - DAY_MS) });
       if (rows.length === 0) return;
@@ -47,7 +49,11 @@ export class DeclineReasonAlertCron {
         { reasons },
       );
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'decline reason alert failed');
+      captureWorkerError(err, 'decline-reason-alert');
+    } finally {
+      recordJobRun('decline-reason-alert', outcome);
     }
   }
 }

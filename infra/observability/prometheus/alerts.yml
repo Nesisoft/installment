@@ -1,0 +1,131 @@
+# Alert rules over the API's /metrics. Each names the runbook that says what to
+# do. They complement the Sentry alerts the jobs raise as things happen: these
+# notice levels that do not fall and jobs that stop running, which an event
+# stream cannot.
+groups:
+  - name: installment-api
+    rules:
+      - alert: InstallmentApiDown
+        expr: up{job="installment-api"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: The API has not answered a scrape for 5 minutes.
+
+      - alert: OpsMetricsUnreadable
+        expr: installment_ops_metrics_up == 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: The backlog gauges could not be read from the database for 10 minutes; they show stale values.
+
+      - alert: HighServerErrorRate
+        expr: |
+          sum(rate(http_request_duration_seconds_count{status=~"5.."}[5m]))
+            / sum(rate(http_request_duration_seconds_count[5m])) > 0.05
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 5% of requests are failing with a 5xx.
+
+      - alert: SlowRequests
+        expr: |
+          histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[10m]))) > 2
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: 'p95 latency above 2s on {{ $labels.route }}.'
+
+  - name: installment-jobs
+    rules:
+      - alert: ScheduledJobFailed
+        expr: increase(installment_job_runs_total{outcome="failure"}[30m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: 'Scheduled job {{ $labels.job }} threw. Sentry has the error.'
+
+      # Last success too long ago, for each cadence. These fire only once a job
+      # has run at least once since the process started.
+      - alert: FrequentJobStale
+        expr: |
+          time() - installment_job_last_success_timestamp_seconds{job=~"refund-disbursement|verify-poll|telco-health-alert"} > 1200
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ $labels.job }} (every 5 minutes) has not succeeded for over 20 minutes.'
+
+      - alert: PayoutReconciliationStale
+        expr: time() - installment_job_last_success_timestamp_seconds{job="payout-reconciliation"} > 5400
+        labels: { severity: warning }
+        annotations:
+          summary: Payout reconciliation (every 30 minutes) has not succeeded for 90 minutes.
+          runbook: docs/runbooks/payouts.md
+
+      - alert: HourlyJobStale
+        expr: |
+          time() - installment_job_last_success_timestamp_seconds{job=~"debit-scheduler|stuck-schedule|ledger-integrity|order-expiry|application-expiry|return-window-close"} > 10800
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ $labels.job }} (hourly) has not succeeded for 3 hours.'
+
+      - alert: DailyJobStale
+        expr: |
+          time() - installment_job_last_success_timestamp_seconds{job=~"daily-settlement|reserve-release-sweep|collections-sweep|late-fee-accrual|pre-debit-reminders|idempotency-reaper|decline-reason-alert|sellers-owing-alert"} > 93600
+        labels: { severity: critical }
+        annotations:
+          summary: '{{ $labels.job }} (daily) has not succeeded for 26 hours.'
+
+  - name: installment-money
+    rules:
+      - alert: LedgerUnbalanced
+        expr: installment_ledger_healthy == 0
+        labels: { severity: critical }
+        annotations:
+          summary: The last ledger integrity check failed.
+          runbook: docs/runbooks/ledger-imbalance.md
+
+      - alert: InstalmentsStuckInProcessing
+        expr: installment_schedules_stuck_processing > 0
+        for: 2h
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ $value }} instalments have had a charge with no outcome for over two hours.'
+          runbook: docs/runbooks/collections.md
+
+      - alert: PayoutsWithoutAnswer
+        expr: installment_payouts_in_flight{status="unknown"} > 0
+        for: 2h
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ $value }} payouts have been unknown for over two hours.'
+          runbook: docs/runbooks/payouts.md
+
+      - alert: SettlementDayHadFailures
+        expr: installment_payouts_latest_day{status=~"failed|reversed"} > 0
+        labels: { severity: warning }
+        annotations:
+          summary: 'The latest settlement day has {{ $value }} {{ $labels.status }} payouts.'
+          runbook: docs/runbooks/payouts.md
+
+      - alert: RefundsWaitingOnAPerson
+        expr: sum(installment_refunds{queue=~"failed|unresolved|to_pay_by_hand"}) > 0
+        for: 24h
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ $value }} refunds have needed a person for over a day.'
+          runbook: docs/runbooks/refunds.md
+
+      - alert: SellersOwingAboveThreshold
+        expr: installment_sellers_owing_pesewas > 500000
+        for: 1h
+        labels: { severity: warning }
+        annotations:
+          summary: Sellers owe Ejua more than GHS 5,000 in total (the SELLERS_OWING_ALERT_PESEWAS default).
+          description: The console's Merchants page lists who owes what, worst first. There is no runbook yet.
+
+      - alert: MobileMoneyNetworkDown
+        expr: installment_telco_status == 2
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Mobile Money on {{ $labels.telco }} has been down for 15 minutes.'
+          runbook: docs/runbooks/collections.md

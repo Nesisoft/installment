@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ReconciliationService, RefundService } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureAlert, captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const SEND_BATCH_LIMIT = 50;
 const RECONCILE_BATCH_LIMIT = 100;
@@ -36,6 +37,7 @@ export class RefundCron {
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'refund-disbursement' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const sent = await this.refunds.runSweep(SEND_BATCH_LIMIT);
       if (sent.attempted > 0) {
@@ -86,8 +88,11 @@ export class RefundCron {
         });
       }
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'refund sweep failed');
       captureWorkerError(err, 'refunds');
+    } finally {
+      recordJobRun('refund-disbursement', outcome);
     }
   }
 }

@@ -4,7 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { TelcoHealthMonitor } from '@installment/core';
 import type { Env } from '../config/env.validation';
-import { captureAlert } from '../common/alerting';
+import { captureAlert, captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 /**
  * Telco health alerter (every 5 minutes). Snapshots Mobile Money network
@@ -27,6 +28,7 @@ export class TelcoAlertCron {
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'telco-health-alert' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const snapshot = await this.telco.snapshot();
       for (const h of snapshot) {
@@ -43,7 +45,11 @@ export class TelcoAlertCron {
         });
       }
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'telco health alert sweep failed');
+      captureWorkerError(err, 'telco-health-alert');
+    } finally {
+      recordJobRun('telco-health-alert', outcome);
     }
   }
 }

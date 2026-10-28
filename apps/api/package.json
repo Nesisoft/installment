@@ -28,6 +28,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/schedule": "^5.0.1",
     "@nestjs/swagger": "^11.0.0",
+    "@prometheus-io/client": "^0.16.1",
     "@sentry/node": "^8.42.0",
     "bullmq": "^5.78.0",
     "drizzle-orm": "^0.45.2",

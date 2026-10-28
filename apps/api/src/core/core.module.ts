@@ -38,6 +38,7 @@ import {
   ReminderRunner,
   ReconciliationService,
   RefundService,
+  OpsMetricsService,
   ReserveReleaseService,
   SettlementService,
   PlanTemplatesService,
@@ -213,6 +214,11 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
       provide: ProductsService,
       useFactory: (db: Database, audit: AuditLogger) => new ProductsService(db, audit),
       inject: [DRIZZLE, AuditLogger],
+    },
+    {
+      provide: OpsMetricsService,
+      useFactory: (db: Database, refunds: RefundService) => new OpsMetricsService(db, refunds),
+      inject: [DRIZZLE, RefundService],
     },
     {
       provide: AdminCatalogService,
@@ -904,6 +910,7 @@ export const STORAGE_DRIVER = Symbol('STORAGE_DRIVER');
     },
   ],
   exports: [
+    OpsMetricsService,
     AuditLogger,
     PasswordService,
     JwtService,

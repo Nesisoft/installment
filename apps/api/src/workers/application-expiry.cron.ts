@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { ApplicationsService, SYSTEM_ACTORS } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.SCHEDULER, actorType: 'worker' as const };
 
@@ -33,14 +34,18 @@ export class ApplicationExpiryCron {
   @Cron(CronExpression.EVERY_HOUR, { name: 'application-expiry' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const expired = await this.applications.expireOverdue(new Date(), ACTOR);
       if (expired > 0) {
         this.logger.info({ expired }, 'application-expiry sweep complete');
       }
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'application-expiry sweep failed');
       captureWorkerError(err, 'application-expiry');
+    } finally {
+      recordJobRun('application-expiry', outcome);
     }
   }
 }

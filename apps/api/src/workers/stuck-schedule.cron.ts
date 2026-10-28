@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { StuckScheduleRunner, SYSTEM_ACTORS } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureAlert, captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.RECONCILER, actorType: 'system' as const };
 
@@ -39,6 +40,7 @@ export class StuckScheduleCron {
   @Cron(CronExpression.EVERY_HOUR, { name: 'stuck-schedule' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const stuckBefore = new Date(Date.now() - STUCK_AFTER_MS);
       const summary = await this.runner.sweep(stuckBefore, ACTOR);
@@ -68,8 +70,11 @@ export class StuckScheduleCron {
         });
       }
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'stuck-schedule sweep failed');
       captureWorkerError(err, 'stuck-schedule');
+    } finally {
+      recordJobRun('stuck-schedule', outcome);
     }
   }
 }

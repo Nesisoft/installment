@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { DebitRunner, SYSTEM_ACTORS } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 const ACTOR = { actorId: SYSTEM_ACTORS.SCHEDULER, actorType: 'system' as const };
 
@@ -29,6 +30,7 @@ export class DebitSchedulerCron {
   @Cron(CronExpression.EVERY_HOUR, { name: 'debit-scheduler' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const summary = await this.debitRunner.sweepDue(new Date(), ACTOR);
       if (summary.attempted === 0) return;
@@ -45,8 +47,11 @@ export class DebitSchedulerCron {
         'auto-debit sweep complete',
       );
     } catch (err) {
+      outcome = 'failure';
       this.logger.error({ err }, 'auto-debit sweep failed');
       captureWorkerError(err, 'debit-scheduler');
+    } finally {
+      recordJobRun('debit-scheduler', outcome);
     }
   }
 }

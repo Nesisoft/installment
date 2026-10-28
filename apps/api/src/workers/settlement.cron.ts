@@ -5,6 +5,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { SettlementService, type DailySettlementSummary } from '@installment/core';
 import type { Env } from '../config/env.validation';
 import { captureAlert, captureWorkerError } from '../common/alerting';
+import { recordJobRun } from '../observability/metrics';
 
 /**
  * Daily merchant payout batch (06:00 UTC). Each merchant we owe gets settled
@@ -27,6 +28,7 @@ export class SettlementCron {
   @Cron(CronExpression.EVERY_DAY_AT_6AM, { name: 'daily-settlement' })
   async run(): Promise<void> {
     if (!this.enabled) return;
+    let outcome: 'success' | 'failure' = 'success';
     try {
       const summary = await this.settlements.runDailySettlement(new Date());
       this.logger.info(
@@ -44,9 +46,12 @@ export class SettlementCron {
       );
       this.alertOnPayoutsThatDidNotGoOut(summary);
     } catch (err) {
+      outcome = 'failure';
       // Cron must never throw — the next tick will retry. Pager logs the error.
       this.logger.error({ err }, 'daily settlement run failed');
       captureWorkerError(err, 'settlement');
+    } finally {
+      recordJobRun('daily-settlement', outcome);
     }
   }
 
