@@ -6,6 +6,7 @@ import {
   ApplicationsService,
   CustomerPlansService,
   LedgerService,
+  MANUAL_CASH_REF,
   Money,
   PLATFORM_ACCOUNT_REF,
   PlanAlreadyActiveError,
@@ -538,7 +539,7 @@ export class OrdersService {
     actor: PlanActor,
     now: Date = new Date(),
   ): Promise<OrderWithItems> {
-    const { provider_reference } = confirmOrderPaymentSchema.parse(rawInput);
+    const { provider_reference, paid_via } = confirmOrderPaymentSchema.parse(rawInput);
 
     const paid = await runInTransaction(this.db, async (tx) => {
       const order = await this.lockOrder(tx, orderId);
@@ -557,12 +558,15 @@ export class OrdersService {
         order_id: order.id,
         order_number: order.order_number,
         provider_reference,
+        paid_via,
       };
       const entries: LedgerEntryInput[] = [
         {
           transactionId,
           accountType: 'paystack_settlement' as const,
-          accountRef: SETTLEMENT_CASH_REF,
+          // Money that never went through Paystack is kept out of the account
+          // that says what Paystack should be holding for us.
+          accountRef: paid_via === 'outside_paystack' ? MANUAL_CASH_REF : SETTLEMENT_CASH_REF,
           direction: 'debit' as const,
           amountPesewas: total,
           description: `Order ${order.order_number} paid`,
@@ -605,6 +609,10 @@ export class OrdersService {
           // order that Paystack had settled would have been parked for somebody
           // to send by hand.
           payment_reference: provider_reference,
+          // Read by the refund for a return: a reference typed in for a bank
+          // transfer is not a Paystack charge, and sending a refund against it
+          // would be refused, or land on someone else's charge.
+          metadata: sql`${o.metadata} || ${JSON.stringify({ paid_via })}::jsonb`,
         })
         .where(and(eq(o.id, order.id), eq(o.status, 'pending_payment')))
         .returning();

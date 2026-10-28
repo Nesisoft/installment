@@ -60,10 +60,14 @@ export function useConfirmOrderPayment(id: string) {
   const api = useApi();
   const invalidate = useOrderInvalidator(id);
   return useMutation({
-    mutationFn: async (args: { providerReference: string; idempotencyKey: string }) => {
+    mutationFn: async (args: {
+      providerReference: string;
+      paidVia: 'paystack' | 'outside_paystack';
+      idempotencyKey: string;
+    }) => {
       const { data } = await api.post<Order>(
         `/admin/orders/${id}/confirm-payment`,
-        { provider_reference: args.providerReference },
+        { provider_reference: args.providerReference, paid_via: args.paidVia },
         { headers: { 'Idempotency-Key': args.idempotencyKey } },
       );
       return data;

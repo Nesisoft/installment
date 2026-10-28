@@ -235,6 +235,11 @@ export function RefundsPage() {
                             charge {row.provider_transaction_reference}
                           </div>
                         ) : null}
+                        {row.paystack_refund_id ? (
+                          <div title="The refund Paystack holds for it">
+                            Paystack refund {row.paystack_refund_id}
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell className="text-right">
                         {action === 'send' ? (

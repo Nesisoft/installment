@@ -347,6 +347,7 @@ export {
   RefundService,
   RefundNotFoundError,
   RefundNotSettleableError,
+  RefundOutcomeConflictError,
   refundReference,
   REFUND_QUEUES,
   listRefundsSchema,

@@ -292,15 +292,18 @@ export class ReconciliationService {
       if (!providerRefundId) {
         const found = await this.findProviderRefund(row);
         if ('reason' in found) {
+          await this.recordRefundVerdict(row, found.reason);
           summary.unresolved += 1;
           summary.results.push({ ...base, outcome: 'unresolved', reason: found.reason });
           continue;
         }
         providerRefundId = found.id;
+        // Found at Paystack, so it is in flight, not unresolved: Paystack is
+        // paying it, and the console must not offer to pay it by hand too.
         await this.db
           .update(refunds)
-          .set({ paystack_refund_id: providerRefundId })
-          .where(eq(refunds.id, row.id));
+          .set({ paystack_refund_id: providerRefundId, status: 'pending_confirmation' })
+          .where(and(eq(refunds.id, row.id), inArray(refunds.status, ['unknown', 'initiated'])));
       }
 
       let status: string;
@@ -308,12 +311,10 @@ export class ReconciliationService {
         const res = await this.refundVerifier.verifyRefund(providerRefundId);
         status = (res.data?.status ?? '').toLowerCase();
       } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        await this.recordRefundVerdict(row, `could not verify at Paystack: ${reason}`);
         summary.unresolved += 1;
-        summary.results.push({
-          ...base,
-          outcome: 'unresolved',
-          reason: err instanceof Error ? err.message : String(err),
-        });
+        summary.results.push({ ...base, outcome: 'unresolved', reason });
         continue;
       }
 
@@ -333,20 +334,41 @@ export class ReconciliationService {
           summary.failed += 1;
           summary.results.push({ ...base, outcome: 'failed', reason: 'refund failed' });
         } else {
+          // Paystack has it and is still working on it. A row that learnt its
+          // refund id before this was recorded may still read `unknown`.
+          if (row.status === 'unknown' || row.status === 'initiated') {
+            await this.db
+              .update(refunds)
+              .set({ status: 'pending_confirmation' })
+              .where(and(eq(refunds.id, row.id), eq(refunds.status, row.status)));
+          }
           summary.stillPending += 1;
           summary.results.push({ ...base, outcome: 'still_pending', reason: status || 'pending' });
         }
       } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        await this.recordRefundVerdict(row, reason);
         summary.unresolved += 1;
-        summary.results.push({
-          ...base,
-          outcome: 'unresolved',
-          reason: err instanceof Error ? err.message : String(err),
-        });
+        summary.results.push({ ...base, outcome: 'unresolved', reason });
       }
     }
 
     return summary;
+  }
+
+  /**
+   * Saves why a refund could not be resolved where the console shows it. The
+   * reasons used to exist only in this run's summary, and the row kept the
+   * send's error — so a person could not tell "Paystack holds nothing for this
+   * charge", which is safe to pay by hand, from "found it, could not match it".
+   * Best-effort: failing to record the verdict must not stop the sweep.
+   */
+  private async recordRefundVerdict(row: Refund, verdict: string): Promise<void> {
+    await this.db
+      .update(refunds)
+      .set({ last_error: `Reconciler: ${verdict}` })
+      .where(and(eq(refunds.id, row.id), eq(refunds.status, row.status)))
+      .catch(() => undefined);
   }
 
   /**
@@ -378,7 +400,7 @@ export class ReconciliationService {
       if (candidates.length === 0) {
         return {
           reason:
-            'no refund at Paystack for this charge — it was never created; check, then re-send',
+            'no refund at Paystack for this charge — it was never created; check the dashboard, and if there is none, pay it by hand',
         };
       }
       const match = await this.refundService!.matchProviderRefund(row, candidates);

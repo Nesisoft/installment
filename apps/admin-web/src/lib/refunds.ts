@@ -14,14 +14,15 @@ export const REFUND_QUEUE_INFO: Record<
   },
   in_flight: {
     label: 'With Paystack',
-    detail: 'Paystack accepted it. The reconciler records the outcome when Paystack has one.',
+    detail:
+      'Paystack holds a refund for it and is paying it. The reconciler records the outcome. Never pay one of these by hand.',
     tone: 'info',
     attention: false,
   },
   unresolved: {
     label: 'Unresolved',
     detail:
-      'Sent, or possibly sent, with no answer. Never send it again — a second send is a second refund. Look the charge up in the Paystack dashboard; see docs/runbooks/refunds.md.',
+      "Sent, or possibly sent, and no refund found at Paystack yet. Never send it again — a second send is a second refund. Read the reconciler's reason; see docs/runbooks/refunds.md.",
     tone: 'warning',
     attention: true,
   },

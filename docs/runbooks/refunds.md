@@ -1,8 +1,11 @@
 # Runbook — refunds that have not reached the customer
 
-**Alerts:** `refunds could not be sent`, `refunds could not be reconciled`
-**Source:** `RefundCron` (every 5 minutes)
-**Severity:** high — a customer is waiting for money we owe them.
+**Alerts:**
+
+- `refunds could not be sent`, `refunds could not be reconciled` (from `RefundCron`, every 5 minutes);
+- a webhook alert naming a refund that Paystack reports processed after it was refused or paid by hand (see §5).
+
+**Severity:** high — a customer is waiting for money we owe them, or may have been paid twice.
 **Console:** Refunds (`/refunds`). Each card is a queue; click one to list it.
 
 ---
@@ -17,36 +20,44 @@ refund itself. Nothing has been paid yet. The worker then:
 2. **reconciles** the ones in flight, asking Paystack what became of them.
 
 When Paystack reports the refund processed, the row is `succeeded` and
-`refund_payable` is debited against `paystack_settlement`. That is the only
-point at which the customer has been paid.
+`refund_payable` is debited against `paystack_settlement['main']`. That is the
+only point at which the customer has been paid.
 
 **Paystack's refund API takes no client reference.** Sending the same refund
 twice creates two refunds. Everything below is shaped by that: a refund that
-_may_ have reached Paystack is never sent again.
+_may_ have reached Paystack is never sent again, and never paid by hand while
+Paystack may be paying it.
 
 ---
 
 ## The queues
 
-| Queue                   | Meaning                                                    | Who acts          |
-| ----------------------- | ---------------------------------------------------------- | ----------------- |
-| **To send**             | Not sent yet.                                              | The worker        |
-| **With Paystack**       | Paystack accepted it; outcome pending.                     | The reconciler    |
-| **Unresolved**          | Sent, or possibly sent, with no usable answer.             | A person — see §2 |
-| **Refused by Paystack** | Paystack declined to create it. Customer still owed.       | A person — see §1 |
-| **To pay by hand**      | The money came in outside Paystack; it goes back that way. | A person — see §3 |
-| **Paid**                | Done.                                                      | —                 |
+| Queue                   | Meaning                                                          | Who acts          |
+| ----------------------- | ---------------------------------------------------------------- | ----------------- |
+| **To send**             | Not sent yet.                                                    | The worker        |
+| **With Paystack**       | Paystack holds a refund for it and is processing it.             | The reconciler    |
+| **Unresolved**          | Sent, or possibly sent, and no refund found at Paystack yet.     | A person — see §2 |
+| **Refused by Paystack** | Paystack refused it, or reported it failed. Customer still owed. | A person — see §1 |
+| **To pay by hand**      | The money came in outside Paystack; it goes back that way.       | A person — see §3 |
+| **Paid**                | Done.                                                            | —                 |
 
-The dashboard's "Refunds needing a person" card counts the last three that
-need a person: refused, unresolved and to pay by hand.
+"With Paystack" includes a refund whose send timed out but which the
+reconciler then found at Paystack: it is being paid, whatever happened to the
+send. The dashboard's "Refunds needing a person" card counts the three queues
+that need a person: refused, unresolved and to pay by hand.
+
+Each row shows our refund reference and, under it, the **charge** — the
+original payment as Paystack knows it. That is what to look up in the Paystack
+dashboard.
 
 ---
 
 ## 1. Refused by Paystack (`failed`)
 
-Paystack answered and said no — the row's reason says why, in Paystack's
-words (`Refund amount exceeds transaction amount`, `Transaction not found`,
-…). No refund exists at Paystack and none will.
+Paystack refused to create the refund — the row's reason says why, in
+Paystack's words (`Refund amount exceeds transaction amount`, `Transaction not
+found`, …) — or created it and later reported it failed. Either way Paystack
+will not pay it.
 
 1. Read the reason. If it points at our data (wrong amount, wrong charge),
    raise it with engineering before paying anything — the books may be wrong
@@ -57,41 +68,78 @@ words (`Refund amount exceeds transaction amount`, `Transaction not found`,
    (`MoMo transfer to 024…, ref 7781`). This books the discharge and closes
    the refund. The note and who recorded it are in the audit trail.
 
-## 2. Unresolved (`unknown`, or claimed for sending with nothing recorded)
+## 2. Unresolved
 
 The send may or may not have reached Paystack — a timeout, a dropped
-connection, a crash between sending and recording. The reconciler keeps
-looking: it finds the refund at Paystack by the charge's id when it can, and
-settles or fails it from there. A row stays here when it cannot.
+connection, a crash between sending and recording. Every 5 minutes the
+reconciler looks the charge up at Paystack and lists its refunds:
 
-**Do not send it again.** Instead:
+- one refund of this amount that no other row has claimed → it adopts it, and
+  the row moves to **With Paystack**;
+- anything else → the row stays here, and the reconciler writes what it saw
+  as the row's reason, starting `Reconciler:`.
 
-1. Copy the row's **charge** reference (shown under the refund reference).
-2. In the Paystack dashboard, open **Transactions**, find that charge, and look
-   at its refunds.
-3. **If the charge shows a refund for this amount**, do not pay anything.
-   Paystack has it. The reconciler could not tell which refund is this one
-   (the row's reason says what it saw — usually two refunds of the same
-   amount). Give engineering the Paystack refund id: once it is recorded on
-   the row (`refunds.paystack_refund_id`), the next reconciliation settles or
-   fails it from Paystack's own answer.
-4. **If the charge shows no refund**, nothing will ever pay this customer.
-   Pay them another way, then **Mark paid by hand**: tick that you checked the
-   Paystack dashboard and found no refund, and record how you paid. The API
-   refuses this without both.
+A refund sent less than two minutes ago cannot be marked paid at all: its
+call may still be out.
+
+**Do not send it again.** Read the reason:
+
+- **`Reconciler: no refund at Paystack for this charge`** — Paystack holds
+  nothing for the charge. Confirm it yourself: in the Paystack dashboard, open
+  **Transactions**, find the charge shown on the row, and look at its refunds.
+  If there are none, nothing will ever pay this customer: pay them another
+  way, then **Mark paid by hand**. You will be asked to tick that you checked
+  the Paystack dashboard and found no refund, and to say how you paid; the API
+  refuses without both.
+- **`Reconciler: N refund(s) at Paystack for this charge, none an unclaimed match`**
+  — Paystack holds refunds on the charge, but none the reconciler could tell
+  is this one (usually two of the same amount). **Pay nothing.** Find the right
+  one in the dashboard and give engineering its refund id: once it is recorded
+  on the row (`refunds.paystack_refund_id`), the next reconciliation follows it.
+- **`Reconciler: could not verify at Paystack: …`** — Paystack or the network
+  failed. It retries every 5 minutes; act only if it persists.
+- A send error with no `Reconciler:` reason — the reconciler has not looked
+  yet. Wait for the next run.
+- Any other `Reconciler:` reason (no charge reference, no transaction id from
+  Paystack) — raise it with engineering. Pay nothing until it is understood.
 
 ## 3. To pay by hand (`manual`)
 
-The original payment never went through Paystack — cash to a field agent, a
-manual bank transfer — so there is no charge to refund against. Pay it back
-the same way, then **Mark paid by hand** with how.
+The original payment never went through Paystack, so there is no charge to
+refund against:
+
+- an instalment recorded as a manual payment (cash to a field agent, a bank
+  transfer);
+- an order whose payment was confirmed in the console as **Outside Paystack**.
+
+Pay it back the same way, then **Mark paid by hand** with how.
+
+A refund can be marked paid by hand once. A second attempt is refused with the
+time it was paid, so two people paying the same customer find out before the
+second payment, not after.
 
 ## 4. With Paystack, for a long time (`pending_confirmation`)
 
-Paystack accepted it and is processing. Mobile Money refunds can take days.
-Nothing to do unless it is weeks old; then check the refund in the Paystack
-dashboard and raise it with Paystack support. **Never** pay one of these by
-hand: Paystack is already paying it, and the API refuses.
+Paystack holds the refund and is processing it. Mobile Money refunds can take
+days. Nothing to do unless it is weeks old; then check the refund in the
+Paystack dashboard and raise it with Paystack support. **Never** pay one of
+these by hand: Paystack is already paying it, and the API refuses.
+
+## 5. Paystack reports processed a refund recorded refused, or paid by hand
+
+The webhook alert reads `Paystack reports it processed, but it was already
+paid by hand — the customer may have been paid twice`, or `… but it is recorded
+as refused`. The event is closed and nothing is booked, so the books still show
+the one payment they know of.
+
+1. In the Paystack dashboard, confirm the refund really was processed, and for
+   how much.
+2. If the customer was also paid by hand, they have been paid twice. Contact
+   them to recover the duplicate, and tell finance: the books show one payment
+   out, and the provider balance will show the other.
+3. If the row is `failed` and nobody has paid it by hand, the customer has
+   their money. Do **not** pay it by hand; raise it with engineering to record
+   the Paystack refund against the row.
 
 ---
 
@@ -110,7 +158,8 @@ POST /admin/refunds/<reference>/settle-manual
 
 ```sql
 -- Everything still owed, oldest first.
-SELECT reference, status, method, amount_pesewas, requested_at, submitted_at, last_error
+SELECT reference, status, method, amount_pesewas, requested_at, submitted_at,
+       paystack_refund_id, last_error
 FROM refunds
 WHERE status NOT IN ('succeeded')
 ORDER BY requested_at;
@@ -121,7 +170,14 @@ FROM ledger_entries
 WHERE account_type = 'refund_payable'
 GROUP BY account_ref
 HAVING sum(CASE direction WHEN 'credit' THEN amount_pesewas ELSE -amount_pesewas END) <> 0;
+
+-- Refunds paid by hand: their cash left outside Paystack.
+SELECT transaction_id, amount_pesewas, occurred_at
+FROM ledger_entries
+WHERE transaction_id LIKE 'refund-paid:%'
+  AND account_type = 'paystack_settlement' AND account_ref = 'manual';
 ```
 
-A refund paid by hand books the same entries as one Paystack paid
-(`refund-paid:<reference>`), so the second query goes to zero either way.
+A refund Paystack paid books its cash out of `paystack_settlement['main']`,
+which is what Paystack should be holding for us. One paid by hand books it out
+of `paystack_settlement['manual']`, so it never disturbs that figure.

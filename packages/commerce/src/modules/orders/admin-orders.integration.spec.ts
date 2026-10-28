@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { createTestDb, schema } from '@installment/db';
 import {
   ApplicationsService,
@@ -222,6 +223,47 @@ describe.skipIf(!RUN_DB)('AdminOrdersService (integration)', () => {
       status: 'approved',
       reason: 'Wrong colour',
       refund: { status: 'initiated', amount_pesewas: asked.refund_amount_pesewas },
+    });
+  });
+
+  it('refunds a return by hand when the payment came in outside Paystack', async () => {
+    // A bank transfer's reference is not a Paystack charge: sending a refund
+    // against it is refused, or lands on somebody else's charge.
+    const { merchantId, storeId } = await shop('Transfer');
+    const buyer = await freshCustomer();
+    const byTransfer = await unpaid(storeId, 20_000, 1, buyer);
+    await orders.confirmPayment(
+      byTransfer.id,
+      { provider_reference: 'GCB TRF 7781', paid_via: 'outside_paystack' },
+      ACTOR,
+    );
+    const cash = await db
+      .select()
+      .from(schema.ledger_entries)
+      .where(eq(schema.ledger_entries.transaction_id, `order-payment:${byTransfer.id}`));
+    expect(cash.find((e) => e.account_type === 'paystack_settlement')?.account_ref).toBe('manual');
+
+    const asked = await returns.request(buyer.id, byTransfer.id, { reason: 'Changed my mind' });
+    await returns.approve(asked.id, ACTOR, { merchantId });
+    const [refund] = await db
+      .select()
+      .from(schema.refunds)
+      .where(eq(schema.refunds.order_return_id, asked.id));
+    expect(refund).toMatchObject({ method: 'manual', provider_transaction_reference: null });
+
+    // Through Paystack — the default, and what the webhook settles — it still
+    // goes back through the charge.
+    const byCharge = await unpaid(storeId, 20_000, 1, buyer);
+    await orders.confirmPayment(byCharge.id, { provider_reference: 'ps_ref_123' }, ACTOR);
+    const again = await returns.request(buyer.id, byCharge.id, { reason: 'Too small' });
+    await returns.approve(again.id, ACTOR, { merchantId });
+    const [viaPaystack] = await db
+      .select()
+      .from(schema.refunds)
+      .where(eq(schema.refunds.order_return_id, again.id));
+    expect(viaPaystack).toMatchObject({
+      method: 'paystack',
+      provider_transaction_reference: 'ps_ref_123',
     });
   });
 

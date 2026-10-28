@@ -96,7 +96,8 @@ export class RefundsController {
       'Paystack refused (`failed`) and that was then paid some other way. `note` records how ' +
       'it was paid. An `unresolved` refund needs `checked_paystack: true` and a `note`: the ' +
       'caller looked the charge up in the Paystack dashboard and it carries no refund. ' +
-      'Refused (409) for one Paystack accepted and is still processing (`in_flight`).',
+      'Refused (409) for one Paystack holds and is still processing (`in_flight`), one sent in ' +
+      'the last two minutes, and one already paid.',
   })
   settleManual(
     @Param('reference') reference: string,

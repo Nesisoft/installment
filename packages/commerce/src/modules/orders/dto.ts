@@ -117,6 +117,14 @@ export type CancelOrderInput = z.infer<typeof cancelOrderSchema>;
 
 export const confirmOrderPaymentSchema = z.object({
   provider_reference: z.string().trim().min(1).max(200),
+  /**
+   * Where the money came in. `paystack` (the default — the webhook and the
+   * checkout's own confirmation) means `provider_reference` is a Paystack
+   * charge, and a refund goes back through it. `outside_paystack` is a bank
+   * transfer, cash, or Mobile Money to our own account recorded by staff: its
+   * cash is booked apart from Paystack's, and a refund is paid back by hand.
+   */
+  paid_via: z.enum(['paystack', 'outside_paystack']).default('paystack'),
 });
 export type ConfirmOrderPaymentInput = z.infer<typeof confirmOrderPaymentSchema>;
 

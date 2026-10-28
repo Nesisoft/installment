@@ -533,6 +533,51 @@ describe.skipIf(!RUN_DB)('Refund lifecycle (integration)', () => {
     expect(await ledger.balanceOf('refund_payable', second.plan.id)).toBe(0);
   });
 
+  it('raises a refund.processed for one already paid by hand, and closes the event', async () => {
+    // Paystack refused it, so a person paid the customer another way. If
+    // Paystack then reports it processed after all, the customer may have
+    // been paid twice — which needs a person, not a retry loop.
+    const refunds = serviceWith(refundClient('failed'));
+    const plans = plansWith(refunds);
+    const { plan, schedule } = await activate(plans);
+    await plans.recordManualPayment(schedule[0]!.id, {}, ACTOR);
+    const chargeRef = await chargedByPaystack(schedule[0]!.id, plan.id, 25_000);
+    await plans.refundInstallment(schedule[0]!.id, {}, ACTOR);
+    const reference = refundReference(schedule[0]!.id);
+    await refunds.disburse(reference);
+    await refunds.settleManual(
+      reference,
+      { actorId: ACTOR.actorId, actorType: 'admin' },
+      { note: 'MoMo transfer' },
+    );
+    expect(await ledger.balanceOf('refund_payable', plan.id)).toBe(0);
+
+    const alerts: Array<{ reason: string }> = [];
+    const webhooks = new WebhookService(
+      db,
+      { verifySignature: () => true },
+      new AttemptRepository(db),
+      plans,
+      new ScheduleStateService(db, audit, new RedisLock(ALWAYS_OPEN), new EventBus()),
+      undefined,
+      { unhandled: (d) => void alerts.push(d) },
+      undefined,
+      refunds,
+    );
+    const result = await webhooks.ingest(
+      JSON.stringify({
+        event: 'refund.processed',
+        data: { transaction_reference: chargeRef, status: 'processed', amount: 25_000 },
+      }),
+      'sig',
+    );
+
+    expect(result.processed).toBe(true);
+    expect(alerts.map((a) => a.reason)).toEqual([expect.stringMatching(/paid by hand/)]);
+    // Nothing more is booked: the books keep the one payment they know of.
+    expect(await ledger.balanceOf('refund_payable', plan.id)).toBe(0);
+  });
+
   it('books the discharge against the platform cash account', async () => {
     const refunds = serviceWith(refundClient('processed'));
     const plans = plansWith(refunds);

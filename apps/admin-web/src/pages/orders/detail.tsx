@@ -56,6 +56,7 @@ export function OrderDetailPage() {
   const cancel = useCancelOrder(id);
 
   const [paymentRef, setPaymentRef] = useState('');
+  const [paidVia, setPaidVia] = useState<'paystack' | 'outside_paystack' | null>(null);
   // Minted when the form is first submitted, reused if that submit is retried.
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -69,11 +70,11 @@ export function OrderDetailPage() {
   function onConfirm(e: FormEvent) {
     e.preventDefault();
     const reference = paymentRef.trim();
-    if (!reference) return;
+    if (!reference || !paidVia) return;
     const key = confirmKey ?? newIdempotencyKey(`order-pay-${id}`);
     setConfirmKey(key);
     confirm.mutate(
-      { providerReference: reference, idempotencyKey: key },
+      { providerReference: reference, paidVia, idempotencyKey: key },
       { onSuccess: () => setConfirmKey(null) },
     );
   }
@@ -106,31 +107,75 @@ export function OrderDetailPage() {
           <CardHeader>
             <CardTitle className="text-base">Confirm payment</CardTitle>
             <CardDescription>
-              For money that arrived outside the checkout — a bank transfer, cash on delivery, a
-              Mobile Money payment reconciled by hand. This books the payment, the seller&apos;s
-              share and the commission, and commits the stock.
+              For a payment the checkout did not record. This books the payment, the seller&apos;s
+              share and the commission, and commits the stock. Where the money came in decides how a
+              refund for this order is paid back, so it matters.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={onConfirm} className="flex flex-wrap items-end gap-3">
-              <div className="min-w-64 flex-1 space-y-2">
-                <Label htmlFor="payment-ref">Payment reference</Label>
-                <Input
-                  id="payment-ref"
-                  required
-                  maxLength={200}
-                  placeholder="Transfer reference, receipt or till number"
-                  value={paymentRef}
-                  onChange={(e) => {
-                    setPaymentRef(e.target.value);
-                    // A different reference is a different request.
-                    setConfirmKey(null);
-                  }}
-                />
+            <form onSubmit={onConfirm} className="space-y-4">
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">Where did the money come in?</legend>
+                {(
+                  [
+                    {
+                      value: 'paystack',
+                      title: 'Through Paystack',
+                      detail:
+                        'A Paystack charge the order missed — enter its Paystack reference. A refund goes back through it.',
+                    },
+                    {
+                      value: 'outside_paystack',
+                      title: 'Outside Paystack',
+                      detail:
+                        'A bank transfer, cash, or Mobile Money to our own account — enter its transfer or receipt reference. A refund is paid back by hand.',
+                    },
+                  ] as const
+                ).map((c) => (
+                  <label key={c.value} className="flex cursor-pointer gap-3 text-sm">
+                    <input
+                      type="radio"
+                      name="paid-via"
+                      className="mt-1"
+                      checked={paidVia === c.value}
+                      onChange={() => {
+                        setPaidVia(c.value);
+                        setConfirmKey(null);
+                      }}
+                    />
+                    <span>
+                      <span className="font-medium">{c.title}</span>
+                      <span className="block text-muted-foreground">{c.detail}</span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-64 flex-1 space-y-2">
+                  <Label htmlFor="payment-ref">
+                    {paidVia === 'outside_paystack'
+                      ? 'Transfer or receipt reference'
+                      : 'Paystack reference'}
+                  </Label>
+                  <Input
+                    id="payment-ref"
+                    required
+                    maxLength={200}
+                    value={paymentRef}
+                    onChange={(e) => {
+                      setPaymentRef(e.target.value);
+                      // A different reference is a different request.
+                      setConfirmKey(null);
+                    }}
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  disabled={confirm.isPending || !paymentRef.trim() || !paidVia}
+                >
+                  {confirm.isPending ? 'Booking…' : `Confirm ${formatGhs(o.total_pesewas)} paid`}
+                </Button>
               </div>
-              <Button type="submit" disabled={confirm.isPending || !paymentRef.trim()}>
-                {confirm.isPending ? 'Booking…' : `Confirm ${formatGhs(o.total_pesewas)} paid`}
-              </Button>
             </form>
             {confirm.isError ? (
               <p className="mt-3 text-sm text-destructive">{apiErrorMessage(confirm.error)}</p>
@@ -191,7 +236,14 @@ export function OrderDetailPage() {
             <Field label="Delivery" value={formatGhs(o.shipping_pesewas)} />
             <Field label="Discount" value={formatGhs(o.discount_pesewas)} />
             <Field label="Total" value={formatGhs(o.total_pesewas)} />
-            <Field label="Payment reference" value={o.payment_reference ?? '—'} />
+            <Field
+              label="Payment reference"
+              value={
+                o.payment_reference
+                  ? `${o.payment_reference}${o.metadata?.paid_via === 'outside_paystack' ? ' (outside Paystack)' : ''}`
+                  : '—'
+              }
+            />
             <Field
               label="Booked"
               value={o.settlement.bookedAt ? formatDateTime(o.settlement.bookedAt) : 'Nothing yet'}
