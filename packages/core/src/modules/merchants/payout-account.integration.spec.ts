@@ -71,7 +71,12 @@ function stubGuard() {
   const otpStore: OtpStore = {
     set: async (key, value) => void store.set(key, value),
     get: async (key) => store.get(key) ?? null,
-    del: async (key) => void store.delete(key),
+    del: async (key) => (store.delete(key) ? 1 : 0),
+    incr: async (key) => {
+      const n = Number(store.get(key) ?? 0) + 1;
+      store.set(key, String(n));
+      return n;
+    },
   };
   const texts: { to: string; message: string }[] = [];
   const notices: { toAddress: string; templateId: string; variables: Record<string, string> }[] =
