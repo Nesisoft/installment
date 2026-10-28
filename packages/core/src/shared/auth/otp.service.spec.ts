@@ -10,9 +10,13 @@ class FakeOtpStore implements OtpStore {
   get(key: string): Promise<string | null> {
     return Promise.resolve(this.map.get(key) ?? null);
   }
-  del(key: string): Promise<void> {
-    this.map.delete(key);
-    return Promise.resolve();
+  del(key: string): Promise<number> {
+    return Promise.resolve(this.map.delete(key) ? 1 : 0);
+  }
+  incr(key: string): Promise<number> {
+    const n = Number(this.map.get(key) ?? 0) + 1;
+    this.map.set(key, String(n));
+    return Promise.resolve(n);
   }
 }
 
@@ -76,5 +80,50 @@ describe('OtpService', () => {
     const b = await svc.start('+233200000002');
     expect(await svc.verify('+233200000001', b.code)).toBe(false);
     expect(await svc.verify('+233200000001', a.code)).toBe(true);
+  });
+
+  // The store's operations are each atomic, but nothing held verify's steps
+  // together: these interleave several verifies at their awaits, as concurrent
+  // requests against Redis do.
+
+  it('holds the attempt cap against guesses sent all at once', async () => {
+    const store = new FakeOtpStore();
+    const svc = new OtpService(store, { maxAttempts: 5 });
+    const { code } = await svc.start(TARGET);
+    const wrong = code === '000000' ? '000001' : '000000';
+
+    // Twenty at once each read "no attempts yet" and wrote back one, so the
+    // cap of five let all twenty through and the code still worked after.
+    const results = await Promise.all(Array.from({ length: 20 }, () => svc.verify(TARGET, wrong)));
+    expect(results.every((ok) => !ok)).toBe(true);
+    expect(await svc.verify(TARGET, code)).toBe(false);
+  });
+
+  it('lets one of two simultaneous correct verifies use the code', async () => {
+    const svc = new OtpService(new FakeOtpStore());
+    const { code } = await svc.start(TARGET);
+    const results = await Promise.all([svc.verify(TARGET, code), svc.verify(TARGET, code)]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+  });
+
+  it('does not bring a used code back when a wrong guess races it', async () => {
+    const svc = new OtpService(new FakeOtpStore());
+    const { code } = await svc.start(TARGET);
+    const wrong = code === '000000' ? '000001' : '000000';
+    // The wrong guess read the record before the right one deleted it, then
+    // wrote it back with one more attempt — and the used code worked again.
+    await Promise.all([svc.verify(TARGET, code), svc.verify(TARGET, wrong)]);
+    expect(await svc.verify(TARGET, code)).toBe(false);
+  });
+
+  it('gives a new code a fresh count of attempts', async () => {
+    const svc = new OtpService(new FakeOtpStore(), { maxAttempts: 3 });
+    await svc.start(TARGET);
+    await svc.verify(TARGET, 'xxxxxx');
+    await svc.verify(TARGET, 'xxxxxx');
+    const { code } = await svc.start(TARGET);
+    expect(await svc.verify(TARGET, 'xxxxxx')).toBe(false);
+    expect(await svc.verify(TARGET, 'xxxxxx')).toBe(false);
+    expect(await svc.verify(TARGET, code)).toBe(true);
   });
 });

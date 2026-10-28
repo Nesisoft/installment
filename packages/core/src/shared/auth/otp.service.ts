@@ -1,13 +1,18 @@
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 
 /**
- * Narrow KV port for OTP storage. ioredis satisfies it structurally; keeping
- * it small means @installment/core needn't depend on a redis client.
+ * Narrow KV port for OTP storage, kept small so @installment/core needn't
+ * depend on a redis client. `del` and `incr` must be atomic: they are what
+ * make a code single-use and the attempt cap a cap when guesses arrive
+ * concurrently (`RedisOtpStore` maps them to DEL and an INCR script).
  */
 export interface OtpStore {
   set(key: string, value: string, ttlMs: number): Promise<void>;
   get(key: string): Promise<string | null>;
-  del(key: string): Promise<void>;
+  /** Removes the key; resolves to how many keys were removed (0 or 1). */
+  del(key: string): Promise<number>;
+  /** Adds one to a counter, creating it at 1 with `ttlMs` to live; resolves to the new value. */
+  incr(key: string, ttlMs: number): Promise<number>;
 }
 
 export interface OtpOptions {
@@ -29,7 +34,6 @@ export interface OtpStartResult {
 
 interface OtpRecord {
   hash: string;
-  attempts: number;
   expiresAt: number;
 }
 
@@ -49,7 +53,17 @@ function constantTimeEquals(a: string, b: string): boolean {
 /**
  * One-time passcode issuance + verification, backed by an {@link OtpStore}.
  * The plaintext code is only ever returned from {@link start}; storage holds a
- * salted hash. Codes are burned after success or after maxAttempts failures.
+ * salted hash. Codes are burned after success or after maxAttempts attempts.
+ *
+ * Verification used to read the record, compare, and write the attempt count
+ * back — three steps with nothing holding them together. Guesses sent at once
+ * all read the same count and each wrote back one more, so the five-attempt
+ * cap allowed as many guesses as could be sent in parallel; two correct
+ * verifies at once both succeeded; and a wrong guess that had read the record
+ * before a correct one deleted it wrote it back, so a used code worked again.
+ * Now each attempt is counted by an atomic increment before the code is
+ * looked at, failures write nothing back, and a code is used by whichever
+ * caller's delete actually removed it.
  */
 export class OtpService {
   private readonly ttlMs: number;
@@ -72,8 +86,10 @@ export class OtpService {
     const max = 10 ** this.codeLength;
     const code = String(randomInt(0, max)).padStart(this.codeLength, '0');
     const expiresAt = Date.now() + this.ttlMs;
-    const record: OtpRecord = { hash: hashCode(target, code), attempts: 0, expiresAt };
+    const record: OtpRecord = { hash: hashCode(target, code), expiresAt };
     await this.store.set(this.key(target), JSON.stringify(record), this.ttlMs);
+    // A new code gets a fresh count.
+    await this.store.del(this.attemptsKey(target));
     return { code, expiresAt: new Date(expiresAt) };
   }
 
@@ -87,27 +103,42 @@ export class OtpService {
     if (!raw) return false;
 
     const record = JSON.parse(raw) as OtpRecord;
-    if (record.expiresAt <= Date.now()) {
-      await this.store.del(this.key(target));
+    const remainingTtl = record.expiresAt - Date.now();
+    if (remainingTtl <= 0) {
+      await this.burn(target);
+      return false;
+    }
+
+    // Counted before the code is compared, so guesses that arrive together
+    // each get their own number and the cap holds.
+    const attempt = await this.store.incr(this.attemptsKey(target), remainingTtl);
+    if (attempt > this.maxAttempts) {
+      await this.burn(target);
       return false;
     }
 
     if (constantTimeEquals(record.hash, hashCode(target, code))) {
-      await this.store.del(this.key(target));
-      return true;
+      // Whoever removes the code uses it; a concurrent second caller finds it
+      // already gone.
+      const consumed = await this.store.del(this.key(target));
+      await this.store.del(this.attemptsKey(target));
+      return consumed === 1;
     }
 
-    record.attempts += 1;
-    if (record.attempts >= this.maxAttempts) {
-      await this.store.del(this.key(target));
-    } else {
-      const remainingTtl = record.expiresAt - Date.now();
-      await this.store.set(this.key(target), JSON.stringify(record), remainingTtl);
-    }
+    if (attempt >= this.maxAttempts) await this.burn(target);
     return false;
+  }
+
+  private async burn(target: string): Promise<void> {
+    await this.store.del(this.key(target));
+    await this.store.del(this.attemptsKey(target));
   }
 
   private key(target: string): string {
     return `${this.keyPrefix}${target}`;
+  }
+
+  private attemptsKey(target: string): string {
+    return `${this.keyPrefix}attempts:${target}`;
   }
 }
