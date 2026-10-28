@@ -25,11 +25,27 @@ pnpm openapi:emit   # builds the workspace, boots headless, writes docs/api/open
   — the same builder feeds the live Swagger UI at `GET /docs` (JSON at `/docs-json`).
 - Emitter: `apps/api/src/tools/emit-openapi.ts`.
 
-## Scope note — request/response schemas
+## What the spec describes
 
-Request bodies are validated with **Zod inside the domain services**, so the
-controllers type bodies as `unknown`. As a result this spec currently documents
-routes, params, auth, and tags but **not** detailed request/response body
-schemas. Enriching the spec (Zod → OpenAPI) is the prerequisite for generating a
-fully-typed `@installment/api-types` client for the web/mobile apps — deferred
-until that enrichment lands (roadmap Phase 11 follow-on).
+Every route, with its method, path and query parameters, tags, Bearer-auth requirement and,
+where the controller declares one, a summary. Beyond that, coverage is partial — as of the
+2026-10-28 regeneration, of 263 operations:
+
+- **85 document their request body.** `@ApiZodBody(schema)` (`apps/api/src/common/api-zod.ts`)
+  converts the same Zod schema the service validates with, so a documented body cannot drift
+  from what is accepted. The remaining bodies are typed `unknown` in the controller and appear
+  without a schema.
+- **134 document their response.** `@ApiModel('Name')` (`apps/api/src/common/api-model.ts`)
+  points at a component schema derived from the Drizzle table (`apps/api/src/openapi.ts`), so the
+  read models track the database. Composite responses — lists with totals, console rows with
+  joined names — mostly appear without one.
+
+To close a gap, add `@ApiZodBody` with the service's schema, or `@ApiModel` with a component, to
+the route and regenerate.
+
+## Relationship to `@installment/api-types`
+
+`packages/api-types` is **not** generated from this file. It is written by hand for the web and
+mobile apps, and `apps/api/src/common/api-types-mirror.spec.ts` holds the parts that must match
+the backend — enums, permissions, Zod schemas, product fields — to it in CI. This spec is for
+partners and for anyone reading the API from outside the repo.

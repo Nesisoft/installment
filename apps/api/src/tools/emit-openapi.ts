@@ -7,9 +7,9 @@ import { buildOpenApiDocument } from '../openapi';
 
 /**
  * Boots the Nest application without listening, serialises its OpenAPI document
- * to docs/api/openapi.json, and exits. That file is the input to
- * @installment/api-types' type generation and the versioned contract for
- * partner integrators. Run against a reachable Postgres + Redis (providers
+ * to docs/api/openapi.json, and exits. That file is the versioned contract for
+ * partner integrators; @installment/api-types is written by hand and held to
+ * the backend by api-types-mirror.spec.ts, not generated from it. Run against a reachable Postgres + Redis (providers
  * connect on construction); it never opens an HTTP port.
  *
  * `pnpm --filter @installment/api openapi:emit` (after build).
