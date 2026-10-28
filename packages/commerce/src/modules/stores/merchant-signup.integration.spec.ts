@@ -33,9 +33,13 @@ class MemoryOtpStore implements OtpStore {
   get(k: string): Promise<string | null> {
     return Promise.resolve(this.map.get(k) ?? null);
   }
-  del(k: string): Promise<void> {
-    this.map.delete(k);
-    return Promise.resolve();
+  del(k: string): Promise<number> {
+    return Promise.resolve(this.map.delete(k) ? 1 : 0);
+  }
+  incr(k: string): Promise<number> {
+    const n = Number(this.map.get(k) ?? 0) + 1;
+    this.map.set(k, String(n));
+    return Promise.resolve(n);
   }
 }
 
