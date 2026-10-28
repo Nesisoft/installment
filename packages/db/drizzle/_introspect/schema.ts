@@ -668,6 +668,10 @@ export const products = pgTable("products", {
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	compare_at_price_pesewas: bigint({ mode: "number" }),
 	deal_ends_at: timestamp({ withTimezone: true, mode: 'string' }),
+	taken_down_at: timestamp({ withTimezone: true, mode: 'string' }),
+	taken_down_by: uuid(),
+	taken_down_reason: text(),
+	taken_down_from_status: text(),
 }, (table) => [
 	index("products_active_idx").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status = 'active'::text)`),
 	index("products_category_idx").using("btree", table.category_id.asc().nullsLast().op("uuid_ops")),
@@ -696,6 +700,7 @@ export const products = pgTable("products", {
 	check("products_currency_check", sql`currency = 'GHS'::text`),
 	check("products_deal_needs_compare_at", sql`(deal_ends_at IS NULL) OR (compare_at_price_pesewas IS NOT NULL)`),
 	check("products_status_check", sql`status = ANY (ARRAY['draft'::text, 'active'::text, 'archived'::text])`),
+	check("products_takedown_complete", sql`((taken_down_at IS NULL) AND (taken_down_reason IS NULL) AND (taken_down_from_status IS NULL)) OR ((taken_down_at IS NOT NULL) AND (taken_down_reason IS NOT NULL) AND (taken_down_from_status IS NOT NULL) AND (status = 'archived'::text))`),
 ]);
 
 export const categories = pgTable("categories", {

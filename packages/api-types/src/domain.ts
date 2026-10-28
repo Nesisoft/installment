@@ -944,6 +944,16 @@ export interface Product {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  /**
+   * Set while staff have the listing taken down. It stays `archived` until
+   * they lift it; the seller may edit it but not publish it. The reason is
+   * meant for the seller.
+   */
+  taken_down_at: string | null;
+  taken_down_by: string | null;
+  taken_down_reason: string | null;
+  /** The status the listing returns to when the takedown is lifted. */
+  taken_down_from_status: ProductStatus | null;
 }
 
 /**
@@ -980,6 +990,10 @@ export const PRODUCT_FIELDS = [
   'created_at',
   'updated_at',
   'deleted_at',
+  'taken_down_at',
+  'taken_down_by',
+  'taken_down_reason',
+  'taken_down_from_status',
 ] as const satisfies readonly (keyof Product)[];
 
 export interface ProductVariant {

@@ -84,6 +84,32 @@ describe.skipIf(!RUN_DB)('CategoriesService (integration)', () => {
     ).rejects.toBeInstanceOf(CategoryValidationError);
   });
 
+  it('refuses to file a category under its own subcategory', async () => {
+    const top = await categories.create({ name: 'Home', slug: slug() }, SYSTEM_ACTOR);
+    const mid = await categories.create(
+      { name: 'Kitchen', slug: slug(), parent_id: top.id },
+      SYSTEM_ACTOR,
+    );
+    const leaf = await categories.create(
+      { name: 'Pots', slug: slug(), parent_id: mid.id },
+      SYSTEM_ACTOR,
+    );
+    await expect(
+      categories.update(top.id, { parent_id: leaf.id }, SYSTEM_ACTOR),
+    ).rejects.toBeInstanceOf(CategoryValidationError);
+    await expect(
+      categories.update(mid.id, { parent_id: leaf.id }, SYSTEM_ACTOR),
+    ).rejects.toBeInstanceOf(CategoryValidationError);
+    // Moving a branch sideways or up is fine.
+    const other = await categories.create({ name: 'Garden', slug: slug() }, SYSTEM_ACTOR);
+    expect((await categories.update(mid.id, { parent_id: other.id }, SYSTEM_ACTOR)).parent_id).toBe(
+      other.id,
+    );
+    expect(
+      (await categories.update(mid.id, { parent_id: null }, SYSTEM_ACTOR)).parent_id,
+    ).toBeNull();
+  });
+
   it('deactivates via update so active_only filters it out', async () => {
     const cat = await categories.create({ name: 'Toggle', slug: slug() }, SYSTEM_ACTOR);
     await categories.update(cat.id, { is_active: false }, SYSTEM_ACTOR);

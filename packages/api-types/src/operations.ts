@@ -1,5 +1,5 @@
-import type { OrderStatus, RefundMethod, RefundStatus } from './enums';
-import type { MerchantOrderDetail, Order } from './domain';
+import type { OrderStatus, ProductStatus, RefundMethod, RefundStatus, StoreStatus } from './enums';
+import type { MerchantOrderDetail, Order, Product, ProductDetails } from './domain';
 import type { OrderReturn } from './returns';
 
 // The admin console's operations pages: refunds, orders, and the ledger check.
@@ -156,4 +156,68 @@ export interface ListAdminOrdersParams {
   q?: string;
   limit?: number;
   offset?: number;
+}
+
+// --- Catalogue moderation -----------------------------------------------------
+
+/** One row of GET /admin/catalogue/products. */
+export interface AdminProductRow extends Product {
+  store_name: string | null;
+  merchant_name: string | null;
+  category_name: string | null;
+  image_url: string | null;
+  variant_count: number;
+  /** Sellable now, across its variants. */
+  units_available: number;
+}
+
+/** GET /admin/catalogue/products/:id. */
+export interface AdminProductDetail extends Omit<ProductDetails, 'images'> {
+  images: Array<ProductDetails['images'][number] & { url: string | null }>;
+  store: { id: string; display_name: string; slug: string; status: StoreStatus } | null;
+  merchant: { id: string; business_name: string; status: string } | null;
+  category: { id: string; name: string } | null;
+}
+
+/** One row of GET /admin/catalogue/stores. */
+export interface AdminStoreRow {
+  id: string;
+  merchant_id: string;
+  slug: string;
+  display_name: string;
+  status: StoreStatus;
+  city: string | null;
+  region: string | null;
+  logo_url: string | null;
+  created_at: string;
+  merchant_name: string | null;
+  merchant_status: string | null;
+  product_count: number;
+  active_product_count: number;
+}
+
+export type AdminProductCounts = Record<ProductStatus | 'taken_down' | 'all', number>;
+export type AdminStoreCounts = Record<StoreStatus | 'all', number>;
+
+export interface ListAdminProductsParams {
+  status?: ProductStatus;
+  taken_down?: boolean;
+  store_id?: string;
+  category_id?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListAdminStoresParams {
+  status?: StoreStatus;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** Body of POST /admin/products/:id/take-down. */
+export interface TakeDownProductInput {
+  /** Shown to the seller. 3–500 characters. */
+  reason: string;
 }

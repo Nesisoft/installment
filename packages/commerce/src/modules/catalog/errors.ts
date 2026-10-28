@@ -33,6 +33,19 @@ export class ProductConflictError extends Error {
   }
 }
 
+/**
+ * A seller, or anyone, trying to put a product staff took down back on sale.
+ * The takedown is lifted by staff, not by changing the status.
+ */
+export class ProductTakenDownError extends Error {
+  constructor(id: string, reason: string) {
+    super(
+      `Product "${id}" was taken down by Ejua and cannot be published until that is lifted. Reason: ${reason}`,
+    );
+    this.name = 'ProductTakenDownError';
+  }
+}
+
 export class ProductValidationError extends Error {
   constructor(message: string) {
     super(message);

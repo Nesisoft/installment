@@ -18,6 +18,7 @@ export * from './modules/catalog/categories.service';
 export * from './modules/catalog/products.service';
 export * from './modules/catalog/inventory.service';
 export * from './modules/catalog/media';
+export * from './modules/catalog/admin-catalog.service';
 export * from './modules/catalog/storefront.dto';
 export * from './modules/catalog/storefront.service';
 export * from './modules/fulfilment/dto';

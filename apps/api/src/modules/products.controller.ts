@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import {
   CATALOG_PERMISSIONS,
   InventoryService,
@@ -9,11 +20,12 @@ import {
   createProductSchema,
   setPlanOffersSchema,
   setStockSchema,
+  takeDownProductSchema,
   updateProductSchema,
   type ProductActor,
 } from '@installment/commerce';
 import { type AuditActorType } from '@installment/core';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { ApiZodBody } from '../common/api-zod';
 import { ApiModel } from '../common/api-model';
@@ -38,9 +50,10 @@ const numOrUndefined = (v: unknown): number | undefined =>
 @ApiBearerAuth()
 @Controller('admin/products')
 export class ProductsController {
+  // By explicit token: the test build ignores `emitDecoratorMetadata`.
   constructor(
-    private readonly products: ProductsService,
-    private readonly inventory: InventoryService,
+    @Inject(ProductsService) private readonly products: ProductsService,
+    @Inject(InventoryService) private readonly inventory: InventoryService,
   ) {}
 
   private actor(user: AuthenticatedUser): ProductActor {
@@ -108,6 +121,32 @@ export class ProductsController {
   @ApiZodBody(updateProductSchema)
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.products.update(id, body, this.actor(user));
+  }
+
+  @Post(':id/take-down')
+  @ApiModel('Product')
+  @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
+  @ApiZodBody(takeDownProductSchema)
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Take a listing off sale, with a reason the seller sees',
+    description:
+      'Archives the product and holds it there: the seller may still edit the listing, but no ' +
+      'one can publish it until the takedown is lifted. 409 if it is already taken down.',
+  })
+  takeDown(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    return this.products.takeDown(id, body, this.actor(user));
+  }
+
+  @Post(':id/lift-takedown')
+  @ApiModel('Product')
+  @RequirePermissions(CATALOG_PERMISSIONS.CATALOG_WRITE)
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Lift a takedown, returning the listing to the status it was taken down from',
+  })
+  liftTakedown(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.products.liftTakedown(id, this.actor(user));
   }
 
   @Post(':id/variants')
