@@ -124,6 +124,12 @@ export type AddVariantInput = z.infer<typeof addVariantSchema>;
 export const addImageSchema = imageInputSchema;
 export type AddImageInput = z.infer<typeof addImageSchema>;
 
+/** Body for POST /admin/products/:id/take-down. The reason is shown to the seller. */
+export const takeDownProductSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+export type TakeDownProductInput = z.infer<typeof takeDownProductSchema>;
+
 export const setPlanOffersSchema = z.object({
   plan_template_ids: z.array(z.string().uuid()).max(50),
 });

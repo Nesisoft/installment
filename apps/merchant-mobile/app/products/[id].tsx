@@ -231,7 +231,13 @@ export default function ProductScreen(): React.ReactElement {
           back
           title={p.title}
           subtitle={`${ghs(p.base_price_pesewas)} · ${pluralise(onShelf, 'in stock', 'in stock')}`}
-          right={<Pill label={statusLabel(p.status)} tone={statusTone(p.status)} />}
+          right={
+            p.taken_down_at ? (
+              <Pill label="TAKEN DOWN" tone="warn" />
+            ) : (
+              <Pill label={statusLabel(p.status)} tone={statusTone(p.status)} />
+            )
+          }
         />
 
         <View style={styles.body}>
@@ -341,34 +347,46 @@ export default function ProductScreen(): React.ReactElement {
             )}
           </View>
 
-          <View>
-            <SectionLabel>On sale?</SectionLabel>
-            <Card bare style={styles.rows}>
-              {STATUSES.map((option, i) => {
-                const on = option.value === status;
-                return (
-                  <Pressable
-                    key={option.value}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
-                    accessibilityLabel={`${option.label}. ${option.note}`}
-                    onPress={() => setStatus(option.value)}
-                    style={[styles.statusRow, i > 0 && styles.divided]}
-                  >
-                    <View style={[styles.radio, on && styles.radioOn]}>
-                      {on ? <View style={styles.radioDot} /> : null}
-                    </View>
-                    <View style={styles.statusText}>
-                      <Text variant="smallMedium">{option.label}</Text>
-                      <Text variant="tiny" tone="faint">
-                        {option.note}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </Card>
-          </View>
+          {/* Taken down by Ejua: the status is not the seller's to change until
+              that is lifted (the API refuses it), so the picker gives way to
+              why, and what to do about it. */}
+          {p.taken_down_at ? (
+            <View>
+              <SectionLabel>On sale?</SectionLabel>
+              <Note eyebrow="Taken down by Ejua" tone="warn">
+                {`${p.taken_down_reason ?? 'This listing was taken down.'} It is off the marketplace until Ejua lifts this. You can still edit the listing — fix what is wrong, then contact Ejua support to have it reviewed.`}
+              </Note>
+            </View>
+          ) : (
+            <View>
+              <SectionLabel>On sale?</SectionLabel>
+              <Card bare style={styles.rows}>
+                {STATUSES.map((option, i) => {
+                  const on = option.value === status;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={`${option.label}. ${option.note}`}
+                      onPress={() => setStatus(option.value)}
+                      style={[styles.statusRow, i > 0 && styles.divided]}
+                    >
+                      <View style={[styles.radio, on && styles.radioOn]}>
+                        {on ? <View style={styles.radioDot} /> : null}
+                      </View>
+                      <View style={styles.statusText}>
+                        <Text variant="smallMedium">{option.label}</Text>
+                        <Text variant="tiny" tone="faint">
+                          {option.note}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </Card>
+            </View>
+          )}
 
           <View>
             <SectionLabel>{`Sizes and stock · ${pluralise(variants.length, 'size')}`}</SectionLabel>

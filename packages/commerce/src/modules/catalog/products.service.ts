@@ -14,6 +14,7 @@ import {
   listProductsSchema,
   searchProductsSchema,
   setPlanOffersSchema,
+  takeDownProductSchema,
   updateProductSchema,
   type AddImageInput,
   type AddVariantInput,
@@ -24,7 +25,12 @@ import {
   type UpdateProductInput,
   type VariantInput,
 } from './products.dto';
-import { ProductConflictError, ProductNotFoundError, ProductValidationError } from './errors';
+import {
+  ProductConflictError,
+  ProductNotFoundError,
+  ProductTakenDownError,
+  ProductValidationError,
+} from './errors';
 import type { InventoryRow } from './inventory.service';
 
 const p = schema.products;
@@ -87,6 +93,10 @@ export const productCols = {
   created_at: p.created_at,
   updated_at: p.updated_at,
   deleted_at: p.deleted_at,
+  taken_down_at: p.taken_down_at,
+  taken_down_by: p.taken_down_by,
+  taken_down_reason: p.taken_down_reason,
+  taken_down_from_status: p.taken_down_from_status,
 };
 
 export type Product = Omit<typeof schema.products.$inferSelect, 'search_tsv'>;
@@ -463,6 +473,8 @@ export class ProductsService {
           base_price_pesewas: p.base_price_pesewas,
           compare_at_price_pesewas: p.compare_at_price_pesewas,
           deal_ends_at: p.deal_ends_at,
+          taken_down_at: p.taken_down_at,
+          taken_down_reason: p.taken_down_reason,
         })
         .from(p)
         .where(and(eq(p.id, id), isNull(p.deleted_at), ...ownedBy(scope)))
@@ -470,7 +482,14 @@ export class ProductsService {
         .limit(1);
       if (!current[0]) throw new ProductNotFoundError(id);
 
-      const dealIssue = dealRuleIssue({ ...current[0], ...patch });
+      // A takedown holds until staff lift it. The seller may still fix the
+      // listing — that is how one gets reinstated — but not put it on sale.
+      const { taken_down_at, taken_down_reason, ...dealFields } = current[0];
+      if (taken_down_at && patch.status !== undefined && patch.status !== 'archived') {
+        throw new ProductTakenDownError(id, taken_down_reason ?? '');
+      }
+
+      const dealIssue = dealRuleIssue({ ...dealFields, ...patch });
       if (dealIssue) throw new ProductValidationError(dealIssue);
 
       const rows = await tx
@@ -491,6 +510,92 @@ export class ProductsService {
       });
 
       return row;
+    });
+  }
+
+  /**
+   * Takes a listing off sale for good reason — counterfeit, prohibited, a
+   * complaint upheld. It is archived, and stays archived until staff lift the
+   * takedown: the seller's own status change is refused (see {@link update}).
+   * The reason is stored on the product, where the seller sees it.
+   */
+  async takeDown(id: string, rawInput: unknown, actor: ProductActor): Promise<Product> {
+    const { reason } = takeDownProductSchema.parse(rawInput);
+    return runInTransaction(this.db, async (tx) => {
+      const [row] = await tx
+        .select({ status: p.status, taken_down_at: p.taken_down_at })
+        .from(p)
+        .where(and(eq(p.id, id), isNull(p.deleted_at)))
+        .for('update')
+        .limit(1);
+      if (!row) throw new ProductNotFoundError(id);
+      if (row.taken_down_at)
+        throw new ProductConflictError(`Product "${id}" is already taken down`);
+
+      const [updated] = await tx
+        .update(p)
+        .set({
+          status: 'archived',
+          taken_down_at: new Date().toISOString(),
+          taken_down_by: actor.actorId,
+          taken_down_reason: reason,
+          taken_down_from_status: row.status,
+        })
+        .where(eq(p.id, id))
+        .returning(productCols);
+      await this.audit.append(tx, {
+        entityType: 'product',
+        entityId: id,
+        eventType: 'product.taken_down',
+        fromState: row.status,
+        toState: 'archived',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reason,
+      });
+      return updated!;
+    });
+  }
+
+  /** Lifts a takedown, returning the product to the status it was taken from. */
+  async liftTakedown(id: string, actor: ProductActor): Promise<Product> {
+    return runInTransaction(this.db, async (tx) => {
+      const [row] = await tx
+        .select({
+          taken_down_at: p.taken_down_at,
+          taken_down_from_status: p.taken_down_from_status,
+          taken_down_reason: p.taken_down_reason,
+        })
+        .from(p)
+        .where(and(eq(p.id, id), isNull(p.deleted_at)))
+        .for('update')
+        .limit(1);
+      if (!row) throw new ProductNotFoundError(id);
+      if (!row.taken_down_at) throw new ProductConflictError(`Product "${id}" is not taken down`);
+      const back = row.taken_down_from_status ?? 'archived';
+
+      const [updated] = await tx
+        .update(p)
+        .set({
+          status: back,
+          taken_down_at: null,
+          taken_down_by: null,
+          taken_down_reason: null,
+          taken_down_from_status: null,
+        })
+        .where(eq(p.id, id))
+        .returning(productCols);
+      await this.audit.append(tx, {
+        entityType: 'product',
+        entityId: id,
+        eventType: 'product.takedown_lifted',
+        fromState: 'archived',
+        toState: back,
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        metadata: { taken_down_reason: row.taken_down_reason },
+      });
+      return updated!;
     });
   }
 

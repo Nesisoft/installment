@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@installment/db';
 import {
   AuditLogger,
@@ -110,7 +110,10 @@ export class CategoriesService {
     }
 
     return runInTransaction(this.db, async (tx) => {
-      if (patch.parent_id) await this.assertExists(tx, patch.parent_id);
+      if (patch.parent_id) {
+        await this.assertExists(tx, patch.parent_id);
+        await this.assertNotBeneath(tx, id, patch.parent_id);
+      }
 
       let row: Category | undefined;
       try {
@@ -139,6 +142,35 @@ export class CategoriesService {
 
       return row;
     });
+  }
+
+  /**
+   * Refuses to file a category under one of its own descendants.
+   *
+   * The self-parent check alone let a loop through in two steps — Phones
+   * under Electronics, then Electronics under Phones — and a loop has no root,
+   * so every category in it drops out of any tree drawn from the top.
+   * Re-parents are serialised so two crossing moves cannot each pass the check
+   * before the other commits.
+   */
+  private async assertNotBeneath(
+    tx: Pick<Database, 'execute'>,
+    id: string,
+    parentId: string,
+  ): Promise<void> {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('categories:reparent'))`);
+    const result = await tx.execute(sql`
+      WITH RECURSIVE up AS (
+        SELECT id, parent_id FROM categories WHERE id = ${parentId}::uuid
+        UNION
+        SELECT cat.id, cat.parent_id FROM categories cat JOIN up ON cat.id = up.parent_id
+      )
+      SELECT 1 FROM up WHERE id = ${id}::uuid LIMIT 1`);
+    if (result.rows.length > 0) {
+      throw new CategoryValidationError(
+        'A category cannot be filed under one of its own subcategories',
+      );
+    }
   }
 
   private async assertExists(tx: Pick<Database, 'select'>, id: string): Promise<void> {
