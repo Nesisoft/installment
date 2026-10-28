@@ -4,6 +4,9 @@
 > **Owner:** Mr. Francis Anlimah · Nesisoft
 > **Supersedes the _direction_ of** [`DEVELOPMENT-PLAN.md`](./DEVELOPMENT-PLAN.md) (which remains the canonical record for the **engine**, Phases 1–10 — now merged to `main`).
 > **Design docs:** [`design/commerce-domain.md`](./design/commerce-domain.md) · [`design/mobile-apps.md`](./design/mobile-apps.md)
+> **Status, 2026-10-28:** Phases 11–15 are built and on `main`. Phase 16 (admin console, ops and
+> pilot launch) is in progress. §4 marks what each phase delivered; §6 holds the decisions still
+> open; §7 is what stands between here and the pilot.
 
 ---
 
@@ -44,16 +47,22 @@ But the **intended product** is larger: a **marketplace** where buyers browse an
 
 The engine is never modified by the commerce layer — the commerce layer creates an internal order and hands the engine `order_reference = order.id`. Full detail: [`design/commerce-domain.md`](./design/commerce-domain.md) §2.
 
+As built, each mobile app also has a web counterpart on the same API — `apps/customer-web` and
+`apps/merchant-web` — and the scheduled jobs run from the API process behind
+`ENABLE_SCHEDULED_WORKERS`.
+
 ---
 
 ## 3. Product surfaces
 
-| Surface           | Form           | Who       | Highlights                                                                                                                                                                   |
-| ----------------- | -------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Customer app**  | Expo mobile 🛒 | Buyers    | Browse/search, product + **installment calculator**, cart, checkout (**pay-now or installment**), order tracking, "my plans" (pay-early/history), phone+OTP + Ghana-Card KYC |
-| **Merchant app**  | Expo mobile 🏪 | Sellers   | Store + KYC/bank setup, **product upload** (photos, variants, inventory, plan offers), incoming orders, **mark shipped/delivered**, settlements/statements                   |
-| **Admin console** | React web      | Ops/staff | Existing engine ops (applications, collections, scoring, plan templates, manual payments) **+** marketplace moderation (categories, product/store approval, disputes)        |
-| **Open API**      | HTTP           | Partners  | Unchanged — BNPL-as-a-service via `order_reference`                                                                                                                          |
+| Surface           | Form           | Who       | Highlights                                                                                                                                                                                                                             |
+| ----------------- | -------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Customer app**  | Expo mobile 🛒 | Buyers    | Browse/search, product + **installment calculator**, cart, checkout (**pay-now or installment**), order tracking, "my plans" (pay-early/history), phone+OTP + Ghana-Card KYC                                                           |
+| **Merchant app**  | Expo mobile 🏪 | Sellers   | Store + KYC/bank setup, **product upload** (photos, variants, inventory, plan offers), incoming orders, **mark shipped/delivered**, settlements/statements                                                                             |
+| **Customer web**  | React web      | Buyers    | Shop, product, cart, checkout (pay-now or instalment, per-shop plans and deposits), orders, plans                                                                                                                                      |
+| **Merchant web**  | React web      | Sellers   | Signup and KYC, shopfront, products, orders and fulfilment, plans, payout account, settlements and statements, analytics                                                                                                               |
+| **Admin console** | React web      | Ops/staff | Engine ops (applications, plans, collections, plan templates, manual payments, refunds, ledger check) **+** marketplace ops (merchants and KYC, shops, listings, categories, orders, employers and employment checks, staff and roles) |
+| **Open API**      | HTTP           | Partners  | Unchanged — BNPL-as-a-service via `order_reference`                                                                                                                                                                                    |
 
 ---
 
@@ -61,7 +70,7 @@ The engine is never modified by the commerce layer — the commerce layer create
 
 Same format as `DEVELOPMENT-PLAN.md`: Goal · Deliverables · Definition of done. All money in pesewas; all state changes through state machines with audit rows; idempotency everywhere (the engine's Guiding Principles carry forward unchanged).
 
-### Phase 11 — Commerce Foundation (catalog + storefront + shared client)
+### Phase 11 — Commerce Foundation (catalog + storefront + shared client) — **built**
 
 **Goal:** A merchant can create a store and list products with variants, images, stock, and installment offers. One typed API client serves every app.
 **Deliverables:**
@@ -72,10 +81,14 @@ Same format as `DEVELOPMENT-PLAN.md`: Goal · Deliverables · Definition of done
   `packages/storage-client` (S3 / R2 / Spaces / MinIO, plus a local dev driver) behind
   `POST /merchant/uploads`, `/admin/uploads` and `/me/uploads`. See
   [`design/object-storage.md`](./design/object-storage.md).
-- `packages/api-types` generated from the OpenAPI spec; `packages/api-client` (typed + TanStack Query hooks)
+- ~~`packages/api-types` generated from the OpenAPI spec; `packages/api-client`~~ **built
+  differently** — `packages/api-types` is written by hand and held to the backend by
+  `apps/api/src/common/api-types-mirror.spec.ts`; the clients are `packages/web-kit` (web) and
+  `packages/mobile-kit` (Expo). `docs/api/openapi.json` is emitted from the API
+  (`pnpm openapi:emit`) and was last regenerated on 2026-08-28.
   **Definition of done:** a merchant creates a store, uploads a product with images/variants/stock and a plan offer via API; catalog is queryable and searchable; every app can import the generated client.
 
-### Phase 12 — Cart, Checkout & Orders
+### Phase 12 — Cart, Checkout & Orders — **built**
 
 **Goal:** A buyer checks out a cart — paying now _or_ in installments — and the order flows through the engine unchanged.
 **Deliverables:**
@@ -87,7 +100,13 @@ Same format as `DEVELOPMENT-PLAN.md`: Goal · Deliverables · Definition of done
 - Order state machine + audit
   **Definition of done:** end-to-end checkout works both ways; internal order is indistinguishable to the engine from a partner order; ledger stays balanced; a declined application releases inventory and cancels the order.
 
-### Phase 13 — Fulfilment & Post-Purchase
+**Status:** built. Checkout makes one order per shop, each with its own delivery fee and, on
+instalments, its own plan and deposit. Pay-now takes Mobile Money or card (#51), and an order can
+be paid again after a declined charge (#124). Commission is taken on the goods, not the delivery
+(#128). One payment type covers the whole checkout — a basket cannot pay one shop now and finance
+another.
+
+### Phase 13 — Fulfilment & Post-Purchase — **built**
 
 **Goal:** Sellers fulfil orders; delivery drives reserve release; returns issue refunds.
 **Deliverables:**
@@ -101,8 +120,14 @@ Same format as `DEVELOPMENT-PLAN.md`: Goal · Deliverables · Definition of done
 `paid|financing_active → fulfilling → shipped → delivered → completed`, records a
 customer-readable event at each step, carries the courier on `shipments`, stamps the return window,
 and fires `ReserveReleaseService.markDelivered` on a real delivery. `ReturnWindowCron` closes the
-order when the window elapses. **Returns are still outstanding** — the customer-initiated return
-journey does not exist, though the engine's refund path does.
+order when the window elapses.
+
+Returns are now built too: a buyer requests one and can withdraw it, the seller decides it, and
+an approved return refunds through the engine (#76, #85). Returning instalment goods either
+forgives the instalments the refund covers or re-collects them (#133). A refund Paystack cannot
+send can be paid by hand from the console, with the operator attesting they checked Paystack
+first (#136; [`runbooks/refunds.md`](./runbooks/refunds.md)). Buyers can review what arrived (#85).
+Disputes, beyond a return, are not built.
 
 ### Phase 14 — Customer Auth + Customer Mobile App (Expo) — **built**
 
@@ -129,30 +154,44 @@ design→engine reconciliation):
   instalments, wallet & payments, account
 - **`packages/mobile-kit`** — API client, SecureStore session, query defaults, idempotency
 
-**Deferred, with the seam left in place:** Ghana Card capture (KYC tier 2), push _delivery_
-(registration ships), live courier position, returns/disputes, and a stored-value wallet balance —
-that last one because holding customer funds in Ghana is e-money under the Bank of Ghana's
-Payment Systems and Services Act, a licensing question rather than an engineering one.
+**Deferred at the time, since built:** Ghana Card capture (#75), push delivery to customers and
+sellers (#69, #74), and returns (#76, #85).
 
-**⚠ Open business decision surfaced by the build.** With the shipped ruleset a **first-time
-customer cannot be auto-approved**. The reachable score for someone with no repayment history
-tops out around 325 (no prior defaults 50 + low failure rate 50 + payment diversity 25 + KYC
-tier 2 100 + account age 100), and 350 is the floor for `subprime` → manual review, 500 for
-`near_prime` → approval. The signals that would lift them — `score.on_time_rate`,
-`score.consecutive_on_time`, `score.paystack_history` — all require an existing plan, so the
-first order is always declined or sent to review. The design's "Approved in seconds against your
-MoMo history" is therefore only reachable for a _returning_ customer. This is a risk-appetite
-call, not a bug: the options are a first-order ruleset variant, a starter limit for
-Ghana-Card-verified customers, or accepting manual review on the first purchase. The app already
-renders all three outcomes honestly.
+**Still deferred:** live courier position; disputes beyond a return; KYC tier 2, which since #104
+means a Ghana Card confirmed by the NIA — the NIA integration does not exist yet, so production
+runs `ManualReviewGhanaCardVerifier` and a reviewed card is tier 1; and a stored-value wallet
+balance, because holding customer funds in Ghana is e-money under the Bank of Ghana's Payment
+Systems and Services Act — a licensing question rather than an engineering one.
 
-### Phase 15 — Merchant Mobile App (Expo)
+**Settled: how a first-time customer gets approved.** The shipped ruleset could not approve a
+customer with no repayment history — the signals that lift a score all need an existing plan. A
+starter limit now approves them instead (#57, #66; `DEFAULT_STARTER_POLICY` in
+`packages/core/src/modules/scoring/scoring-engine.ts`). It applies only to a thin file — no plan
+ever completed, no default ever, nothing outstanding — with a verified Ghana Card, and caps what
+the plan finances (the order less its deposit):
+
+| Who vouches for them                        | Most financed |
+| ------------------------------------------- | ------------- |
+| A verified Ghana Card                       | GHS 250       |
+| + a verified job at a live partner employer | GHS 750       |
+| + payroll-deduction consent on that job     | GHS 2,000     |
+
+Anyone who has borrowed before is scored on that record instead. See §6 item 9: the payroll tier
+assumes a collection channel that is not built yet.
+
+### Phase 15 — Merchant Mobile App (Expo) — **built**
 
 **Goal:** A merchant runs their store from their phone.
 **Deliverables:** `apps/merchant-mobile` (Expo): store/KYC/bank setup, product upload (photos/variants/inventory/plan offers), incoming orders, mark shipped/delivered, settlements/statements (`mobile-apps.md` §5)
 **Definition of done:** a merchant onboards, lists a product, receives an order, marks it delivered (reserve releases), and views settlement — from the app.
 
-### Phase 16 — Admin Console (Web) + Marketplace Ops & Launch
+**Status:** built as **Ejua Sell** (#77–#82): home and order queue, payouts, reserve and
+performance, catalogue and sizes, instalment plans, shop setup, listing and editing, returns and
+restock. `apps/merchant-web` covers the same ground in a browser, including self-signup,
+KYC, the payout account and analytics. A payout account change needs a code sent to the seller's
+phone and waits 24 hours, with a notice (#127, #130).
+
+### Phase 16 — Admin Console (Web) + Marketplace Ops & Launch — **in progress**
 
 **Goal:** Ops can run the marketplace; system is observable; pilot goes live. (Absorbs original Phase 10's polish items.)
 **Deliverables:**
@@ -162,19 +201,40 @@ renders all three outcomes honestly.
 - Integration guide for partners; ops runbook; pilot merchant + first real test transactions
   **Definition of done:** all three apps usable; a pilot merchant lists products and sells to a pilot buyer (pay-now and installment); ops monitor via dashboards; partner integration documented.
 
+**Done:**
+
+- Console screens: applications, plan operations, orders (including confirming a payment made
+  outside Paystack), refunds, collections, merchants (KYC review, opening the shop, who owes
+  money), shops, listings with takedown, categories, customers (Ghana Card review, employment),
+  employers and employment checks, plan templates, telco health, the ledger check, and staff and
+  roles (#136, #138, #139 and earlier). Scoring has no standalone page; each application's page
+  scores it.
+- Rate limiting: a Redis-backed limit on every route (`RATE_LIMIT_*`), tighter on sign-in, the
+  storefront and payout-account changes. Paystack webhooks are exempt.
+- Runbooks: refunds, ledger imbalance, money repairs, the stand-in email domain.
+
+**Remaining:**
+
+- Regenerate `docs/api/openapi.json` (last emitted 2026-08-28) and write the partner
+  integration guide.
+- Runbooks for failed payouts, collections and reserve release.
+- Dashboards and a log sink beyond Sentry.
+- Staff cannot change or reset their own password.
+- The pilot itself: a pilot merchant, a pilot buyer, and the first real transactions.
+
 ---
 
 ## 5. Rough estimates
 
-| Phase | Focus                                         | Est. (wks) |
-| ----- | --------------------------------------------- | ---------- |
-| 11    | Commerce foundation + shared client + storage | 2.5        |
-| 12    | Cart, checkout, orders (both payment paths)   | 2.5        |
-| 13    | Fulfilment, delivery→reserve, returns         | 1.5        |
-| 14    | Customer auth + Expo customer app             | 3.5        |
-| 15    | Expo merchant app                             | 3          |
-| 16    | Admin web + ops + pilot launch                | 3          |
-|       | **Total (additive to the engine)**            | **~16**    |
+| Phase | Focus                                         | Est. (wks) | Status      |
+| ----- | --------------------------------------------- | ---------- | ----------- |
+| 11    | Commerce foundation + shared client + storage | 2.5        | Built       |
+| 12    | Cart, checkout, orders (both payment paths)   | 2.5        | Built       |
+| 13    | Fulfilment, delivery→reserve, returns         | 1.5        | Built       |
+| 14    | Customer auth + Expo customer app             | 3.5        | Built       |
+| 15    | Expo merchant app                             | 3          | Built       |
+| 16    | Admin web + ops + pilot launch                | 3          | In progress |
+|       | **Total (additive to the engine)**            | **~16**    |             |
 
 Sequencing: 11 → 12 → 13 are backend and unblock everything; 14/15 (mobile) can overlap once 12 is stable; 16 closes out.
 
@@ -182,12 +242,19 @@ Sequencing: 11 → 12 → 13 are backend and unblock everything; 14/15 (mobile) 
 
 ## 6. Key decisions still open (owner input needed)
 
-Carried from `commerce-domain.md` §9 + `mobile-apps.md` §6 — these shape Phases 11–12 and should be settled first:
+Items 1–8 were carried from `commerce-domain.md` §9 + `mobile-apps.md` §6. Items 9 onward came
+out of the build. Struck-through items are settled; the text after each says how.
 
-1. **Multi-vendor cart** → one order per merchant (recommended); allow mixed pay-now/installment per merchant-order?
-2. **Commission model** — flat marketplace take-rate (bps) on all orders + credit reserve on installment only? Per-category rates?
-3. **Guest checkout** — allowed for pay-now, blocked for installment (BNPL requires Ghana-Card-verified KYC)?
-4. **Fulfilment** — v1 merchant self-fulfils with manual status; integrated couriers later?
+1. ~~**Multi-vendor cart**~~ **Built as one order per merchant.** Mixing pay-now and instalment
+   across a basket's shops is not supported: one payment type covers the checkout.
+2. ~~**Commission model**~~ **Settled per merchant.** Each merchant has a commission rate,
+   negotiable, with a separate negotiable rate for paid-in-full orders (#100, #102); it is taken on
+   the goods, not the delivery (#128). Instalment plans carry a credit reserve per plan model.
+   There are no per-category rates.
+3. **Guest checkout** — not built: both payment paths need a signed-in customer. Still open
+   whether pay-now should allow it.
+4. ~~**Fulfilment**~~ **Merchant self-fulfils**, by courier (priced by `delivery_zones`) or
+   pickup from a hub. No integrated couriers.
 5. ~~**Object storage provider** — S3 / GCS / Cloudflare R2?~~ **Deferred by design.** The
    signer is hand-rolled SigV4, so S3, Cloudflare R2, DigitalOcean Spaces and MinIO all work
    against the same driver — picking one stays a config change, and R2's zero egress is the
@@ -201,11 +268,36 @@ Carried from `commerce-domain.md` §9 + `mobile-apps.md` §6 — these shape Pha
    (`Ejua_Shop.dc.html`) is now the built design; its tokens live in
    `apps/customer-mobile/src/theme/tokens.ts` and the reconciliation in
    [`design/customer-app.md`](./design/customer-app.md).
-8. **First-order credit appetite** — see the ⚠ under Phase 14. Nothing else in the build is
-   blocked on it, but the shopper experience of a first purchase depends entirely on the answer.
+8. ~~**First-order credit appetite**~~ **Settled by the starter limit** — see Phase 14.
+9. **The payroll tier has no payroll collection.** Payroll-deduction consent lifts a first-time
+   customer to GHS 2,000 and doubles a scored customer's limit, on the premise that the employer
+   remits from salary. Nothing collects through an employer yet — repayments still come from the
+   customer's MoMo or card. Either build employer remittance (payroll files and reconciliation)
+   or lower that tier until it exists.
+10. **Consent without verification.** The doubling in item 9 applies even when the job behind
+    the consent has not been verified; the starter tiers already require verification. Whether
+    the doubling should too is a scoring-policy call (raised in #139).
+11. **NIA integration** for KYC tier 2 — see Phase 14. Until it lands, every verified Ghana Card
+    is a person's review of a scan.
+12. **Past rent-to-own defaults.** Since #134 Ejua carries a rent-to-own default beyond the
+    reserve, as for BNPL. Defaults booked before that kept their claw-back from the seller.
+    Whether to compensate those sellers is open.
+13. **`ejua.gh` is not registered.** Customers who signed up by phone are charged with a stand-in
+    address at `customers.ejua.gh`, and Paystack emails a receipt there for every charge. Until
+    the domain is registered with a null MX, anyone could register it and receive them
+    ([`runbooks/standin-email-domain.md`](./runbooks/standin-email-domain.md)).
+14. ~~**Escrow for seller refunds**~~ **Decided against.** Sellers are paid daily; a seller whose
+    balance goes negative after returns is watched and alerted on instead (#135).
 
 ---
 
 ## 7. Immediate next step
 
-No code yet — this roadmap + the two design docs are the re-anchoring deliverable. Once you confirm the direction and settle the decisions in §6 (especially the commission model, KYC/guest rules, and where your designs live), the natural first build is **Phase 11** on a fresh branch off `main` (the engine is already merged there).
+Close out Phase 16 and run the pilot:
+
+1. Regenerate `docs/api/openapi.json` and write the partner integration guide.
+2. Runbooks for failed payouts, collections and reserve release, beside the refunds runbook.
+3. Dashboards and a log sink, so ops can see the system without reading Sentry.
+4. Settle §6 items 9 and 13 before real money moves: the payroll tier lends against a
+   collection channel that does not exist, and the receipt domain is unregistered.
+5. Pilot: one merchant, one buyer, pay-now and instalment, end to end on live Paystack.
