@@ -32,3 +32,9 @@ export const createCustomerUserSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 export type CreateCustomerUserInput = z.infer<typeof createCustomerUserSchema>;
+
+export const setUserActiveSchema = z.object({
+  /** Why the account is being switched off or back on. Kept on the audit row. */
+  reason: z.string().trim().min(3).max(500),
+});
+export type SetUserActiveInput = z.infer<typeof setUserActiveSchema>;

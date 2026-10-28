@@ -442,6 +442,15 @@ export {
   transitionEmploymentSchema,
   recordPayrollConsentSchema,
   listEmploymentSchema,
+  verifyEmploymentSchema,
+  unverifyEmploymentSchema,
+  listEmploymentForConsoleSchema,
+  listEmployersForConsoleSchema,
+  EMPLOYMENT_VERIFICATION_METHODS,
+  type VerifyEmploymentInput,
+  type UnverifyEmploymentInput,
+  type ListEmploymentForConsoleInput,
+  type ListEmployersForConsoleInput,
   type CreateEmployerInput,
   type UpdateEmployerInput,
   type TransitionEmployerInput,
@@ -457,11 +466,14 @@ export {
   EmployersService,
   type Employer,
   type EmployerActor,
+  type EmployerConsoleRow,
+  type EmployerCounts,
 } from './modules/employers/employers.service';
 export {
   CustomerEmploymentService,
   type Employment,
   type EmploymentActor,
+  type EmploymentConsoleRow,
 } from './modules/employers/customer-employment.service';
 export {
   createPlanTemplateSchema,
@@ -483,12 +495,21 @@ export {
   createStaffSchema,
   createMerchantUserSchema,
   createCustomerUserSchema,
+  setUserActiveSchema,
   type CreateStaffInput,
   type CreateMerchantUserInput,
   type CreateCustomerUserInput,
+  type SetUserActiveInput,
 } from './modules/users/dto';
 export * from './modules/users/errors';
-export { UsersService, type User, type UserActor } from './modules/users/users.service';
+export {
+  UsersService,
+  STAFF_USER_TYPES,
+  type StaffMember,
+  type StaffRole,
+  type User,
+  type UserActor,
+} from './modules/users/users.service';
 export {
   loginSchema,
   otpStartSchema,

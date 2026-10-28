@@ -35,6 +35,7 @@ import {
 import { formatDate, formatDateTime } from '../../lib/format';
 import { PageHeader } from '../../components/page-header';
 import { ErrorState, LoadingState } from '../../components/data-states';
+import { CustomerEmploymentCard } from '../../components/customer-employment';
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -351,6 +352,8 @@ export function CustomerDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <CustomerEmploymentCard customerId={c.id} />
 
       <Card>
         <CardHeader>

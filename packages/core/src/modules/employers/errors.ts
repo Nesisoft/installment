@@ -18,3 +18,15 @@ export class DuplicateEmploymentError extends Error {
     this.name = 'DuplicateEmploymentError';
   }
 }
+
+/**
+ * A change the link's current state does not allow: verifying or recording
+ * payroll consent on a job the customer no longer holds, or linking a customer
+ * to an employer whose partnership has ended.
+ */
+export class EmploymentNotAllowedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmploymentNotAllowedError';
+  }
+}

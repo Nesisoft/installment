@@ -1,6 +1,6 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import { CustomerEmploymentService, EmployersService, PERMISSIONS } from '@installment/core';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermissions, type AuthenticatedUser } from '../auth/decorators';
 import { actorOf, numOrUndefined } from '../auth/current-actor';
 import {
@@ -10,6 +10,8 @@ import {
   linkEmploymentSchema,
   transitionEmploymentSchema,
   recordPayrollConsentSchema,
+  unverifyEmploymentSchema,
+  verifyEmploymentSchema,
 } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
 import { ApiModel } from '../common/api-model';
@@ -18,9 +20,10 @@ import { ApiModel } from '../common/api-model';
 @ApiBearerAuth()
 @Controller('admin/employers')
 export class EmployersController {
+  // By explicit token: the test build ignores `emitDecoratorMetadata`.
   constructor(
-    private readonly employers: EmployersService,
-    private readonly employment: CustomerEmploymentService,
+    @Inject(EmployersService) private readonly employers: EmployersService,
+    @Inject(CustomerEmploymentService) private readonly employment: CustomerEmploymentService,
   ) {}
 
   @Post()
@@ -41,6 +44,37 @@ export class EmployersController {
       limit: numOrUndefined(query.limit),
       offset: numOrUndefined(query.offset),
     });
+  }
+
+  // `summary`, `counts` and `employment` are declared before `:id`, which would
+  // otherwise take them as employer ids.
+  @Get('summary')
+  @RequirePermissions(PERMISSIONS.EMPLOYERS_READ)
+  @ApiOperation({
+    summary: 'Employers with how many of their staff are linked, verified and consenting',
+    description: 'Filter by `status` or `q` (part of the name). Answers `{ rows, total }`.',
+  })
+  summary(@Query() query: Record<string, string>) {
+    return this.employers.listForConsole(query);
+  }
+
+  @Get('counts')
+  @RequirePermissions(PERMISSIONS.EMPLOYERS_READ)
+  @ApiOperation({ summary: 'How many employers are in each status' })
+  counts() {
+    return this.employers.counts();
+  }
+
+  @Get('employment')
+  @RequirePermissions(PERMISSIONS.EMPLOYERS_READ)
+  @ApiOperation({
+    summary: 'Employment links with the customer and employer named',
+    description:
+      'Filter by `customer_id`, `employer_id`, `status` or `verified=true|false`. With ' +
+      '`verified=false` the oldest come first — the verification queue. Answers `{ rows, total }`.',
+  })
+  listEmploymentForConsole(@Query() query: Record<string, string>) {
+    return this.employment.listForConsole(query);
   }
 
   @Get(':id')
@@ -126,9 +160,34 @@ export class EmployersController {
 
   @Post('employment/:id/verify')
   @ApiModel('Employment')
+  @ApiZodBody(verifyEmploymentSchema)
   @RequirePermissions(PERMISSIONS.EMPLOYERS_WRITE)
   @HttpCode(200)
-  verifyEmployment(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.employment.markVerified(id, actorOf(user));
+  @ApiOperation({
+    summary: 'Confirm the customer holds this job, saying how',
+    description:
+      'Raises a first-time customer to the employer tier of the starter limit. 409 if the ' +
+      'customer no longer holds the job, or the employer partnership has ended.',
+  })
+  verifyEmployment(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.employment.markVerified(id, body, actorOf(user));
+  }
+
+  @Post('employment/:id/unverify')
+  @ApiModel('Employment')
+  @ApiZodBody(unverifyEmploymentSchema)
+  @RequirePermissions(PERMISSIONS.EMPLOYERS_WRITE)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Withdraw a verification that turned out to be wrong' })
+  unverifyEmployment(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.employment.unverify(id, body, actorOf(user));
   }
 }

@@ -84,6 +84,8 @@ export const NAME_STATUS: Record<string, number> = {
   ReturnAlreadyDecidedError: HttpStatus.CONFLICT,
   ReturnNotFoundError: HttpStatus.NOT_FOUND,
   DuplicateEmploymentError: HttpStatus.CONFLICT,
+  EmploymentNotAllowedError: HttpStatus.CONFLICT,
+  UserAccessChangeError: HttpStatus.CONFLICT,
   DuplicateApplicationError: HttpStatus.CONFLICT,
   PlanNotOfferedError: HttpStatus.UNPROCESSABLE_ENTITY,
   IllegalMerchantTransitionError: HttpStatus.CONFLICT,

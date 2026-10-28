@@ -28,6 +28,10 @@ import { ProductsListPage } from './pages/catalogue/products';
 import { ProductDetailPage } from './pages/catalogue/product';
 import { StoresListPage } from './pages/catalogue/stores';
 import { CategoriesPage } from './pages/catalogue/categories';
+import { EmployersListPage } from './pages/employers/list';
+import { EmployerDetailPage } from './pages/employers/detail';
+import { EmploymentChecksPage } from './pages/employers/checks';
+import { StaffPage } from './pages/staff';
 
 export function App() {
   const { isAuthenticated } = useAuth();
@@ -61,6 +65,11 @@ export function App() {
           <Route path="/merchants" element={<MerchantsListPage />} />
           <Route path="/merchants/new" element={<MerchantNewPage />} />
           <Route path="/merchants/:id" element={<MerchantDetailPage />} />
+
+          <Route path="/employers" element={<EmployersListPage />} />
+          <Route path="/employers/:id" element={<EmployerDetailPage />} />
+          <Route path="/employment-checks" element={<EmploymentChecksPage />} />
+          <Route path="/staff" element={<StaffPage />} />
 
           <Route path="/customers" element={<CustomersListPage />} />
           <Route path="/customers/new" element={<CustomerNewPage />} />

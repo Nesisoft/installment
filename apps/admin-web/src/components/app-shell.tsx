@@ -5,8 +5,10 @@ import {
   Activity,
   Banknote,
   BookCheck,
+  Briefcase,
   Building2,
   ClipboardList,
+  IdCard,
   FolderTree,
   LayoutDashboard,
   LogOut,
@@ -17,6 +19,7 @@ import {
   ShoppingBag,
   Undo2,
   Store,
+  UserCog,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -39,10 +42,13 @@ const NAV: NavItem[] = [
   { to: '/catalogue/products', label: 'Listings', icon: Package },
   { to: '/catalogue/categories', label: 'Categories', icon: FolderTree },
   { to: '/customers', label: 'Customers', icon: Users },
+  { to: '/employers', label: 'Employers', icon: Briefcase },
+  { to: '/employment-checks', label: 'Employment checks', icon: IdCard },
   { to: '/templates', label: 'Plan templates', icon: Receipt },
   { to: '/scoring', label: 'Scoring', icon: ShieldAlert },
   { to: '/telco-health', label: 'Telco health', icon: Activity },
   { to: '/ledger', label: 'Ledger', icon: BookCheck },
+  { to: '/staff', label: 'Staff and roles', icon: UserCog },
 ];
 
 export function AppShell() {
