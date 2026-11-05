@@ -40,6 +40,22 @@ describe('HealthService', () => {
     expect(result.info.redis).toBe('down');
   });
 
+  it('asks the database every time but Redis once a minute while it answers', async () => {
+    const { service, pool, redis } = make(true, true);
+    await service.check();
+    await service.check();
+    await service.check();
+    expect(pool.query).toHaveBeenCalledTimes(3);
+    expect(redis.ping).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks Redis again at once after it was down', async () => {
+    const { service, redis } = make(true, false);
+    await service.check();
+    await service.check();
+    expect(redis.ping).toHaveBeenCalledTimes(2);
+  });
+
   it('reports degraded when both are down', async () => {
     const { service } = make(false, false);
     const result = await service.check();

@@ -1,0 +1,166 @@
+# Render Blueprint: the API and the three web apps, for a test deployment
+# against Supabase (Postgres), Upstash (Redis) and Cloudflare R2 (uploads).
+#
+# Read docs/deployment/render.md before the first sync. It says what each
+# `sync: false` value should be, which secret file the API needs, and what to
+# run once the API is up (the first admin account). The mobile apps are not
+# deployed here; they point at the API's URL (same guide, "Mobile apps").
+#
+# Every service builds the whole workspace with pnpm, pinned by the
+# `packageManager` field in package.json and fetched by corepack.
+
+services:
+  # --- API (NestJS) -----------------------------------------------------------
+  - type: web
+    name: ejua-api
+    runtime: node
+    # Closest of Render's regions to Ghana. Put the API in the region nearest
+    # your Supabase project: every request makes several database round trips.
+    region: frankfurt
+    # No `plan`: Render's smallest paid instance. The free instance sleeps after
+    # 15 idle minutes (scheduled jobs and debit retries stop with it) and has no
+    # pre-deploy step. See the guide before switching to it.
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm turbo run build --filter=@installment/api
+    # Applies any new migration before the new version takes traffic. Not the
+    # compiled runner under dist/: it looks for the .sql files beside itself,
+    # finds none, and exits 0 having applied nothing.
+    preDeployCommand: pnpm migrate
+    startCommand: cd apps/api && node dist/main.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: COREPACK_ENABLE_DOWNLOAD_PROMPT
+        value: '0'
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      # Render's load balancer sits in front. Check the hop count after the first
+      # deploy: docs/deployment/render.md, "Rate limiting behind Render".
+      - key: TRUST_PROXY
+        value: '1'
+
+      # Supabase session pooler, with sslmode=verify-full&sslrootcert=... (guide).
+      - key: DATABASE_URL
+        sync: false
+      # Supabase's default pool is 15 connections, shared by everything that
+      # connects: this API, a local API, the migration runner.
+      - key: DATABASE_POOL_MAX
+        value: '5'
+
+      # Upstash: rediss://default:<password>@<host>.upstash.io:6379
+      - key: REDIS_URL
+        sync: false
+      # Upstash bills per command. With BullMQ's defaults the idle API sends
+      # about 100 commands a minute; with these, about 2.
+      - key: QUEUE_DRAIN_DELAY_SECONDS
+        value: '300'
+      - key: QUEUE_STALLED_INTERVAL_SECONDS
+        value: '300'
+      # Exactly one running instance may have this on.
+      - key: ENABLE_SCHEDULED_WORKERS
+        value: 'true'
+
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+
+      # The three web apps' URLs, comma-separated, no trailing slashes.
+      - key: CORS_ORIGINS
+        sync: false
+
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+
+      # Production refuses to start on the console SMS sender: customers sign in
+      # by phone and one-time code only.
+      - key: SMS_PROVIDER
+        value: hubtel
+      - key: HUBTEL_CLIENT_ID
+        sync: false
+      - key: HUBTEL_CLIENT_SECRET
+        sync: false
+      - key: HUBTEL_SENDER_ID
+        sync: false
+      - key: PUSH_PROVIDER
+        value: expo
+
+      # Cloudflare R2, through the S3 API.
+      - key: STORAGE_DRIVER
+        value: s3
+      - key: STORAGE_REGION
+        value: auto
+      - key: STORAGE_FORCE_PATH_STYLE
+        value: 'true'
+      - key: STORAGE_ENDPOINT
+        sync: false
+      - key: STORAGE_BUCKET
+        sync: false
+      - key: STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: STORAGE_SECRET_ACCESS_KEY
+        sync: false
+      # The bucket's public address (custom domain, or r2.dev while testing).
+      - key: STORAGE_PUBLIC_URL
+        sync: false
+
+  # --- Web apps (static) ------------------------------------------------------
+  # The API address is baked into each bundle at build time: change
+  # VITE_API_BASE_URL and redeploy the site, not just restart it.
+
+  - type: web
+    name: ejua-admin
+    runtime: static
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm turbo run build --filter=@installment/admin-web
+    staticPublishPath: apps/admin-web/dist
+    # Client-side routes (/merchants/123) are served the app, not a 404.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: COREPACK_ENABLE_DOWNLOAD_PROMPT
+        value: '0'
+      - key: VITE_API_BASE_URL
+        sync: false
+
+  - type: web
+    name: ejua-sell
+    runtime: static
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm turbo run build --filter=@installment/merchant-web
+    staticPublishPath: apps/merchant-web/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: COREPACK_ENABLE_DOWNLOAD_PROMPT
+        value: '0'
+      - key: VITE_API_BASE_URL
+        sync: false
+
+  - type: web
+    name: ejua-shop
+    runtime: static
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm turbo run build --filter=@installment/customer-web
+    staticPublishPath: apps/customer-web/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: COREPACK_ENABLE_DOWNLOAD_PROMPT
+        value: '0'
+      - key: VITE_API_BASE_URL
+        sync: false
+      # Paystack's public key (pk_test_... while testing), for the pay-early widget.
+      - key: VITE_PAYSTACK_PUBLIC_KEY
+        sync: false

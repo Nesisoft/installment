@@ -101,6 +101,9 @@ describe('SMS environment validation', () => {
       // PUSH_PROVIDER=console, because a merchant who is never told an order
       // arrived does not confirm it.
       PUSH_PROVIDER: 'expo',
+      // And again: the published development JWT secrets are refused too.
+      JWT_ACCESS_SECRET: 'a'.repeat(32),
+      JWT_REFRESH_SECRET: 'b'.repeat(32),
     });
     expect(env.SMS_PROVIDER).toBe('hubtel');
     expect(env.SMS_LOG_BODY).toBe(false);

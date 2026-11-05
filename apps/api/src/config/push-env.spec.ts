@@ -20,6 +20,8 @@ const PROD = {
   STORAGE_BUCKET: 'b',
   STORAGE_ACCESS_KEY_ID: 'k',
   STORAGE_SECRET_ACCESS_KEY: 's',
+  JWT_ACCESS_SECRET: 'a'.repeat(32),
+  JWT_REFRESH_SECRET: 'b'.repeat(32),
 };
 
 /** ConfigService's shape, narrowed to what the factory actually calls. */

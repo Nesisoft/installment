@@ -47,6 +47,9 @@ export class RetryWorker implements OnModuleInit, OnModuleDestroy {
     this.worker = new Worker<RetryJob>(RETRY_QUEUE, (job) => this.process(job.data), {
       connection: createQueueConnection(this.config.get('REDIS_URL', { infer: true })),
       concurrency: 5,
+      // Both tunable for a Redis billed per command; see env.validation.ts.
+      drainDelay: this.config.get('QUEUE_DRAIN_DELAY_SECONDS', { infer: true }),
+      stalledInterval: this.config.get('QUEUE_STALLED_INTERVAL_SECONDS', { infer: true }) * 1000,
     });
     this.worker.on('failed', (job, err) => {
       this.logger.error({ err, jobId: job?.id }, 'retry job threw');

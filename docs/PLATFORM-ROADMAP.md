@@ -216,13 +216,17 @@ phone and waits 24 hours, with a notice (#127, #130).
 - `docs/api/openapi.json` regenerated (#141).
 - [`partner-integration.md`](./partner-integration.md): the partner flow as it runs today, and
   why it cannot be opened to partners yet.
+- Metrics, alert rules, a Grafana dashboard and a log-shipping guide
+  ([`infra/observability`](../infra/observability/README.md), #145).
+- A Render Blueprint for the API and the three web apps, against Supabase, Upstash and Cloudflare
+  R2, with the setup for testing locally and on devices
+  ([`deployment/render.md`](./deployment/render.md)).
 
 **Remaining:**
 
 - A partner API: partner credentials, routes scoped to the partner, decisions made by scoring
   rather than the caller, and outbound webhooks — see
   [`partner-integration.md`](./partner-integration.md) §3. Not needed for a marketplace pilot.
-- Dashboards and a log sink beyond Sentry.
 - Staff cannot change or reset their own password.
 - The pilot itself: a pilot merchant, a pilot buyer, and the first real transactions.
 
@@ -299,7 +303,8 @@ out of the build. Struck-through items are settled; the text after each says how
 
 Close out Phase 16 and run the pilot:
 
-1. Dashboards and a log sink, so ops can see the system without reading Sentry.
+1. A test deployment on Render ([`deployment/render.md`](./deployment/render.md)), every app tried
+   end to end on Paystack's test keys.
 2. Settle §6 items 9 and 13 before real money moves: the payroll tier lends against a
    collection channel that does not exist, and the receipt domain is unregistered.
 3. Paystack transfers enabled on the live account — in test mode every payout was refused with
