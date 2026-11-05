@@ -13,6 +13,13 @@ export const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  /**
+   * Most Postgres connections the API holds at once. A hosted pooler caps its
+   * clients (Supabase's session mode refuses past the project's pool size),
+   * and every process pointed at the database — each API instance, a local
+   * run, the migration runner — counts against that cap.
+   */
+  DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
   REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
   // CORS allowlist for the Phase 10 browser apps. Comma-separated origins, or
   // "*" to reflect any origin (dev only). Empty = no cross-origin browser access.
@@ -213,7 +220,28 @@ export const envSchema = z.object({
     .union([z.boolean(), z.string()])
     .transform((v) => v === true || v === 'true' || v === '1')
     .default(false),
+  /**
+   * How long the retry worker waits on an empty queue before asking Redis
+   * again, in seconds (BullMQ's `drainDelay`). A new job wakes the worker at
+   * once whatever this is, so raising it costs no latency. It only matters on
+   * a Redis billed per command, such as Upstash, where an idle worker asking
+   * every 5 seconds is about 17,000 commands a day.
+   */
+  QUEUE_DRAIN_DELAY_SECONDS: z.coerce.number().int().positive().default(5),
+  /**
+   * How often the retry worker checks for jobs a crashed worker left
+   * half-done, in seconds (BullMQ's `stalledInterval`). Longer means fewer
+   * commands and a slower recovery after a crash, which for debit retries
+   * already scheduled hours apart costs nothing.
+   */
+  QUEUE_STALLED_INTERVAL_SECONDS: z.coerce.number().int().positive().default(30),
 });
+
+/** Published in `.env.example` and the schema above, so known to everyone. */
+const JWT_DEV_DEFAULTS = new Set([
+  'dev-access-secret-change-me!!',
+  'dev-refresh-secret-change-me!!',
+]);
 
 /**
  * Refusals that only make sense once the whole environment is known.
@@ -239,6 +267,17 @@ export const envSchemaChecked = envSchema.superRefine((env, ctx) => {
         path: ['SMS_LOG_BODY'],
         message: 'refusing to start: SMS_LOG_BODY writes login OTPs to the log.',
       });
+    }
+    // Tokens signed with a published secret can be forged by anyone, for any
+    // account, admin included. Unset falls back to exactly these values.
+    for (const key of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
+      if (JWT_DEV_DEFAULTS.has(env[key])) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `refusing to start: ${key} is the published development value, so anyone can sign a token for any account. Set a long random secret.`,
+        });
+      }
     }
     if (env.PUSH_PROVIDER === 'console') {
       ctx.addIssue({

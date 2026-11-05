@@ -15,8 +15,19 @@ export interface HealthResult {
   timestamp: string;
 }
 
+/**
+ * How long a Redis answer is reused. A platform health check calls this every
+ * few seconds (Render's does), and on a Redis billed per command (Upstash's
+ * free tier is 500K a month) a PING every five seconds is over 500K a month on
+ * its own. The database is still asked every time: Postgres is not billed per
+ * query, and it is the check that catches a bad deploy.
+ */
+export const REDIS_HEALTH_TTL_MS = 60_000;
+
 @Injectable()
 export class HealthService {
+  private redisAnswer: { at: number; status: ComponentStatus } | null = null;
+
   constructor(
     @Inject(PG_POOL) private readonly pool: Pick<Pool, 'query'>,
     @Inject(REDIS) private readonly redis: Pick<Redis, 'ping'>,
@@ -41,12 +52,19 @@ export class HealthService {
     }
   }
 
-  private async checkRedis(): Promise<ComponentStatus> {
-    try {
-      const pong = await this.redis.ping();
-      return pong === 'PONG' ? 'up' : 'down';
-    } catch {
-      return 'down';
+  private async checkRedis(now = Date.now()): Promise<ComponentStatus> {
+    // Only an `up` is reused: a Redis that was down is asked again next time,
+    // so recovery shows at once and a failure is never hidden behind the cache.
+    if (this.redisAnswer && now - this.redisAnswer.at < REDIS_HEALTH_TTL_MS) {
+      return this.redisAnswer.status;
     }
+    let status: ComponentStatus;
+    try {
+      status = (await this.redis.ping()) === 'PONG' ? 'up' : 'down';
+    } catch {
+      status = 'down';
+    }
+    this.redisAnswer = status === 'up' ? { at: now, status } : null;
+    return status;
   }
 }

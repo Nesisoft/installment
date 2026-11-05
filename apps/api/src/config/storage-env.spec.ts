@@ -11,13 +11,16 @@ const BASE = {
 
 // Everything a production boot now insists on, so a storage assertion here
 // fails for a storage reason. PUSH_PROVIDER joined the list with the push
-// transport: `console` is refused in production the same way SMS `console` is.
+// transport: `console` is refused in production the same way SMS `console` is,
+// and the JWT secrets when the published development values were refused.
 const PROD = {
   ...BASE,
   NODE_ENV: 'production',
   SMS_PROVIDER: 'arkesel',
   ARKESEL_API_KEY: 'k',
   PUSH_PROVIDER: 'expo',
+  JWT_ACCESS_SECRET: 'a'.repeat(32),
+  JWT_REFRESH_SECRET: 'b'.repeat(32),
 };
 
 /** ConfigService's shape, narrowed to what the factory actually calls. */

@@ -27,6 +27,10 @@ pnpm --filter @installment/api dev                # API on :3000
 If all of those pass, the engine works locally. The rest of this doc is for
 when one of them doesn't, or you want to verify a specific phase manually.
 
+> **Hosted services instead of a local stack?** Running the apps against Supabase, Upstash and
+> Cloudflare R2, and deploying them to Render, is in
+> [`deployment/render.md`](./deployment/render.md).
+
 ## Bootstrap
 
 ### 1. Prereqs
