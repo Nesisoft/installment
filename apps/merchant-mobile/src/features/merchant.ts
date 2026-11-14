@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiErrorStatus, useApi } from '@installment/mobile-kit';
+import type { StatementPeriod } from '../lib/statement-period';
 import type {
   AddVariantInput,
   CreateProductInput,
@@ -47,6 +48,7 @@ import type {
   StorefrontCategory,
   UpdateMyStoreInput,
   UpdateProductInput,
+  MerchantStatement,
 } from '@installment/api-types';
 
 /**
@@ -340,6 +342,27 @@ export function usePlanCounts() {
   return useQuery({
     queryKey: ['merchant', 'plan-list', 'counts'],
     queryFn: async () => (await api.get<MerchantPlanCounts>('/merchant/plan-list/counts')).data,
+  });
+}
+
+/**
+ * One month of the seller's account: opening and closing balance, what came in
+ * and went out, and every ledger line in between. The same statement the CSV
+ * and printable versions are rendered from.
+ */
+export function useMerchantStatement(period: StatementPeriod) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['merchant', 'statement', period.year, period.month],
+    queryFn: async () =>
+      (
+        await api.get<MerchantStatement>('/merchant/statement', {
+          params: { year: period.year, month: period.month },
+        })
+      ).data,
+    // Stepping to the next month keeps the last one on screen until it lands,
+    // rather than flashing an empty statement.
+    placeholderData: (previous) => previous,
   });
 }
 
