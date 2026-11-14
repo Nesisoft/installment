@@ -33,9 +33,13 @@ ledger, not a number this app worked out.
 | 11  | Storefront + settings | **built**                                                                      |
 
 `apps/merchant-web` is being folded into this app, which will also be the seller website, as
-the shopper app already is the shop's. Opening a shop now happens here. Still only on the web
-portal, and so not removed yet: the account statement with its CSV and PDF downloads, and a
-plan's full schedule and settlement.
+the shopper app already is the shop's. Opening a shop and the monthly and per-plan statements
+(with their CSV and printable versions) now live here; a plan's schedule and settlement always
+did. What remains is the desktop layout and the deployment, after which the web portal goes.
+
+Statements export through `src/lib/statement-export.ts`: on the web the CSV downloads and the
+printable page opens in a new tab; on a phone the CSV goes to the share sheet and the printable
+page to the system print dialog, which can also save a PDF.
 
 ---
 

@@ -201,6 +201,23 @@ export default function PayoutsScreen(): React.ReactElement {
           )}
         </View>
 
+        {/* The month-by-month account an accountant asks for, with the CSV and
+            the printable page the web portal used to be the only place for. */}
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel="Monthly statements"
+          onPress={() => router.push('/statements')}
+          style={({ pressed }) => [styles.statements, pressed && styles.pressed]}
+        >
+          <View style={styles.statementsText}>
+            <Text variant="bodyMedium">Monthly statements</Text>
+            <Text variant="tiny" tone="faint">
+              Every credit, payout and release, by month · CSV or print
+            </Text>
+          </View>
+          <Icon name="chevron-right" size={18} color={color.muted} />
+        </Pressable>
+
         <View>
           <SectionLabel>Payout history</SectionLabel>
           {payouts.isPending ? (
@@ -343,6 +360,19 @@ function PayoutRow({
 }
 
 const styles = StyleSheet.create({
+  statements: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    backgroundColor: color.surface,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+  },
+  statementsText: { flex: 1, gap: 2 },
+  pressed: { opacity: 0.7 },
   hero: {
     backgroundColor: color.darkCanvas,
     paddingHorizontal: space.lg,

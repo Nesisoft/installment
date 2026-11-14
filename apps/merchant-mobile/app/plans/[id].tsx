@@ -1,7 +1,7 @@
-import React, { useCallback } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { apiErrorMessage } from '@installment/mobile-kit';
+import { apiErrorMessage, useApi } from '@installment/mobile-kit';
 import type { MerchantPlanDetail, MerchantPlanInstallment } from '@installment/api-types';
 import {
   Button,
@@ -24,6 +24,7 @@ import { usePlan } from '../../src/features/merchant';
 import { shortDate } from '../../src/lib/dates';
 import { cedis, ghs } from '../../src/lib/format';
 import { defaultRiskSentence } from '../../src/lib/risk';
+import { exportStatement, type StatementFormat } from '../../src/lib/statement-export';
 import { color, font, radius, space } from '../../src/theme/tokens';
 
 export default function PlanScreen(): React.ReactElement {
@@ -151,6 +152,8 @@ export default function PlanScreen(): React.ReactElement {
           </Card>
         </View>
 
+        <PlanStatement planId={p.id} />
+
         <Note eyebrow="Who carries the risk">
           {`Ejua lends the customer the money and collects every payment. ${defaultRiskSentence(p.business_model)}`}
         </Note>
@@ -164,6 +167,67 @@ export default function PlanScreen(): React.ReactElement {
         ) : null}
       </View>
     </Screen>
+  );
+}
+
+/**
+ * This plan's statement: the schedule, every payment and what the seller was
+ * credited, as a CSV or the printable page. The web portal was the only place
+ * to get one.
+ */
+function PlanStatement({ planId }: { planId: string }): React.ReactElement {
+  const api = useApi();
+  const [busy, setBusy] = useState<StatementFormat | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function exportAs(format: StatementFormat): Promise<void> {
+    setError(null);
+    setBusy(format);
+    try {
+      await exportStatement(
+        api,
+        {
+          path: `/merchant/plans/${planId}/statement`,
+          filename: `ejua-plan-${planId.slice(0, 8)}`,
+        },
+        format,
+      );
+    } catch (err) {
+      setError(apiErrorMessage(err, 'We could not prepare that file just now. Try again.'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <View>
+      <SectionLabel>Statement</SectionLabel>
+      <View style={styles.statementActions}>
+        <Button
+          label={Platform.OS === 'web' ? 'Download CSV' : 'Share as CSV'}
+          variant="outline"
+          compact
+          loading={busy === 'csv'}
+          disabled={busy !== null}
+          onPress={() => void exportAs('csv')}
+          style={styles.statementAction}
+        />
+        <Button
+          label="Print or save as PDF"
+          variant="outline"
+          compact
+          loading={busy === 'html'}
+          disabled={busy !== null}
+          onPress={() => void exportAs('html')}
+          style={styles.statementAction}
+        />
+      </View>
+      {error ? (
+        <Text variant="small" tone="accent" style={styles.statementError}>
+          {error}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -216,6 +280,9 @@ function InstallmentRow({
 }
 
 const styles = StyleSheet.create({
+  statementActions: { flexDirection: 'row', gap: space.md },
+  statementAction: { flex: 1 },
+  statementError: { marginTop: space.sm },
   body: { padding: space.lg, gap: space.lg },
   hero: { marginTop: 2 },
   eyebrow: { marginBottom: space.sm },

@@ -54,7 +54,8 @@
         {
           "userInterfaceStyle": "light"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": false,
