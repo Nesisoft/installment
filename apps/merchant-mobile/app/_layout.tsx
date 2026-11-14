@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
+import { Platform } from 'react-native';
+import { enableScreens } from 'react-native-screens';
 import { StatusBar } from 'expo-status-bar';
 import { Stack, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -17,6 +19,12 @@ import { usePushRegistration } from '../src/lib/push';
 // the keystore, so the first frame is the right screen rather than a flash of
 // sign-in at a seller who is already signed in.
 void SplashScreen.preventAutoHideAsync();
+
+// In a browser `react-native-screens` is off by default, so the navigators
+// leave screens the seller has moved away from in the page, painted over but
+// still reachable by keyboard and screen readers. On, an inactive screen is
+// `display: none` and `hidden`, as it already is on a phone.
+if (Platform.OS === 'web') enableScreens(true);
 
 const queryClient = createQueryClient();
 
@@ -100,6 +108,7 @@ function Routes(): React.ReactElement | null {
       </Stack.Protected>
       <Stack.Protected guard={!signedIn}>
         <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
+        <Stack.Screen name="sign-up" />
       </Stack.Protected>
     </Stack>
   );

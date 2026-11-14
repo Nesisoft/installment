@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import {
   createSessionStore,
@@ -18,7 +19,40 @@ import { SESSION_KEY } from './config';
  */
 const fallback = memoryStorage();
 
-const adapter: SecureStorageAdapter = {
+/**
+ * The browser's `localStorage`, on the web.
+ *
+ * SecureStore has no web implementation, so without this the seller site
+ * would fall back to memory and sign the seller out on every reload.
+ * `localStorage` is what the web portal this replaces used too. It is readable
+ * by any script on the origin, so the site must not load third-party scripts
+ * it does not control. A browser that refuses storage falls back to memory.
+ */
+const browser: SecureStorageAdapter = {
+  async getItemAsync(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch {
+      return fallback.getItemAsync(key);
+    }
+  },
+  async setItemAsync(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch {
+      await fallback.setItemAsync(key, value);
+    }
+  },
+  async deleteItemAsync(key) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      await fallback.deleteItemAsync(key);
+    }
+  },
+};
+
+const keystore: SecureStorageAdapter = {
   async getItemAsync(key) {
     try {
       return await SecureStore.getItemAsync(key);
@@ -42,4 +76,7 @@ const adapter: SecureStorageAdapter = {
   },
 };
 
-export const sessionStore = createSessionStore(SESSION_KEY, adapter);
+export const sessionStore = createSessionStore(
+  SESSION_KEY,
+  Platform.OS === 'web' ? browser : keystore,
+);

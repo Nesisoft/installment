@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, TextInput, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiErrorMessage } from '@installment/mobile-kit';
@@ -84,10 +91,21 @@ export default function SignInScreen(): React.ReactElement {
             />
           </View>
 
-          <Text variant="tiny" tone="onDarkFaint" center style={styles.footnote}>
-            No shop yet? Opening one takes your business details and a Ghana Card, and it happens on
-            the web at ejua.shop — the app picks up once you are verified.
-          </Text>
+          <Pressable
+            accessibilityRole="link"
+            onPress={() => router.push('/sign-up')}
+            style={styles.footnote}
+          >
+            <Text variant="small" tone="onDarkMuted" center>
+              No shop yet?{' '}
+              <Text variant="smallMedium" tone="primary">
+                Open one
+              </Text>
+            </Text>
+            <Text variant="tiny" tone="onDarkFaint" center style={styles.footnoteSub}>
+              It takes your phone, your business details and a Ghana Card.
+            </Text>
+          </Pressable>
         </View>
       </KeyboardAvoidingView>
     </Screen>
@@ -135,5 +153,6 @@ const styles = StyleSheet.create({
   },
   error: { marginTop: -space.xs },
   cta: { marginTop: space.sm },
-  footnote: { marginTop: 'auto', paddingTop: space.xxl, lineHeight: 17 },
+  footnote: { marginTop: 'auto', paddingTop: space.xxl, paddingBottom: space.md, gap: 4 },
+  footnoteSub: { lineHeight: 17 },
 });
