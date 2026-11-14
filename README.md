@@ -14,10 +14,10 @@ future Nesisoft products.
 apps/
   api/              NestJS HTTP entry point
   workers/          BullMQ workers
-  customer-mobile/  Ejua shopping app — Expo / React Native  ← Phase 14
-  customer-web/     React customer dashboard
-  merchant-web/     React merchant dashboard  (placeholder)
-  admin-web/        React admin / ops console (placeholder)
+  customer-mobile/  Ejua shopping app — Expo / React Native, also served as the shop website
+  merchant-mobile/  Ejua Sell seller app — Expo / React Native
+  merchant-web/     React seller portal (signup, KYC, statements)
+  admin-web/        React admin / ops console
 packages/
   db/               Drizzle schema + migration runner
   core/             Installment engine domain modules

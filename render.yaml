@@ -3,8 +3,9 @@
 #
 # Read docs/deployment/render.md before the first sync. It says what each
 # `sync: false` value should be, which secret file the API needs, and what to
-# run once the API is up (the first admin account). The mobile apps are not
-# deployed here; they point at the API's URL (same guide, "Mobile apps").
+# run once the API is up (the first admin account). The shop site is the
+# shopper mobile app built for the web; the seller app still runs on phones and
+# points at the API's URL (same guide, "Mobile apps").
 #
 # Every service builds the whole workspace with pnpm, pinned by the
 # `packageManager` field in package.json and fetched by corepack.
@@ -108,7 +109,8 @@ services:
 
   # --- Web apps (static) ------------------------------------------------------
   # The API address is baked into each bundle at build time: change
-  # VITE_API_BASE_URL and redeploy the site, not just restart it.
+  # VITE_API_BASE_URL (EXPO_PUBLIC_API_URL for the shop) and redeploy the site,
+  # not just restart it.
 
   - type: web
     name: ejua-admin
@@ -145,11 +147,14 @@ services:
       - key: VITE_API_BASE_URL
         sync: false
 
+  # The shop is the shopper app itself (apps/customer-mobile), exported for the
+  # web by Expo. EXPO_PUBLIC_API_URL is inlined at export time, like the
+  # VITE_ variables above.
   - type: web
     name: ejua-shop
     runtime: static
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm turbo run build --filter=@installment/customer-web
-    staticPublishPath: apps/customer-web/dist
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @installment/customer-mobile export:web
+    staticPublishPath: apps/customer-mobile/dist
     routes:
       - type: rewrite
         source: /*
@@ -159,8 +164,5 @@ services:
         value: '22'
       - key: COREPACK_ENABLE_DOWNLOAD_PROMPT
         value: '0'
-      - key: VITE_API_BASE_URL
-        sync: false
-      # Paystack's public key (pk_test_... while testing), for the pay-early widget.
-      - key: VITE_PAYSTACK_PUBLIC_KEY
+      - key: EXPO_PUBLIC_API_URL
         sync: false
