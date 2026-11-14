@@ -3,6 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from './Text';
 import { color, radius, space, shadow } from '../theme/tokens';
+import { useLayout } from '../lib/layout';
 
 export interface SheetProps {
   open: boolean;
@@ -37,6 +38,7 @@ export function Sheet({
   footer,
 }: SheetProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const { wide } = useLayout();
   return (
     <Modal
       visible={open}
@@ -54,7 +56,12 @@ export function Sheet({
         {/* `onStartShouldSetResponder` rather than an onPress that does
             nothing: the latter still swallows the child's own touches on iOS. */}
         <View
-          style={[styles.sheet, { paddingBottom: insets.bottom + space.lg }]}
+          style={[
+            styles.sheet,
+            { paddingBottom: insets.bottom + space.lg },
+            // On a desktop the sheet rises as a panel, not a strip the width of the screen.
+            wide ? styles.wideSheet : null,
+          ]}
           onStartShouldSetResponder={() => true}
         >
           <View style={styles.grabber} />
@@ -80,6 +87,7 @@ export function Sheet({
 }
 
 const styles = StyleSheet.create({
+  wideSheet: { width: '100%', maxWidth: 560, alignSelf: 'center' },
   scrim: { flex: 1, backgroundColor: color.scrim, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: color.surface,

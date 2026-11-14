@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { enableScreens } from 'react-native-screens';
 import { StatusBar } from 'expo-status-bar';
 import { Stack, router } from 'expo-router';
@@ -14,6 +14,8 @@ import { color } from '../src/theme/tokens';
 import { API_BASE_URL } from '../src/lib/config';
 import { sessionStore } from '../src/lib/session-store';
 import { usePushRegistration } from '../src/lib/push';
+import { useLayout } from '../src/lib/layout';
+import { WideNav } from '../src/components/WideNav';
 
 // The splash stays up until fonts are loaded and the session has been read off
 // the keystore, so the first frame is the right screen rather than a flash of
@@ -73,6 +75,7 @@ export default function RootLayout(): React.ReactElement | null {
  */
 function Routes(): React.ReactElement | null {
   const { ready, signedIn } = useAuth();
+  const { wide } = useLayout();
 
   // Inside the provider, so it has the authenticated client, and once for the
   // whole app rather than per screen.
@@ -85,32 +88,38 @@ function Routes(): React.ReactElement | null {
 
   if (!ready) return null;
 
+  // On a wide window the tab bar is hidden and this bar takes its place, above
+  // every screen. Only once signed in: sign-in and sign-up carry their own
+  // wordmark, and every destination in the bar is behind sign-in.
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: color.canvas },
-        animation: 'slide_from_right',
-      }}
-    >
-      <Stack.Protected guard={signedIn}>
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="orders/[id]" />
-        <Stack.Screen name="plans/index" />
-        <Stack.Screen name="plans/[id]" />
-        <Stack.Screen name="products/new" />
-        <Stack.Screen name="products/[id]" />
-        <Stack.Screen name="returns/index" />
-        <Stack.Screen name="returns/[id]" />
-        <Stack.Screen name="performance" />
-        <Stack.Screen name="payout-account" />
-        <Stack.Screen name="statements" />
-        <Stack.Screen name="onboarding" />
-      </Stack.Protected>
-      <Stack.Protected guard={!signedIn}>
-        <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
-        <Stack.Screen name="sign-up" />
-      </Stack.Protected>
-    </Stack>
+    <View style={{ flex: 1 }}>
+      {wide && signedIn ? <WideNav /> : null}
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: color.canvas },
+          animation: 'slide_from_right',
+        }}
+      >
+        <Stack.Protected guard={signedIn}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="orders/[id]" />
+          <Stack.Screen name="plans/index" />
+          <Stack.Screen name="plans/[id]" />
+          <Stack.Screen name="products/new" />
+          <Stack.Screen name="products/[id]" />
+          <Stack.Screen name="returns/index" />
+          <Stack.Screen name="returns/[id]" />
+          <Stack.Screen name="performance" />
+          <Stack.Screen name="payout-account" />
+          <Stack.Screen name="statements" />
+          <Stack.Screen name="onboarding" />
+        </Stack.Protected>
+        <Stack.Protected guard={!signedIn}>
+          <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
+          <Stack.Screen name="sign-up" />
+        </Stack.Protected>
+      </Stack>
+    </View>
   );
 }

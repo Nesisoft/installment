@@ -38,7 +38,7 @@ export default function SignInScreen(): React.ReactElement {
   }
 
   return (
-    <Screen dark scroll={false}>
+    <Screen dark width="form" scroll={false}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
@@ -49,7 +49,8 @@ export default function SignInScreen(): React.ReactElement {
             <Text style={styles.sell}>sell</Text>
           </View>
           <Text variant="h1" tone="onDark" style={styles.title}>
-            Run your shop from your phone
+            {/* The same app is the seller website, where "from your phone" is not true. */}
+            {Platform.OS === 'web' ? 'Run your shop on Ejua' : 'Run your shop from your phone'}
           </Text>
           <Text variant="small" tone="onDarkMuted" style={styles.lede}>
             Orders, stock and what Ejua owes you. Sign in with the email you opened the shop with.
