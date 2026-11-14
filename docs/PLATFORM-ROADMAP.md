@@ -47,9 +47,9 @@ But the **intended product** is larger: a **marketplace** where buyers browse an
 
 The engine is never modified by the commerce layer — the commerce layer creates an internal order and hands the engine `order_reference = order.id`. Full detail: [`design/commerce-domain.md`](./design/commerce-domain.md) §2.
 
-As built, the shopper app is also the shop's website: `apps/customer-mobile` exported for the web
-(it replaced a separate `apps/customer-web`). The seller side still has a web portal,
-`apps/merchant-web`, alongside the seller app. The scheduled jobs run from the API process behind
+As built, each mobile app is also its side's website, exported for the web: the shopper app is
+the shop's (it replaced `apps/customer-web`) and the seller app is the seller's (it replaced
+`apps/merchant-web`). The scheduled jobs run from the API process behind
 `ENABLE_SCHEDULED_WORKERS`.
 
 ---
@@ -188,8 +188,9 @@ assumes a collection channel that is not built yet.
 
 **Status:** built as **Ejua Sell** (#77–#82): home and order queue, payouts, reserve and
 performance, catalogue and sizes, instalment plans, shop setup, listing and editing, returns and
-restock. `apps/merchant-web` covers the same ground in a browser, including self-signup,
-KYC, the payout account and analytics. A payout account change needs a code sent to the seller's
+restock. The app also opens a shop from scratch (signup, then KYC) and exports monthly and
+per-plan statements, and it is the seller website too, with a desktop layout; that retired the
+separate `apps/merchant-web` portal. A payout account change needs a code sent to the seller's
 phone and waits 24 hours, with a notice (#127, #130).
 
 ### Phase 16 — Admin Console (Web) + Marketplace Ops & Launch — **in progress**

@@ -68,7 +68,7 @@ Open the merchant's **Open reserves** card.
 
 ## 3. A delivered order whose layaway reserve is still waiting
 
-Marking an order delivered (seller app, merchant web) also tells the engine the plan was
+Marking an order delivered (seller app or website) also tells the engine the plan was
 delivered, which starts the 7-day buffer. That second step runs after the order is saved, so if
 it fails the order shows delivered and the reserve keeps waiting.
 

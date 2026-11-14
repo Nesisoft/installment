@@ -15,8 +15,7 @@ apps/
   api/              NestJS HTTP entry point
   workers/          BullMQ workers
   customer-mobile/  Ejua shopping app — Expo / React Native, also served as the shop website
-  merchant-mobile/  Ejua Sell seller app — Expo / React Native
-  merchant-web/     React seller portal (signup, KYC, statements)
+  merchant-mobile/  Ejua Sell seller app — Expo / React Native, also served as the seller website
   admin-web/        React admin / ops console
 packages/
   db/               Drizzle schema + migration runner

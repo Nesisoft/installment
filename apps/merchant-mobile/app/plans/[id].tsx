@@ -172,8 +172,8 @@ export default function PlanScreen(): React.ReactElement {
 
 /**
  * This plan's statement: the schedule, every payment and what the seller was
- * credited, as a CSV or the printable page. The web portal was the only place
- * to get one.
+ * credited, as a CSV or the printable page, which the old web portal was once
+ * the only place to get.
  */
 function PlanStatement({ planId }: { planId: string }): React.ReactElement {
   const api = useApi();

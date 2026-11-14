@@ -344,7 +344,7 @@ no buyer, no item summary, and no commission figure. The same gap
 `MerchantOrdersService` closed for the order queue (§2.1), closed the same way —
 `MerchantReturnsService` projecting `MerchantReturnRow` / `MerchantReturnDetail`
 over `/merchant/return-list`, plus a counts endpoint for the chips. The bare
-route stays: it is what the web portal and the returns spec read.
+route stays: it is what an integrator and the returns spec read.
 
 `api-types` carried **no return types at all** — not even `ReturnStatus` — so
 `packages/api-types/src/returns.ts` is new.

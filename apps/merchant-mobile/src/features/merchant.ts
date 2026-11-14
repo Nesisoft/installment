@@ -147,7 +147,7 @@ export function useOrdersAwaitingConfirmation() {
  * A page of the queue.
  *
  * `/merchant/queue`, not `/merchant/orders`. The latter filters on one raw
- * order status and is what the web portal uses; this one filters on the
+ * order status and is what an integrator uses; this one filters on the
  * seller's own buckets and carries the buyer and what the ledger settled, which
  * the app needs on every card and cannot compute for itself.
  */
@@ -324,7 +324,7 @@ export function useCatalog(filter: CatalogFilter) {
  *
  * `/merchant/plan-list`, not `/merchant/plans`. The latter returns bare
  * `customer_plans` rows — no customer, no product, no schedule, because a plan
- * knows none of it — and is what the web portal uses. This one carries the sale
+ * knows none of it — and is what an integrator uses. This one carries the sale
  * and the schedule summary each card needs.
  */
 export function usePlans(bucket: MerchantPlanBucket) {

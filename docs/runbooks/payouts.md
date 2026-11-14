@@ -92,8 +92,8 @@ do that; the account or the configuration does.
 The alert lists each merchant, status, amount and reference, grouped by reason.
 
 - **`failed` with a reason about the account** (invalid account, recipient not found, name
-  mismatch): the seller's payout account is wrong. Ask them to correct it in the seller app or
-  merchant web. The change is held for 24 hours, by design, and the next run after that pays.
+  mismatch): the seller's payout account is wrong. Ask them to correct it in the seller app or on
+  the seller website. The change is held for 24 hours, by design, and the next run after that pays.
 - **`unknown`**: wait for the reconciler — normally within 30 minutes. If it stays `unknown`
   past a few sweeps, see §3.
 - To pay one merchant again the same day, after fixing the cause:
