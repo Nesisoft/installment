@@ -8,8 +8,6 @@ import {
   View,
 } from 'react-native';
 import { router } from 'expo-router';
-import * as Linking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
 import {
   apiErrorMessage,
   apiErrorStatus,
@@ -57,6 +55,7 @@ import {
   shopOrders,
 } from '../src/lib/basket';
 import { arrivalWindow } from '../src/lib/dates';
+import { openPaymentPage, paymentReturnUrl } from '../src/lib/payment-page';
 import { DEFAULT_CITY, DEFAULT_REGION } from '../src/lib/config';
 import { color, radius, space } from '../src/theme/tokens';
 import type { DecidedOrder, MomoProvider, PlanQuote } from '../src/features/types';
@@ -738,14 +737,16 @@ function DecisionBody({
           decision.outcome === 'paid_later'
             ? (
                 await payCard.mutateAsync({
-                  callbackUrl: Linking.createURL('/payment-complete'),
+                  callbackUrl: paymentReturnUrl(`/confirmation/${decision.order.id}`),
                 })
               ).authorization_url
             : decision.down_payment
               ? (await payDepositLink.mutateAsync(decision.down_payment.id)).url
               : null;
         if (!url) return;
-        await WebBrowser.openAuthSessionAsync(url, Linking.createURL('/payment-complete'));
+        // On the web a blocked popup sends the whole tab to Paystack instead;
+        // the shopper comes back through `payment-complete`, not this screen.
+        if ((await openPaymentPage(url)) === 'left') return;
         onDone();
         return;
       }

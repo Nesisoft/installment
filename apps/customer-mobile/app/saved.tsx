@@ -6,7 +6,6 @@ import {
   Button,
   EmptyState,
   ErrorState,
-  GRID_WIDTH,
   Header,
   Icon,
   Loading,
@@ -17,6 +16,7 @@ import {
 import { useToggleWishlist, useWishlist, useWishlistIds } from '../src/features/account';
 import { pluralise } from '../src/lib/format';
 import { color, space } from '../src/theme/tokens';
+import { useLayout } from '../src/lib/layout';
 
 /**
  * Everything the shopper has saved.
@@ -34,6 +34,7 @@ import { color, space } from '../src/theme/tokens';
  * winning over the product.
  */
 export default function SavedScreen(): React.ReactElement {
+  const { gridItemWidth } = useLayout();
   const { signedIn } = useAuth();
   const saved = useWishlist(signedIn);
   const savedIds = useWishlistIds(signedIn);
@@ -43,8 +44,9 @@ export default function SavedScreen(): React.ReactElement {
   const ids = new Set(savedIds.data ?? []);
 
   return (
-    <Screen refreshing={saved.isRefetching} onRefresh={() => void saved.refetch()}>
+    <Screen wide refreshing={saved.isRefetching} onRefresh={() => void saved.refetch()}>
       <Header
+        wide
         title="Saved"
         subtitle={rows.length > 0 ? pluralise(rows.length, 'item') : undefined}
         back
@@ -78,7 +80,7 @@ export default function SavedScreen(): React.ReactElement {
                 <QuotedProductCard
                   key={product.id}
                   product={product}
-                  width={GRID_WIDTH}
+                  width={gridItemWidth}
                   saved={ids.has(product.id)}
                   onToggleSave={() =>
                     toggleSave.mutate({ productId: product.id, saved: ids.has(product.id) })

@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   Share,
   StyleSheet,
-  useWindowDimensions,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,6 +45,7 @@ import { cadence, compact, ghs, initials, pluralise } from '../../src/lib/format
 import { arrivalWindow, longDate } from '../../src/lib/dates';
 import { DEFAULT_CITY, DEFAULT_REGION } from '../../src/lib/config';
 import { color, fillParent, radius, space, tintFor } from '../../src/theme/tokens';
+import { useLayout } from '../../src/lib/layout';
 import type {
   PlanQuote,
   ProductVariant,
@@ -77,6 +79,13 @@ export default function ProductScreen(): React.ReactElement {
 
   const [variantId, setVariantId] = useState<string | null>(null);
   const [planTemplateId, setPlanTemplateId] = useState<string | null>(null);
+  const layout = useLayout();
+  // On a desktop the photos take the left half of the page and the details the
+  // right, as a shop's product page does, instead of a photo as tall as the
+  // window is wide with everything else below the fold.
+  const galleryWidth = layout.wide
+    ? Math.round((layout.frameWidth - space.lg * 2 - space.xxl) / 2)
+    : layout.width;
 
   const detail = product.data;
 
@@ -141,6 +150,16 @@ export default function ProductScreen(): React.ReactElement {
   };
 
   const onShare = (): void => {
+    // On the web the page's own address is the thing worth sharing, and a
+    // desktop browser often has no share sheet at all: the link goes to the
+    // clipboard instead of the button silently doing nothing.
+    if (Platform.OS === 'web') {
+      const url = window.location.href;
+      void Share.share({ title: detail.title, message: `${detail.title} on Ejua`, url }).catch(() =>
+        Clipboard.setStringAsync(url),
+      );
+      return;
+    }
     // Dismissing the sheet mid-animation rejects; there is nothing to tell the
     // customer when a share they abandoned does not complete.
     void Share.share({
@@ -164,202 +183,212 @@ export default function ProductScreen(): React.ReactElement {
   return (
     <View style={styles.flex}>
       <Screen
+        wide
         footerHeight={FOOTER_HEIGHT}
         refreshing={product.isRefetching}
         onRefresh={() => void product.refetch()}
       >
-        <Gallery product={detail} saved={saved} onToggleSave={onToggleSave} onShare={onShare} />
+        <View style={layout.wide ? styles.wideRow : undefined}>
+          <Gallery
+            product={detail}
+            width={galleryWidth}
+            framed={layout.wide}
+            saved={saved}
+            onToggleSave={onToggleSave}
+            onShare={onShare}
+          />
 
-        <View style={styles.body}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Visit ${detail.store.display_name}`}
-            onPress={() => router.push(`/store/${detail.store_slug}`)}
-            style={({ pressed }) => [styles.vendorRow, { opacity: pressed ? 0.75 : 1 }]}
-          >
-            <View style={styles.vendorTile}>
-              {detail.store.logo_url ? (
-                <Image
-                  source={{ uri: detail.store.logo_url }}
-                  style={fillParent}
-                  contentFit="cover"
-                  transition={140}
-                  accessibilityLabel={`${detail.store.display_name} logo`}
-                />
-              ) : (
-                <Text variant="smallMedium" tone="soft">
-                  {initials(detail.store.display_name)}
-                </Text>
-              )}
-            </View>
-            <View style={styles.vendorName}>
-              <Text variant="bodyMedium" numberOfLines={1}>
-                {detail.store.display_name}
-              </Text>
-            </View>
-            {detail.store.verified ? <Pill label="VERIFIED" tone="success" /> : null}
-            <Text variant="smallMedium" tone="accent">
-              Visit shop ›
-            </Text>
-          </Pressable>
-
-          <View style={styles.headline}>
-            <Text variant="h2">{detail.title}</Text>
-
-            <View style={styles.ratingRow}>
-              {rating !== null ? (
-                <>
-                  <Stars rating={rating} />
-                  <Text variant="smallMedium">{rating.toFixed(1)}</Text>
-                  <Text variant="small" tone="muted">
-                    {pluralise(detail.rating_count, 'review')}
+          <View style={[styles.body, layout.wide && styles.wideBody]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Visit ${detail.store.display_name}`}
+              onPress={() => router.push(`/store/${detail.store_slug}`)}
+              style={({ pressed }) => [styles.vendorRow, { opacity: pressed ? 0.75 : 1 }]}
+            >
+              <View style={styles.vendorTile}>
+                {detail.store.logo_url ? (
+                  <Image
+                    source={{ uri: detail.store.logo_url }}
+                    style={fillParent}
+                    contentFit="cover"
+                    transition={140}
+                    accessibilityLabel={`${detail.store.display_name} logo`}
+                  />
+                ) : (
+                  <Text variant="smallMedium" tone="soft">
+                    {initials(detail.store.display_name)}
                   </Text>
-                </>
-              ) : (
-                // Nothing is invented for an unrated product: no stars, no 0.0.
-                <Pill label="NEW" />
-              )}
-              {detail.sold_count > 0 ? (
-                <Text variant="small" tone="muted">
-                  {compact(detail.sold_count)} sold
-                </Text>
-              ) : null}
-            </View>
-
-            <View style={styles.priceRow}>
-              <Text variant="h1">{ghs(price)}</Text>
-              {compareAt !== null ? (
-                <Text variant="small" tone="faint" style={styles.strike}>
-                  {ghs(compareAt)}
-                </Text>
-              ) : null}
-              {compareAt !== null && detail.discount_percent ? (
-                <Pill label={`-${detail.discount_percent}%`} tone="accent" />
-              ) : null}
-            </View>
-          </View>
-
-          {variants.length > 1 ? (
-            <View>
-              {detail.variant_label ? <SectionLabel>{detail.variant_label}</SectionLabel> : null}
-              <View style={styles.chipWrap}>
-                {variants.map((v) => {
-                  const soldOut = v.quantity_available === 0;
-                  return (
-                    // `Chip` has no disabled state, so a sold-out option is dimmed
-                    // and left without a handler; its label carries the reason.
-                    <View key={v.id} style={soldOut ? styles.chipSoldOut : null}>
-                      <Chip
-                        label={soldOut ? `${variantValue(v)} · Sold out` : variantValue(v)}
-                        selected={v.id === variant?.id}
-                        onPress={
-                          soldOut
-                            ? undefined
-                            : () => {
-                                setVariantId(v.id);
-                                // The confirmation below belongs to the line just
-                                // added, which was for the option being replaced.
-                                addToCart.reset();
-                              }
-                        }
-                      />
-                    </View>
-                  );
-                })}
+                )}
               </View>
-            </View>
-          ) : null}
+              <View style={styles.vendorName}>
+                <Text variant="bodyMedium" numberOfLines={1}>
+                  {detail.store.display_name}
+                </Text>
+              </View>
+              {detail.store.verified ? <Pill label="VERIFIED" tone="success" /> : null}
+              <Text variant="smallMedium" tone="accent">
+                Visit shop ›
+              </Text>
+            </Pressable>
 
-          {detail.installment_eligible ? (
-            <InstalmentPanel
-              quote={quote}
-              options={options}
-              pending={quotes.isPending}
-              failed={quotes.isError}
-              reason={quotes.data?.[0]?.ineligible_reason ?? null}
-              onRetry={() => void quotes.refetch()}
-              onSelect={setPlanTemplateId}
-            />
-          ) : null}
+            <View style={styles.headline}>
+              <Text variant="h2">{detail.title}</Text>
 
-          <Card bare>
-            <View style={styles.assuranceRow}>
-              <Icon name="truck" size={19} color={color.inkSoft} />
-              <View style={styles.assuranceText}>
-                {delivery.data ? (
+              <View style={styles.ratingRow}>
+                {rating !== null ? (
                   <>
-                    <Text variant="bodyMedium">
-                      Delivery to {DEFAULT_CITY} ·{' '}
-                      {delivery.data.fee_pesewas === 0 ? 'Free' : ghs(delivery.data.fee_pesewas)}
-                    </Text>
+                    <Stars rating={rating} />
+                    <Text variant="smallMedium">{rating.toFixed(1)}</Text>
                     <Text variant="small" tone="muted">
-                      {arrivalWindow(delivery.data.eta_earliest, delivery.data.eta_latest)}
+                      {pluralise(detail.rating_count, 'review')}
                     </Text>
                   </>
                 ) : (
-                  <>
-                    <Text variant="bodyMedium">Delivery to {DEFAULT_CITY}</Text>
-                    <Text variant="small" tone="muted">
-                      {delivery.isPending
-                        ? 'Working out the fee…'
-                        : 'The fee is confirmed at checkout.'}
-                    </Text>
-                  </>
+                  // Nothing is invented for an unrated product: no stars, no 0.0.
+                  <Pill label="NEW" />
                 )}
-                {hubs.data && hubs.data.length > 0 ? (
+                {detail.sold_count > 0 ? (
                   <Text variant="small" tone="muted">
-                    Or collect free from {pluralise(hubs.data.length, 'pickup point')} in{' '}
-                    {DEFAULT_CITY}.
+                    {compact(detail.sold_count)} sold
                   </Text>
+                ) : null}
+              </View>
+
+              <View style={styles.priceRow}>
+                <Text variant="h1">{ghs(price)}</Text>
+                {compareAt !== null ? (
+                  <Text variant="small" tone="faint" style={styles.strike}>
+                    {ghs(compareAt)}
+                  </Text>
+                ) : null}
+                {compareAt !== null && detail.discount_percent ? (
+                  <Pill label={`-${detail.discount_percent}%`} tone="accent" />
                 ) : null}
               </View>
             </View>
 
-            <View style={styles.divider} />
+            {variants.length > 1 ? (
+              <View>
+                {detail.variant_label ? <SectionLabel>{detail.variant_label}</SectionLabel> : null}
+                <View style={styles.chipWrap}>
+                  {variants.map((v) => {
+                    const soldOut = v.quantity_available === 0;
+                    return (
+                      // `Chip` has no disabled state, so a sold-out option is dimmed
+                      // and left without a handler; its label carries the reason.
+                      <View key={v.id} style={soldOut ? styles.chipSoldOut : null}>
+                        <Chip
+                          label={soldOut ? `${variantValue(v)} · Sold out` : variantValue(v)}
+                          selected={v.id === variant?.id}
+                          onPress={
+                            soldOut
+                              ? undefined
+                              : () => {
+                                  setVariantId(v.id);
+                                  // The confirmation below belongs to the line just
+                                  // added, which was for the option being replaced.
+                                  addToCart.reset();
+                                }
+                          }
+                        />
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
 
-            <View style={styles.assuranceRow}>
-              <Icon name="shield" size={19} color={color.inkSoft} />
-              <View style={styles.assuranceText}>
-                {/* Was "Escrow protected — the vendor is paid only after your
+            {detail.installment_eligible ? (
+              <InstalmentPanel
+                quote={quote}
+                options={options}
+                pending={quotes.isPending}
+                failed={quotes.isError}
+                reason={quotes.data?.[0]?.ineligible_reason ?? null}
+                onRetry={() => void quotes.refetch()}
+                onSelect={setPlanTemplateId}
+              />
+            ) : null}
+
+            <Card bare>
+              <View style={styles.assuranceRow}>
+                <Icon name="truck" size={19} color={color.inkSoft} />
+                <View style={styles.assuranceText}>
+                  {delivery.data ? (
+                    <>
+                      <Text variant="bodyMedium">
+                        Delivery to {DEFAULT_CITY} ·{' '}
+                        {delivery.data.fee_pesewas === 0 ? 'Free' : ghs(delivery.data.fee_pesewas)}
+                      </Text>
+                      <Text variant="small" tone="muted">
+                        {arrivalWindow(delivery.data.eta_earliest, delivery.data.eta_latest)}
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text variant="bodyMedium">Delivery to {DEFAULT_CITY}</Text>
+                      <Text variant="small" tone="muted">
+                        {delivery.isPending
+                          ? 'Working out the fee…'
+                          : 'The fee is confirmed at checkout.'}
+                      </Text>
+                    </>
+                  )}
+                  {hubs.data && hubs.data.length > 0 ? (
+                    <Text variant="small" tone="muted">
+                      Or collect free from {pluralise(hubs.data.length, 'pickup point')} in{' '}
+                      {DEFAULT_CITY}.
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={styles.divider} />
+
+              <View style={styles.assuranceRow}>
+                <Icon name="shield" size={19} color={color.inkSoft} />
+                <View style={styles.assuranceText}>
+                  {/* Was "Escrow protected — the vendor is paid only after your
                     return window closes". Neither holds: a paid order's money
                     is the seller's to withdraw the next day. What does hold is
                     the return itself, which refunds the whole order total —
                     for an order paid in full; one on a plan is unwound with
                     its plan instead. The window is set per order, so no
                     number is promised here. */}
-                <Text variant="bodyMedium">Free returns when you pay in full</Text>
-                <Text variant="small" tone="muted">
-                  Ask to send it back within the return window after it arrives. If the seller
-                  agrees, the whole order total comes back to you.
+                  <Text variant="bodyMedium">Free returns when you pay in full</Text>
+                  <Text variant="small" tone="muted">
+                    Ask to send it back within the return window after it arrives. If the seller
+                    agrees, the whole order total comes back to you.
+                  </Text>
+                </View>
+              </View>
+            </Card>
+
+            {detail.description ? (
+              <View>
+                <SectionLabel>About this item</SectionLabel>
+                <Text variant="body" tone="soft">
+                  {detail.description}
                 </Text>
               </View>
-            </View>
-          </Card>
+            ) : null}
 
-          {detail.description ? (
-            <View>
-              <SectionLabel>About this item</SectionLabel>
-              <Text variant="body" tone="soft">
-                {detail.description}
-              </Text>
-            </View>
-          ) : null}
-
-          {reviewRows.length > 0 ? (
-            <View>
-              <SectionLabel>Reviews</SectionLabel>
-              <View style={styles.reviewList}>
-                {reviewRows.map((review) => (
-                  <ReviewRow key={review.id} review={review} />
-                ))}
+            {reviewRows.length > 0 ? (
+              <View>
+                <SectionLabel>Reviews</SectionLabel>
+                <View style={styles.reviewList}>
+                  {reviewRows.map((review) => (
+                    <ReviewRow key={review.id} review={review} />
+                  ))}
+                </View>
+                {reviews.data && reviews.data.total > reviewRows.length ? (
+                  <Text variant="small" tone="faint" style={styles.reviewMore}>
+                    Showing {reviewRows.length} of {pluralise(reviews.data.total, 'review')}.
+                  </Text>
+                ) : null}
               </View>
-              {reviews.data && reviews.data.total > reviewRows.length ? (
-                <Text variant="small" tone="faint" style={styles.reviewMore}>
-                  Showing {reviewRows.length} of {pluralise(reviews.data.total, 'review')}.
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
+            ) : null}
+          </View>
         </View>
       </Screen>
 
@@ -437,17 +466,22 @@ export default function ProductScreen(): React.ReactElement {
  */
 function Gallery({
   product,
+  width,
+  framed,
   saved,
   onToggleSave,
   onShare,
 }: {
   product: StorefrontProductDetails;
+  /** The gallery's width: the window on a phone, the left column on a desktop. */
+  width: number;
+  /** Rounded and inset, as a column of a desktop page rather than the top of a phone screen. */
+  framed?: boolean;
   saved: boolean;
   onToggleSave: () => void;
   onShare: () => void;
 }): React.ReactElement {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
   const [page, setPage] = useState(0);
 
   // `flatMap` rather than `filter` so the narrowed `url` survives into the map.
@@ -455,7 +489,13 @@ function Gallery({
   const height = Math.round(width * GALLERY_ASPECT);
 
   return (
-    <View style={[styles.gallery, { height, backgroundColor: tintFor(product.id) }]}>
+    <View
+      style={[
+        styles.gallery,
+        { width, height, backgroundColor: tintFor(product.id) },
+        framed && styles.galleryFramed,
+      ]}
+    >
       {images.length > 0 ? (
         <ScrollView
           horizontal
@@ -736,6 +776,15 @@ function firstParam(value: string | string[] | undefined): string | undefined {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   gallery: { width: '100%' },
+  galleryFramed: { borderRadius: radius.xl, overflow: 'hidden' },
+  wideRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.xxl,
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
+  },
+  wideBody: { flex: 1, paddingHorizontal: 0, paddingTop: 0 },
   galleryControls: {
     position: 'absolute',
     left: space.lg,

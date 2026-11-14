@@ -6,6 +6,7 @@ import { useAuth } from '@installment/mobile-kit';
 import { Icon, type IconName } from '../../src/components/Icon';
 import { Text } from '../../src/components/Text';
 import { useCart } from '../../src/features/shop';
+import { useLayout } from '../../src/lib/layout';
 import { color, font, radius, TAB_BAR_HEIGHT } from '../../src/theme/tokens';
 
 const TABS: { name: string; title: string; icon: IconName }[] = [
@@ -21,6 +22,7 @@ export default function TabsLayout(): React.ReactElement {
   const { signedIn } = useAuth();
   const { data: cart } = useCart(signedIn);
   const cartCount = cart?.item_count ?? 0;
+  const { wide } = useLayout();
 
   return (
     <Tabs
@@ -28,15 +30,18 @@ export default function TabsLayout(): React.ReactElement {
         headerShown: false,
         tabBarActiveTintColor: color.accent,
         tabBarInactiveTintColor: color.mutedTab,
-        tabBarStyle: {
-          height: TAB_BAR_HEIGHT + insets.bottom,
-          paddingTop: 8,
-          paddingBottom: insets.bottom,
-          backgroundColor: color.surface,
-          borderTopColor: color.border,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          elevation: 0,
-        },
+        // A wide window navigates from the bar along the top (`WideNav`).
+        tabBarStyle: wide
+          ? { display: 'none' }
+          : {
+              height: TAB_BAR_HEIGHT + insets.bottom,
+              paddingTop: 8,
+              paddingBottom: insets.bottom,
+              backgroundColor: color.surface,
+              borderTopColor: color.border,
+              borderTopWidth: StyleSheet.hairlineWidth,
+              elevation: 0,
+            },
         tabBarLabelStyle: { fontFamily: font.medium, fontSize: 10.5, letterSpacing: -0.1 },
         sceneStyle: { backgroundColor: color.canvas },
       }}

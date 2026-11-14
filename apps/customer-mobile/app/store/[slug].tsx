@@ -22,6 +22,7 @@ import { useToggleWishlist, useWishlistIds } from '../../src/features/account';
 import { compact, initials, pluralise } from '../../src/lib/format';
 import { longDate, parseApiDate } from '../../src/lib/dates';
 import { color, fillParent, radius, space, tintFor } from '../../src/theme/tokens';
+import { useLayout } from '../../src/lib/layout';
 import type { StorefrontStore } from '../../src/features/types';
 
 /**
@@ -53,7 +54,7 @@ export default function StoreScreen(): React.ReactElement {
   };
 
   return (
-    <Screen refreshing={store.isRefetching} onRefresh={refresh}>
+    <Screen wide refreshing={store.isRefetching} onRefresh={refresh}>
       <Banner store={store.data} />
 
       {store.isPending && !noSlug ? <Loading /> : null}
@@ -248,6 +249,7 @@ function Stat({
 
 /** Everything the store has listed, as the same tile the rest of the app uses. */
 function Shelf({ storeId, storeName }: { storeId: string; storeName: string }): React.ReactElement {
+  const { gridItemWidth } = useLayout();
   const { signedIn } = useAuth();
   const browse = useBrowse(shelfFilters(storeId));
   const wishlist = useWishlistIds(signedIn);
@@ -298,6 +300,7 @@ function Shelf({ storeId, storeName }: { storeId: string; storeName: string }): 
             <QuotedProductCard
               key={p.id}
               product={p}
+              width={gridItemWidth}
               saved={saved.has(p.id)}
               onToggleSave={
                 signedIn

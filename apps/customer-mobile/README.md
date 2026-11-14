@@ -278,16 +278,38 @@ Wallet has no stored balance (that is an e-money licence, not a feature), the re
 the real four-attempt policy, due dates are not Friday-anchored because the engine does not anchor
 them, and the late-fee terms are rendered from each plan's own rate and cap rather than hard-coded.
 
-## Previewing it without a handset
+## On the web
 
-`npx expo export --platform web` bundles the app, and serving the output is enough to check that
-screens render against a live API. One caveat: in the web build the tab navigator leaves inactive
-screens stacked in the document instead of detaching them, so a screenshot after switching tabs can
-show the previous screen above the new one — scroll down and the new screen is there. That is
-`react-native-screens` having no native detach on web; on Android and iOS it behaves normally.
+The same app is the shop's website. `npx expo export --platform web` bundles it into `dist/`, a
+static single-page site: any static host serves it, given a rewrite of every path to `/index.html`
+so a deep link such as `/product/<id>` loads the app rather than a 404. Set `EXPO_PUBLIC_API_URL`
+when exporting, because a browser has no Metro address to derive the API from.
 
-Deep links (`/browse`) also 404 on a plain static file server because the export is a single-page
-bundle — navigate from `/` instead.
+What changes in a browser:
+
+- **Layout.** At 900 px and wider (`src/lib/layout.ts`) the tab bar gives way to a navigation bar
+  along the top (`WideNav`). Pages sit in a centred column: 1200 px for product grids, the home
+  feed and shops, 720 px for everything else. Product grids go from two columns to three, four
+  and five, the deals carousel becomes a row of tiles, and a product's page puts the photos beside
+  the details. Below 900 px it is the phone design, unchanged.
+- **Session.** It is kept in `localStorage`, since SecureStore has no web implementation; without
+  it every reload, including the return from Paystack, would sign the shopper out.
+- **Card payments.** Paystack's page opens in a popup, which comes back through
+  `app/payment-complete.tsx`. If the browser blocks the popup, the whole tab goes to Paystack and
+  comes back to the same route, which sends the shopper on to the order. The `next` it carries is
+  only ever followed to a path inside the app.
+- **Push** is skipped: there is no Expo push token in a browser.
+- **Inactive screens** are hidden, not just painted over: `react-native-screens` is switched on for
+  the web in `app/_layout.tsx`, as it is on a phone.
+
+To try it locally against a running API:
+
+```bash
+EXPO_PUBLIC_API_URL=http://localhost:3000 npx expo export --platform web
+npx serve dist --single          # or any static server with an index.html fallback
+```
+
+The API's `CORS_ORIGINS` must include the site's origin (`.env.example` lists `:8081` and `:8082`).
 
 ## Checks
 

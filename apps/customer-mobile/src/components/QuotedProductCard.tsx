@@ -1,22 +1,16 @@
 import React from 'react';
-import { Dimensions } from 'react-native';
 import { ProductCard } from './ProductCard';
 import { bestQuote, usePlanQuote } from '../features/storefront';
 import { cadenceNoun, ghs } from '../lib/format';
-import { space } from '../theme/tokens';
 import type { StorefrontProduct } from '../features/types';
-
-/**
- * Two columns with a gutter, measured rather than flexed.
- *
- * `flex: 1` inside a wrapping row does not make a grid — the last row of an
- * odd-length list stretches its single card to full width. An explicit width
- * keeps every tile the same size whatever the count.
- */
-export const GRID_WIDTH = (Dimensions.get('window').width - space.lg * 2 - space.md) / 2;
 
 export interface QuotedProductCardProps {
   product: StorefrontProduct;
+  /**
+   * A grid tile's width, from `useLayout().gridItemWidth`. Measured rather than
+   * flexed: `flex: 1` inside a wrapping row does not make a grid — the last row
+   * of an odd-length list stretches its single card to full width.
+   */
   width?: number;
   compact?: boolean;
   saved?: boolean;

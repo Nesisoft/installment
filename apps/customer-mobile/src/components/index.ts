@@ -6,7 +6,8 @@ export { Field, type FieldProps } from './Field';
 export { Icon, type IconName } from './Icon';
 export { Pill, type PillTone } from './Pill';
 export { ProductCard } from './ProductCard';
-export { QuotedProductCard, GRID_WIDTH } from './QuotedProductCard';
+export { QuotedProductCard } from './QuotedProductCard';
+export { WideNav } from './WideNav';
 export { ScheduleStrip } from './ScheduleStrip';
 export { InstallmentStatusPill, OrderStatusPill, ReturnStatusPill } from './StatusPill';
 export {
