@@ -96,8 +96,8 @@ the payout becomes `reversed`, `payout-reversal:<reference>` gives the amount ba
 payable, and the next run pays it. An audit event `payout.reversal_applied` records the operator.
 
 **Before the next run**, check the merchant's payout account. The bank or wallet that sent the money
-back will most likely send it back again. Ask the merchant to confirm or change it (merchant web,
-_Payout account_).
+back will most likely send it back again. Ask the merchant to confirm or change it (seller app or
+website, _Payouts → Change payout account_).
 
 ## 4. Stranded collections cases (#110)
 

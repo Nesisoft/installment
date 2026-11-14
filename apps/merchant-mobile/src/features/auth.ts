@@ -9,7 +9,7 @@ import type { AuthResult, MerchantSignupCompleteInput } from '@installment/api-t
  * person — staff change, the owner is not always the one at the counter — and
  * the portal's whole scoping model hangs off `users.metadata.merchant_id`,
  * which is set when the account is created rather than derived from whoever
- * holds the handset. `/auth/login` is the same endpoint the web portal uses.
+ * holds the handset. `/auth/login` is the same endpoint the admin console uses.
  *
  * Opening a shop is below: a phone code, then the account. Everything else a
  * shop needs before it can trade — its category and market, the Ghana Card

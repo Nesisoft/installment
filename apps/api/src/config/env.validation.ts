@@ -25,7 +25,7 @@ export const envSchema = z.object({
   // "*" to reflect any origin (dev only). Empty = no cross-origin browser access.
   CORS_ORIGINS: z
     .string()
-    .default('http://localhost:8081,http://localhost:5174,http://localhost:5175'),
+    .default('http://localhost:8081,http://localhost:8082,http://localhost:5175'),
   // Rate limiting (Phase 10). Defaults are generous enough that normal use never
   // notices; per-route overrides tighten the endpoints worth abusing.
   RATE_LIMIT_ENABLED: z

@@ -53,8 +53,8 @@ ON CONFLICT DO NOTHING;
 
 -- ============================================================================
 -- Sample merchant + linked merchant-owner login for the /merchant portal (dev).
--- Sign in to merchant-web with merchant@demo.local / password123. The portal is
--- scoped via users.metadata.merchant_id (see MerchantScopeGuard).
+-- Sign in to the seller app with merchant@demo.local / password123. The /merchant
+-- routes are scoped via users.metadata.merchant_id (see MerchantScopeGuard).
 -- ============================================================================
 INSERT INTO merchants (id, business_name, legal_name, email, phone, status) VALUES
   (

@@ -109,8 +109,8 @@ services:
 
   # --- Web apps (static) ------------------------------------------------------
   # The API address is baked into each bundle at build time: change
-  # VITE_API_BASE_URL (EXPO_PUBLIC_API_URL for the shop) and redeploy the site,
-  # not just restart it.
+  # VITE_API_BASE_URL (EXPO_PUBLIC_API_URL for the seller site and the shop) and
+  # redeploy the site, not just restart it.
 
   - type: web
     name: ejua-admin
@@ -130,11 +130,13 @@ services:
       - key: VITE_API_BASE_URL
         sync: false
 
+  # The seller site is the seller app itself (apps/merchant-mobile), exported for
+  # the web by Expo, as the shop is the shopper app.
   - type: web
     name: ejua-sell
     runtime: static
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm turbo run build --filter=@installment/merchant-web
-    staticPublishPath: apps/merchant-web/dist
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @installment/merchant-mobile export:web
+    staticPublishPath: apps/merchant-mobile/dist
     routes:
       - type: rewrite
         source: /*
@@ -144,7 +146,7 @@ services:
         value: '22'
       - key: COREPACK_ENABLE_DOWNLOAD_PROMPT
         value: '0'
-      - key: VITE_API_BASE_URL
+      - key: EXPO_PUBLIC_API_URL
         sync: false
 
   # The shop is the shopper app itself (apps/customer-mobile), exported for the

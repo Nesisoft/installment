@@ -24,7 +24,7 @@ const fallback = memoryStorage();
  *
  * SecureStore has no web implementation, so without this the seller site
  * would fall back to memory and sign the seller out on every reload.
- * `localStorage` is what the web portal this replaces used too. It is readable
+ * `localStorage` is what the old web portal used too. It is readable
  * by any script on the origin, so the site must not load third-party scripts
  * it does not control. A browser that refuses storage falls back to memory.
  */

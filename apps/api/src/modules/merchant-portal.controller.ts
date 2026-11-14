@@ -136,7 +136,7 @@ export class MerchantPortalController {
    *
    * Separate from `GET orders` rather than an extra flag on it, because the two
    * answer different questions. That route filters on one raw order status and
-   * is what the web portal and any integrator use; this one filters on the
+   * is what an integrator uses; this one filters on the
    * seller's own buckets — where "new" is two statuses and "confirmed" is
    * `fulfilling`, a status whose name only a developer would recognise — and
    * carries the buyer and what the ledger settled, which a status list does not.
@@ -413,7 +413,7 @@ export class MerchantPortalController {
    * The same returns, projected for the seller's queue.
    *
    * Alongside `GET returns` rather than replacing it: that one answers with the
-   * `order_returns` rows and is what the web portal and the tests read. This
+   * `order_returns` rows and is what an integrator and the tests read. This
    * one carries the sale, the buyer and what a decision costs — none of which
    * is on the row, and all of which a card needs. Same split, same reason, as
    * `/merchant/orders` and `/merchant/queue`.
@@ -576,7 +576,7 @@ export class MerchantPortalController {
    * The plans as the seller's app draws them.
    *
    * Separate from `GET plans`, which returns bare `customer_plans` rows and is
-   * what the web portal and any integrator use. Those rows carry no customer,
+   * what an integrator uses. Those rows carry no customer,
    * no product and no schedule — a plan knows none of it, because the link to
    * the order runs the other way — so a list built on them is a column of
    * uuids. This one filters on the seller's own buckets, including `late`,

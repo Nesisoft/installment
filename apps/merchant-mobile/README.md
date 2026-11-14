@@ -32,10 +32,10 @@ ledger, not a number this app worked out.
 | 10  | Performance           | **built** (pushed from the Today hero, not a tab)                              |
 | 11  | Storefront + settings | **built**                                                                      |
 
-`apps/merchant-web` is being folded into this app, which will also be the seller website, as
-the shopper app already is the shop's. Opening a shop and the monthly and per-plan statements
-(with their CSV and printable versions) now live here; a plan's schedule and settlement always
-did. What remains is the desktop layout and the deployment, after which the web portal goes.
+This app is also the seller website, as the shopper app is the shop's; it replaced a separate
+React portal, `apps/merchant-web`. Opening a shop and the monthly and per-plan statements (with
+their CSV and printable versions) moved here from that portal; a plan's schedule and settlement
+always were here.
 
 Statements export through `src/lib/statement-export.ts`: on the web the CSV downloads and the
 printable page opens in a new tab; on a phone the CSV goes to the share sheet and the printable
@@ -43,9 +43,11 @@ page to the system print dialog, which can also save a PDF.
 
 ## On the web
 
-The same app is the seller website. `npx expo export --platform web` bundles it into `dist/`, a
-static single-page site that needs every path rewritten to `/index.html`. Set
-`EXPO_PUBLIC_API_URL` when exporting.
+The same app is the seller website. `pnpm export:web` (`expo export --platform web`) bundles it
+into `dist/`, a static single-page site that needs every path rewritten to `/index.html`; Render
+builds the `ejua-sell` site this way (`render.yaml`). Set `EXPO_PUBLIC_API_URL` when exporting,
+because a browser has no Metro address to derive the API from. Locally, `pnpm dev:merchant` from
+the repository root runs it in a browser on :8082, beside the shop on :8081.
 
 What changes in a browser:
 

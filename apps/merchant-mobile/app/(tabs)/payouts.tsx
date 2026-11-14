@@ -202,7 +202,7 @@ export default function PayoutsScreen(): React.ReactElement {
         </View>
 
         {/* The month-by-month account an accountant asks for, with the CSV and
-            the printable page the web portal used to be the only place for. */}
+            the printable page the old web portal used to be the only place for. */}
         <Pressable
           accessibilityRole="link"
           accessibilityLabel="Monthly statements"

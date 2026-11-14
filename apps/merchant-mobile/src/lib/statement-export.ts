@@ -26,7 +26,7 @@ export interface StatementDocument {
  * Then it goes where each platform keeps files:
  *
  * - **Web:** the CSV downloads; the printable page opens in a new tab, to print
- *   or save as PDF from the browser — as the web portal this replaces did.
+ *   or save as PDF from the browser — as the old web portal did.
  * - **Phone:** the CSV is written to the cache and handed to the share sheet
  *   (save to Files, mail it, send it on WhatsApp); the printable page goes to
  *   the system print dialog, which can also save a PDF.

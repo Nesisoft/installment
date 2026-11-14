@@ -4,16 +4,16 @@ This is the setup for a **test deployment**: the whole platform online, running 
 keys, for trying every app end to end. The same steps make a production deployment later; what
 changes for production is listed at the end.
 
-| Piece                                            | Runs on                              | Defined in                         |
-| ------------------------------------------------ | ------------------------------------ | ---------------------------------- |
-| API (`apps/api`)                                 | Render web service `ejua-api`        | [`render.yaml`](../../render.yaml) |
-| Admin console (`apps/admin-web`)                 | Render static site `ejua-admin`      | `render.yaml`                      |
-| Seller portal (`apps/merchant-web`)              | Render static site `ejua-sell`       | `render.yaml`                      |
-| Shop (`apps/customer-mobile`, built for the web) | Render static site `ejua-shop`       | `render.yaml`                      |
-| Postgres                                         | Supabase                             | this guide, §1.1                   |
-| Redis (rate limits, one-time codes, retry queue) | Upstash                              | this guide, §1.2                   |
-| Uploads (product photos, Ghana Card scans)       | Cloudflare R2                        | this guide, §1.3                   |
-| Shopper and seller mobile apps                   | Your phone (Expo Go or an EAS build) | this guide, §4                     |
+| Piece                                             | Runs on                              | Defined in                         |
+| ------------------------------------------------- | ------------------------------------ | ---------------------------------- |
+| API (`apps/api`)                                  | Render web service `ejua-api`        | [`render.yaml`](../../render.yaml) |
+| Admin console (`apps/admin-web`)                  | Render static site `ejua-admin`      | `render.yaml`                      |
+| Seller site (`apps/merchant-mobile`, for the web) | Render static site `ejua-sell`       | `render.yaml`                      |
+| Shop (`apps/customer-mobile`, built for the web)  | Render static site `ejua-shop`       | `render.yaml`                      |
+| Postgres                                          | Supabase                             | this guide, §1.1                   |
+| Redis (rate limits, one-time codes, retry queue)  | Upstash                              | this guide, §1.2                   |
+| Uploads (product photos, Ghana Card scans)        | Cloudflare R2                        | this guide, §1.3                   |
+| Shopper and seller mobile apps                    | Your phone (Expo Go or an EAS build) | this guide, §4                     |
 
 The order that works:
 
@@ -126,7 +126,7 @@ Uploads go from the app straight to R2 on a short-lived signed URL; the API neve
          "https://ejua-sell.onrender.com",
          "https://ejua-shop.onrender.com",
          "http://localhost:8081",
-         "http://localhost:5174",
+         "http://localhost:8082",
          "http://localhost:5175"
        ],
        "AllowedMethods": ["PUT", "GET"],
@@ -264,13 +264,14 @@ The demo shops and products stay; nobody can sign in as them.
 
 ```bash
 pnpm dev:api          # API on http://localhost:3000; check http://localhost:3000/health
-pnpm dev:web          # seller portal :5174, admin console :5175
+pnpm dev:web          # admin console :5175
 pnpm dev:customer     # the shop, in a browser on :8081 (Expo's web preview)
+pnpm dev:merchant     # the seller site, in a browser on :8082
 ```
 
-The seller portal and admin console read `VITE_API_BASE_URL` from `apps/*-web/.env`. They default to
-`http://localhost:3000`, so they need no `.env` for this. The shop works out the API's address
-from where it was loaded, so it needs none either.
+The admin console reads `VITE_API_BASE_URL` from `apps/admin-web/.env`. It defaults to
+`http://localhost:3000`, so it needs no `.env` for this. The shop and the seller site work out the
+API's address from where they were loaded, so they need none either.
 
 `/health` should answer `{"status":"ok","info":{"db":"up","redis":"up"}}`. If either is `down`, see
 §5 before going further.
@@ -291,13 +292,13 @@ longer depend on `PUBLIC_API_URL`, because they point at R2.
    `render.yaml` and proposes four services.
 3. Render asks for every value marked `sync: false`. Use the same values as §2.1, except:
 
-| Service                   | Variable                                    | Value                                                                                              |
-| ------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `ejua-api`                | `DATABASE_URL`                              | Your session pooler string, ending `?sslmode=verify-full&sslrootcert=/etc/secrets/supabase-ca.crt` |
-| `ejua-api`                | `CORS_ORIGINS`                              | `https://ejua-admin.onrender.com,https://ejua-sell.onrender.com,https://ejua-shop.onrender.com`    |
-| `ejua-api`                | `HUBTEL_CLIENT_ID`, `_SECRET`, `_SENDER_ID` | From Hubtel                                                                                        |
-| `ejua-admin`, `ejua-sell` | `VITE_API_BASE_URL`                         | `https://ejua-api.onrender.com`                                                                    |
-| `ejua-shop`               | `EXPO_PUBLIC_API_URL`                       | `https://ejua-api.onrender.com`                                                                    |
+| Service                  | Variable                                    | Value                                                                                              |
+| ------------------------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `ejua-api`               | `DATABASE_URL`                              | Your session pooler string, ending `?sslmode=verify-full&sslrootcert=/etc/secrets/supabase-ca.crt` |
+| `ejua-api`               | `CORS_ORIGINS`                              | `https://ejua-admin.onrender.com,https://ejua-sell.onrender.com,https://ejua-shop.onrender.com`    |
+| `ejua-api`               | `HUBTEL_CLIENT_ID`, `_SECRET`, `_SENDER_ID` | From Hubtel                                                                                        |
+| `ejua-admin`             | `VITE_API_BASE_URL`                         | `https://ejua-api.onrender.com`                                                                    |
+| `ejua-sell`, `ejua-shop` | `EXPO_PUBLIC_API_URL`                       | `https://ejua-api.onrender.com`                                                                    |
 
 The JWT secrets are generated by Render. Every other setting is already in `render.yaml`.
 
@@ -308,7 +309,8 @@ differ. Once the services exist, read the real URLs off each service's page. If 
 the table above:
 
 - correct `CORS_ORIGINS` on the API;
-- correct `VITE_API_BASE_URL` on the three sites;
+- correct `VITE_API_BASE_URL` on `ejua-admin` and `EXPO_PUBLIC_API_URL` on `ejua-sell` and
+  `ejua-shop`;
 - correct the R2 CORS policy (§1.3).
 
 Then **redeploy the static sites**. Their API address is compiled into the bundle, so changing the
@@ -330,6 +332,23 @@ does not ask for the new variable. In the service's settings:
 The site's address does not change, so `CORS_ORIGINS` and the R2 CORS policy stay as they are.
 Locally, the shop's dev origin is now `http://localhost:8081`: add it to the R2 policy if you
 upload from a local shop.
+
+### 3.2b An `ejua-sell` created before the seller site became the app
+
+The seller site used to be a separate React app too (`apps/merchant-web`, now removed). An
+`ejua-sell` service created before this change needs the same treatment, in its settings:
+
+1. **Build Command:**
+   `corepack enable && pnpm install --frozen-lockfile && pnpm --filter @installment/merchant-mobile export:web`
+2. **Publish Directory:** `apps/merchant-mobile/dist`
+3. **Environment:** add `EXPO_PUBLIC_API_URL` = your API's URL. `VITE_API_BASE_URL` is no longer
+   read; you can delete it.
+4. Keep the `/*` → `/index.html` rewrite, then **Manual Deploy**.
+
+The address does not change here either. Sellers who were signed in to the old portal sign in once
+more: the app keeps its session under its own key. Locally, the seller site's dev origin is now
+`http://localhost:8082` instead of `:5174`: swap it in the R2 policy if you upload from a local
+seller site.
 
 ### 3.3 Give the API Supabase's certificate
 
@@ -481,7 +500,7 @@ Repeat in `apps/merchant-mobile`. The API side of push is already configured: `P
 | Connections refused under load, "max clients"                                               | Too many connections for Supabase's pool of 15. Lower `DATABASE_POOL_MAX` everywhere, or raise the pool size               |
 | `/health` says `"redis":"down"`                                                             | `REDIS_URL` must start `rediss://` (TLS) for Upstash, with user `default`                                                  |
 | Upstash command count climbing while idle                                                   | `QUEUE_DRAIN_DELAY_SECONDS` and `QUEUE_STALLED_INTERVAL_SECONDS` aren't set, or a second API is running the workers (§2.1) |
-| Web app calls `localhost:3000`                                                              | `VITE_API_BASE_URL` (`EXPO_PUBLIC_API_URL` for the shop) wasn't set when the site was built. Set it and redeploy the site  |
+| Web app calls `localhost:3000`                                                              | `EXPO_PUBLIC_API_URL` (`VITE_API_BASE_URL` for the admin console) wasn't set when the site was built. Set it and redeploy  |
 | Browser console: CORS error calling the API                                                 | `CORS_ORIGINS` must list the site's exact origin: `https://`, no trailing slash                                            |
 | Browser console: CORS error on `r2.cloudflarestorage.com`                                   | The bucket's CORS policy (§1.3) is missing that origin                                                                     |
 | Upload fails with `403 SignatureDoesNotMatch`                                               | Wrong R2 keys or endpoint, or `STORAGE_REGION` isn't `auto`                                                                |
@@ -521,8 +540,10 @@ Verified while writing this guide, against stand-ins for the hosted services:
   - issued an R2-style upload URL (path-style, region `auto`);
   - resolved image URLs to `STORAGE_PUBLIC_URL`.
 - **Redis command counts.** The figures in §1.2 were measured against that Redis.
-- **Web apps.** All three, built with `VITE_API_BASE_URL` and served with the `/* → /index.html`
-  rewrite, loaded in Chromium against that API with no CORS errors. The admin console signed in.
+- **Web apps.** All three, served with the `/* → /index.html` rewrite, loaded in Chromium with no
+  CORS errors. The admin console, built with `VITE_API_BASE_URL`, signed in against the API above.
+  The shop and the seller site were later built the way Render builds them (a clean checkout, a
+  frozen install, then `export:web`) and signed in against a local API; the shop also checked out.
 
 Not verified, because it needs your accounts:
 
