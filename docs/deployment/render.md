@@ -9,7 +9,7 @@ changes for production is listed at the end.
 | API (`apps/api`)                                 | Render web service `ejua-api`        | [`render.yaml`](../../render.yaml) |
 | Admin console (`apps/admin-web`)                 | Render static site `ejua-admin`      | `render.yaml`                      |
 | Seller portal (`apps/merchant-web`)              | Render static site `ejua-sell`       | `render.yaml`                      |
-| Shop (`apps/customer-web`)                       | Render static site `ejua-shop`       | `render.yaml`                      |
+| Shop (`apps/customer-mobile`, built for the web) | Render static site `ejua-shop`       | `render.yaml`                      |
 | Postgres                                         | Supabase                             | this guide, §1.1                   |
 | Redis (rate limits, one-time codes, retry queue) | Upstash                              | this guide, §1.2                   |
 | Uploads (product photos, Ghana Card scans)       | Cloudflare R2                        | this guide, §1.3                   |
@@ -125,7 +125,7 @@ Uploads go from the app straight to R2 on a short-lived signed URL; the API neve
          "https://ejua-admin.onrender.com",
          "https://ejua-sell.onrender.com",
          "https://ejua-shop.onrender.com",
-         "http://localhost:5173",
+         "http://localhost:8081",
          "http://localhost:5174",
          "http://localhost:5175"
        ],
@@ -264,11 +264,13 @@ The demo shops and products stay; nobody can sign in as them.
 
 ```bash
 pnpm dev:api          # API on http://localhost:3000; check http://localhost:3000/health
-pnpm dev:web          # shop :5173, seller portal :5174, admin console :5175
+pnpm dev:web          # seller portal :5174, admin console :5175
+pnpm dev:customer     # the shop, in a browser on :8081 (Expo's web preview)
 ```
 
-The web apps read `VITE_API_BASE_URL` from `apps/*-web/.env`. They default to
-`http://localhost:3000`, so they need no `.env` for this.
+The seller portal and admin console read `VITE_API_BASE_URL` from `apps/*-web/.env`. They default to
+`http://localhost:3000`, so they need no `.env` for this. The shop works out the API's address
+from where it was loaded, so it needs none either.
 
 `/health` should answer `{"status":"ok","info":{"db":"up","redis":"up"}}`. If either is `down`, see
 §5 before going further.
@@ -289,13 +291,13 @@ longer depend on `PUBLIC_API_URL`, because they point at R2.
    `render.yaml` and proposes four services.
 3. Render asks for every value marked `sync: false`. Use the same values as §2.1, except:
 
-| Service      | Variable                                    | Value                                                                                              |
-| ------------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `ejua-api`   | `DATABASE_URL`                              | Your session pooler string, ending `?sslmode=verify-full&sslrootcert=/etc/secrets/supabase-ca.crt` |
-| `ejua-api`   | `CORS_ORIGINS`                              | `https://ejua-admin.onrender.com,https://ejua-sell.onrender.com,https://ejua-shop.onrender.com`    |
-| `ejua-api`   | `HUBTEL_CLIENT_ID`, `_SECRET`, `_SENDER_ID` | From Hubtel                                                                                        |
-| static sites | `VITE_API_BASE_URL`                         | `https://ejua-api.onrender.com`                                                                    |
-| `ejua-shop`  | `VITE_PAYSTACK_PUBLIC_KEY`                  | `pk_test_...`                                                                                      |
+| Service                   | Variable                                    | Value                                                                                              |
+| ------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `ejua-api`                | `DATABASE_URL`                              | Your session pooler string, ending `?sslmode=verify-full&sslrootcert=/etc/secrets/supabase-ca.crt` |
+| `ejua-api`                | `CORS_ORIGINS`                              | `https://ejua-admin.onrender.com,https://ejua-sell.onrender.com,https://ejua-shop.onrender.com`    |
+| `ejua-api`                | `HUBTEL_CLIENT_ID`, `_SECRET`, `_SENDER_ID` | From Hubtel                                                                                        |
+| `ejua-admin`, `ejua-sell` | `VITE_API_BASE_URL`                         | `https://ejua-api.onrender.com`                                                                    |
+| `ejua-shop`               | `EXPO_PUBLIC_API_URL`                       | `https://ejua-api.onrender.com`                                                                    |
 
 The JWT secrets are generated by Render. Every other setting is already in `render.yaml`.
 
@@ -311,6 +313,23 @@ the table above:
 
 Then **redeploy the static sites**. Their API address is compiled into the bundle, so changing the
 variable does nothing until they rebuild.
+
+### 3.2a An `ejua-shop` created before the shop became the app
+
+The shop site used to be a separate React app (`apps/customer-web`, now removed). If your
+`ejua-shop` service was created from that version of `render.yaml`, or by hand, a Blueprint sync
+does not ask for the new variable. In the service's settings:
+
+1. **Build Command:**
+   `corepack enable && pnpm install --frozen-lockfile && pnpm --filter @installment/customer-mobile export:web`
+2. **Publish Directory:** `apps/customer-mobile/dist`
+3. **Environment:** add `EXPO_PUBLIC_API_URL` = your API's URL. `VITE_API_BASE_URL` and
+   `VITE_PAYSTACK_PUBLIC_KEY` are no longer read; you can delete them.
+4. Keep the `/*` → `/index.html` rewrite, then **Manual Deploy**.
+
+The site's address does not change, so `CORS_ORIGINS` and the R2 CORS policy stay as they are.
+Locally, the shop's dev origin is now `http://localhost:8081`: add it to the R2 policy if you
+upload from a local shop.
 
 ### 3.3 Give the API Supabase's certificate
 
@@ -462,7 +481,7 @@ Repeat in `apps/merchant-mobile`. The API side of push is already configured: `P
 | Connections refused under load, "max clients"                                               | Too many connections for Supabase's pool of 15. Lower `DATABASE_POOL_MAX` everywhere, or raise the pool size               |
 | `/health` says `"redis":"down"`                                                             | `REDIS_URL` must start `rediss://` (TLS) for Upstash, with user `default`                                                  |
 | Upstash command count climbing while idle                                                   | `QUEUE_DRAIN_DELAY_SECONDS` and `QUEUE_STALLED_INTERVAL_SECONDS` aren't set, or a second API is running the workers (§2.1) |
-| Web app calls `localhost:3000`                                                              | `VITE_API_BASE_URL` wasn't set when the site was built. Set it and redeploy the site                                       |
+| Web app calls `localhost:3000`                                                              | `VITE_API_BASE_URL` (`EXPO_PUBLIC_API_URL` for the shop) wasn't set when the site was built. Set it and redeploy the site  |
 | Browser console: CORS error calling the API                                                 | `CORS_ORIGINS` must list the site's exact origin: `https://`, no trailing slash                                            |
 | Browser console: CORS error on `r2.cloudflarestorage.com`                                   | The bucket's CORS policy (§1.3) is missing that origin                                                                     |
 | Upload fails with `403 SignatureDoesNotMatch`                                               | Wrong R2 keys or endpoint, or `STORAGE_REGION` isn't `auto`                                                                |

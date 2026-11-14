@@ -47,8 +47,9 @@ But the **intended product** is larger: a **marketplace** where buyers browse an
 
 The engine is never modified by the commerce layer — the commerce layer creates an internal order and hands the engine `order_reference = order.id`. Full detail: [`design/commerce-domain.md`](./design/commerce-domain.md) §2.
 
-As built, each mobile app also has a web counterpart on the same API — `apps/customer-web` and
-`apps/merchant-web` — and the scheduled jobs run from the API process behind
+As built, the shopper app is also the shop's website: `apps/customer-mobile` exported for the web
+(it replaced a separate `apps/customer-web`). The seller side still has a web portal,
+`apps/merchant-web`, alongside the seller app. The scheduled jobs run from the API process behind
 `ENABLE_SCHEDULED_WORKERS`.
 
 ---

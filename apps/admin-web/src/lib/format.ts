@@ -7,7 +7,7 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
  * the `T`, microseconds, a two-digit offset. `new Date()` on that is
  * implementation-defined: Chrome accepts it, Safari answers Invalid Date, and
  * every date in the console read "—" there. Rewritten into the standard format
- * first, as customer-web's and the mobile apps' `parseApiDate` do. A plain
+ * first, as the mobile apps' `parseApiDate` does. A plain
  * `YYYY-MM-DD` due date is read as local noon, so no timezone moves its day.
  */
 export function parseApiDate(value: string | null | undefined): Date | null {

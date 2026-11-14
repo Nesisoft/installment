@@ -17,6 +17,8 @@ The original `DEVELOPMENT-PLAN.md` Phase 10 specced three **React web** apps (Vi
 
 `apps/customer-web` and `apps/merchant-web` (empty placeholders) are **superseded** and will be removed when the Expo apps land. An optional merchant *web* dashboard can come later; mobile-first per the vision.
 
+> **Update.** `apps/customer-web` is removed: the shop's website is now `apps/customer-mobile` itself, exported for the web with a desktop layout above 900 px (see that app's README, "On the web"). `apps/merchant-web` remains for now, as the seller's signup, KYC and statements portal, until those flows are in the seller app.
+
 > **Important correction:** `packages/ui` is **shadcn/ui — web-only (DOM)**. It **cannot** back the Expo apps. Mobile needs its own styling/component stack (§3). `packages/api-types` (generated types) **is** shareable across web and mobile.
 
 ---

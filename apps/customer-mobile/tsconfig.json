@@ -15,7 +15,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      // pnpm hoists @types/react 18 (for apps/customer-web) alongside this
+      // pnpm hoists @types/react 18 (for the React web apps) alongside this
       // app's 19. Without pinning, TypeScript loads both and decides that
       // ReactNode is not assignable to ReactNode.
       "react": ["./node_modules/@types/react"],
