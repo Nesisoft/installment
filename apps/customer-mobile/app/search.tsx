@@ -21,12 +21,14 @@ import { useSearch, useTrending } from '../src/features/storefront';
 import { useToggleWishlist, useWishlistIds } from '../src/features/account';
 import { pluralise } from '../src/lib/format';
 import { color, font, radius, space } from '../src/theme/tokens';
+import { useLayout } from '../src/lib/layout';
 import type { TrendingTerm } from '../src/features/types';
 
 /** How long the box stays quiet before the term reaches the API. */
 const DEBOUNCE_MS = 300;
 
 export default function SearchScreen(): React.ReactElement {
+  const { gridItemWidth } = useLayout();
   const insets = useSafeAreaInsets();
   const { signedIn } = useAuth();
   const input = useRef<TextInput>(null);
@@ -126,7 +128,7 @@ export default function SearchScreen(): React.ReactElement {
         </View>
       </View>
 
-      <Screen onEndReached={loadMore}>
+      <Screen wide onEndReached={loadMore}>
         {searching ? (
           <View style={styles.body}>
             {results.isPending ? <Loading /> : null}
@@ -169,6 +171,7 @@ export default function SearchScreen(): React.ReactElement {
                       <QuotedProductCard
                         key={p.id}
                         product={p}
+                        width={gridItemWidth}
                         saved={saved.has(p.id)}
                         onToggleSave={
                           signedIn

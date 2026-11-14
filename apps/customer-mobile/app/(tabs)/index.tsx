@@ -7,7 +7,6 @@ import {
   Button,
   Card,
   ErrorState,
-  GRID_WIDTH,
   Icon,
   Loading,
   Pill,
@@ -26,6 +25,7 @@ import { ghs } from '../../src/lib/format';
 import { countdown, relativeDate } from '../../src/lib/dates';
 import { DEFAULT_CITY } from '../../src/lib/config';
 import { color, radius, space } from '../../src/theme/tokens';
+import { useLayout } from '../../src/lib/layout';
 import type { StorefrontProduct } from '../../src/features/types';
 
 export default function HomeScreen(): React.ReactElement {
@@ -36,69 +36,73 @@ export default function HomeScreen(): React.ReactElement {
   const credit = useCredit(signedIn);
   const wishlist = useWishlistIds(signedIn);
   const toggleSave = useToggleWishlist();
+  const { wide } = useLayout();
 
   const saved = new Set(wishlist.data ?? []);
 
   return (
-    <Screen tabBar refreshing={feed.isRefetching} onRefresh={() => void feed.refetch()}>
-      {/* Header sits on ink, like the design's dark home chrome. */}
-      <View style={[styles.header, { paddingTop: insets.top + space.md }]}>
-        <View style={styles.headerRow}>
-          <View>
-            <Text variant="eyebrow" tone="onDarkFaint">
-              DELIVER TO
-            </Text>
-            <Text variant="bodyMedium" tone="onDark">
-              {DEFAULT_CITY}
-            </Text>
-          </View>
-          <View style={styles.headerActions}>
-            {signedIn ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Open your wallet and payments"
-                onPress={() => router.push('/wallet')}
-                style={styles.walletChip}
-              >
-                {/* `has_limit` is what tells "never assessed" from "spent it
+    <Screen wide tabBar refreshing={feed.isRefetching} onRefresh={() => void feed.refetch()}>
+      {/* Header sits on ink, like the design's dark home chrome. On a wide
+          window the navigation bar carries the search and the limit instead. */}
+      {wide ? null : (
+        <View style={[styles.header, { paddingTop: insets.top + space.md }]}>
+          <View style={styles.headerRow}>
+            <View>
+              <Text variant="eyebrow" tone="onDarkFaint">
+                DELIVER TO
+              </Text>
+              <Text variant="bodyMedium" tone="onDark">
+                {DEFAULT_CITY}
+              </Text>
+            </View>
+            <View style={styles.headerActions}>
+              {signedIn ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Open your wallet and payments"
+                  onPress={() => router.push('/wallet')}
+                  style={styles.walletChip}
+                >
+                  {/* `has_limit` is what tells "never assessed" from "spent it
                     all", and its own docstring says so — "false means never
                     scored". The tile ignored it and rendered
                     `ghs(available_pesewas)`, so a shopper who has never been
                     scored read "LIMIT LEFT GHS 0": a limit they had used up,
                     rather than one they have not been given. */}
-                <Text variant="eyebrow" tone="onDarkFaint">
-                  {credit.data?.has_limit ? 'LIMIT LEFT' : 'INSTALMENTS'}
-                </Text>
-                <Text variant="smallMedium" tone="onDark">
-                  {!credit.data
-                    ? '—'
-                    : credit.data.has_limit
-                      ? ghs(credit.data.available_pesewas)
-                      : 'Check yours'}
-                </Text>
-              </Pressable>
-            ) : null}
-            {/* The bell is gone rather than repointed. It was labelled
+                  <Text variant="eyebrow" tone="onDarkFaint">
+                    {credit.data?.has_limit ? 'LIMIT LEFT' : 'INSTALMENTS'}
+                  </Text>
+                  <Text variant="smallMedium" tone="onDark">
+                    {!credit.data
+                      ? '—'
+                      : credit.data.has_limit
+                        ? ghs(credit.data.available_pesewas)
+                        : 'Check yours'}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {/* The bell is gone rather than repointed. It was labelled
                 "Notifications" and opened the Account tab, which is not what a
                 bell means anywhere. A real one needs `GET /me/notifications`,
                 which does not exist — though `PushNotifier` has been writing
                 the rows since #74, so the data is there waiting for a route and
                 a screen. Better nothing than a control that lies. */}
+            </View>
           </View>
-        </View>
 
-        <Pressable
-          accessibilityRole="search"
-          accessibilityLabel="Search products"
-          onPress={() => router.push('/search')}
-          style={styles.searchBar}
-        >
-          <Icon name="search" size={17} color={color.muted} />
-          <Text variant="small" tone="muted">
-            Search the marketplace
-          </Text>
-        </Pressable>
-      </View>
+          <Pressable
+            accessibilityRole="search"
+            accessibilityLabel="Search products"
+            onPress={() => router.push('/search')}
+            style={styles.searchBar}
+          >
+            <Icon name="search" size={17} color={color.muted} />
+            <Text variant="small" tone="muted">
+              Search the marketplace
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       {feed.isPending ? <Loading /> : null}
       {feed.isError ? (
@@ -255,6 +259,7 @@ function DealsRail({
   onToggleSave: (id: string) => void;
   canSave: boolean;
 }): React.ReactElement {
+  const layout = useLayout();
   const [remaining, setRemaining] = useState(() => countdown(endsAt));
 
   useEffect(() => {
@@ -278,22 +283,38 @@ function DealsRail({
           </Text>
         </Pressable>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.rail}
-      >
-        {products.map((p) => (
-          <QuotedProductCard
-            key={p.id}
-            product={p}
-            width={150}
-            compact
-            saved={saved.has(p.id)}
-            onToggleSave={canSave ? () => onToggleSave(p.id) : undefined}
-          />
-        ))}
-      </ScrollView>
+      {/* A carousel on a phone. On a desktop a mouse cannot swipe it, so the
+          deals lay out as one row of grid tiles instead. */}
+      {layout.wide ? (
+        <View style={styles.grid}>
+          {products.slice(0, layout.columns).map((p) => (
+            <QuotedProductCard
+              key={p.id}
+              product={p}
+              width={layout.gridItemWidth}
+              saved={saved.has(p.id)}
+              onToggleSave={canSave ? () => onToggleSave(p.id) : undefined}
+            />
+          ))}
+        </View>
+      ) : (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.rail}
+        >
+          {products.map((p) => (
+            <QuotedProductCard
+              key={p.id}
+              product={p}
+              width={150}
+              compact
+              saved={saved.has(p.id)}
+              onToggleSave={canSave ? () => onToggleSave(p.id) : undefined}
+            />
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -311,6 +332,7 @@ function ProductGrid({
   onToggleSave: (id: string) => void;
   canSave: boolean;
 }): React.ReactElement | null {
+  const { gridItemWidth } = useLayout();
   if (products.length === 0) return null;
   return (
     <View style={styles.section}>
@@ -322,7 +344,7 @@ function ProductGrid({
           <QuotedProductCard
             key={p.id}
             product={p}
-            width={GRID_WIDTH}
+            width={gridItemWidth}
             saved={saved.has(p.id)}
             onToggleSave={canSave ? () => onToggleSave(p.id) : undefined}
           />

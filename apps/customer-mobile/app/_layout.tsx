@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
+import { Platform, View } from 'react-native';
+import { enableScreens } from 'react-native-screens';
 import { StatusBar } from 'expo-status-bar';
 import { Stack, router, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -12,11 +14,20 @@ import { color } from '../src/theme/tokens';
 import { API_BASE_URL } from '../src/lib/config';
 import { sessionStore } from '../src/lib/session-store';
 import { usePushRegistration } from '../src/lib/push';
+import { useLayout } from '../src/lib/layout';
+import { WideNav } from '../src/components/WideNav';
 
 // The splash stays up until fonts are loaded and the session has been read off
 // the keystore, so the first frame is the right screen rather than a flash of
 // onboarding at a customer who is already signed in.
 void SplashScreen.preventAutoHideAsync();
+
+// In a browser `react-native-screens` is off by default, so the tab and stack
+// navigators leave screens the shopper has moved away from in the page, merely
+// painted over. They stay reachable by keyboard and read out by screen
+// readers, and the home screen was still "visible" under Browse. On, an
+// inactive screen is `display: none` and `hidden`. On a phone it is already on.
+if (Platform.OS === 'web') enableScreens(true);
 
 const queryClient = createQueryClient();
 
@@ -76,6 +87,7 @@ const PROTECTED = [
 function Routes(): React.ReactElement | null {
   const { ready, signedIn } = useAuth();
   const segments = useSegments();
+  const { wide } = useLayout();
 
   // Inside the provider, so it has the authenticated client, and once for the
   // whole app rather than per screen.
@@ -97,34 +109,41 @@ function Routes(): React.ReactElement | null {
 
   if (!ready) return null;
 
+  // On a wide window the tab bar is hidden and this bar takes its place, above
+  // every screen, so a product or an order keeps the way back to everything.
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: color.canvas },
-        animation: 'slide_from_right',
-      }}
-    >
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
-      <Stack.Screen name="search" options={{ animation: 'fade' }} />
-      <Stack.Screen name="product/[id]" />
-      <Stack.Screen name="store/[slug]" />
-      <Stack.Screen name="checkout" />
-      <Stack.Screen name="confirmation/[orderId]" options={{ animation: 'fade' }} />
-      <Stack.Screen name="orders/[id]" />
-      <Stack.Screen name="plans/index" />
-      <Stack.Screen name="addresses/index" />
-      <Stack.Screen name="addresses/edit" />
-      <Stack.Screen name="saved" />
-      <Stack.Screen name="profile" />
-      <Stack.Screen name="returns/index" />
-      <Stack.Screen name="returns/new" />
-      <Stack.Screen name="reviews/index" />
-      {/* A single task over the pending list, not a place in the navigation —
+    <View style={{ flex: 1 }}>
+      {/* Not over sign-in, which carries its own wordmark and a way back to browsing. */}
+      {wide && segments[0] !== 'onboarding' ? <WideNav /> : null}
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: color.canvas },
+          animation: 'slide_from_right',
+        }}
+      >
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+        <Stack.Screen name="search" options={{ animation: 'fade' }} />
+        <Stack.Screen name="product/[id]" />
+        <Stack.Screen name="store/[slug]" />
+        <Stack.Screen name="checkout" />
+        <Stack.Screen name="confirmation/[orderId]" options={{ animation: 'fade' }} />
+        <Stack.Screen name="orders/[id]" />
+        <Stack.Screen name="plans/index" />
+        <Stack.Screen name="addresses/index" />
+        <Stack.Screen name="addresses/edit" />
+        <Stack.Screen name="saved" />
+        <Stack.Screen name="profile" />
+        <Stack.Screen name="returns/index" />
+        <Stack.Screen name="returns/new" />
+        <Stack.Screen name="reviews/index" />
+        {/* A single task over the pending list, not a place in the navigation —
           which is why it is dismissed with an X rather than a back chevron. */}
-      <Stack.Screen name="reviews/new" options={{ presentation: 'modal' }} />
-      <Stack.Screen name="wallet" />
-    </Stack>
+        <Stack.Screen name="reviews/new" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="wallet" />
+        <Stack.Screen name="payment-complete" options={{ animation: 'fade' }} />
+      </Stack>
+    </View>
   );
 }

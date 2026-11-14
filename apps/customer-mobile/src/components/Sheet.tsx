@@ -2,6 +2,7 @@ import React from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { color, fillParent, radius, space } from '../theme/tokens';
+import { useLayout } from '../lib/layout';
 
 export interface SheetProps {
   visible: boolean;
@@ -26,6 +27,7 @@ export function Sheet({
   dismissable = true,
 }: SheetProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const { wide } = useLayout();
   return (
     <Modal
       visible={visible}
@@ -46,6 +48,8 @@ export function Sheet({
             styles.sheet,
             { paddingBottom: insets.bottom + space.lg },
             dark ? styles.dark : styles.light,
+            // On a desktop the sheet rises as a panel, not a strip the width of the screen.
+            wide ? styles.wideSheet : null,
           ]}
         >
           <View style={[styles.grabber, dark ? styles.grabberDark : styles.grabberLight]} />
@@ -66,6 +70,7 @@ const styles = StyleSheet.create({
     paddingTop: space.md,
     maxHeight: '92%',
   },
+  wideSheet: { width: '100%', maxWidth: 560, alignSelf: 'center' },
   light: { backgroundColor: color.surface },
   dark: { backgroundColor: color.dark },
   grabber: {

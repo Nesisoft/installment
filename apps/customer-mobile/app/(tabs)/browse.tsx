@@ -7,7 +7,6 @@ import {
   Chip,
   EmptyState,
   ErrorState,
-  GRID_WIDTH,
   Header,
   Icon,
   ListFooter,
@@ -28,6 +27,7 @@ import {
 import { useToggleWishlist, useWishlistIds } from '../../src/features/account';
 import { ghs, pluralise } from '../../src/lib/format';
 import { color, font, radius, space } from '../../src/theme/tokens';
+import { useLayout } from '../../src/lib/layout';
 
 /**
  * The PAYMENT group is single-select: "Pay in instalments" and "In stock" are
@@ -57,6 +57,7 @@ interface Filters {
 const DEFAULTS: Filters = { deals_only: false, sort: 'popular', payment: 'all' };
 
 export default function BrowseScreen(): React.ReactElement {
+  const { gridItemWidth } = useLayout();
   const { signedIn } = useAuth();
   const params = useLocalSearchParams();
   const categories = useCategories();
@@ -136,12 +137,14 @@ export default function BrowseScreen(): React.ReactElement {
 
   return (
     <Screen
+      wide
       tabBar
       refreshing={browse.isRefetching}
       onRefresh={() => void browse.refetch()}
       onEndReached={loadMore}
     >
       <Header
+        wide
         title={categoryName ?? (filters.deals_only ? 'Deals' : 'Browse')}
         subtitle={storeName ?? (filters.deals_only && categoryName ? 'Live deals only' : undefined)}
         right={
@@ -227,7 +230,7 @@ export default function BrowseScreen(): React.ReactElement {
             <QuotedProductCard
               key={p.id}
               product={p}
-              width={GRID_WIDTH}
+              width={gridItemWidth}
               saved={saved.has(p.id)}
               onToggleSave={
                 signedIn

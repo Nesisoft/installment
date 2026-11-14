@@ -14,6 +14,7 @@ import { router } from 'expo-router';
 import { Text } from './Text';
 import { Icon } from './Icon';
 import { color, radius, space, TAB_BAR_HEIGHT } from '../theme/tokens';
+import { CONTENT_MAX, READING_MAX, useLayout } from '../lib/layout';
 
 /**
  * How close to the bottom counts as the end.
@@ -45,8 +46,28 @@ export interface ScreenProps {
    * free — without it every scroll event inside the threshold fires again.
    */
   onEndReached?: () => void;
+  /**
+   * On a wide window, let the content use the full page width rather than the
+   * reading width. For product grids and the home feed; forms, orders and
+   * lists read better narrow. No effect on a phone.
+   */
+  wide?: boolean;
   style?: StyleProp<ViewStyle>;
   contentStyle?: StyleProp<ViewStyle>;
+}
+
+/**
+ * Centres a page's content on a wide window and caps its width, while the
+ * background it sits on still runs edge to edge. On a phone it is a no-op, so
+ * the phone design is untouched.
+ */
+export function pageColumn(wideWindow: boolean, widePage?: boolean): ViewStyle | undefined {
+  if (!wideWindow) return undefined;
+  return {
+    width: '100%',
+    maxWidth: widePage ? CONTENT_MAX : READING_MAX,
+    alignSelf: 'center',
+  };
 }
 
 export function Screen({
@@ -58,27 +79,36 @@ export function Screen({
   tabBar,
   footerHeight = 0,
   onEndReached,
+  wide,
   style,
   contentStyle,
 }: ScreenProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const layout = useLayout();
+  const column = pageColumn(layout.wide, wide);
   // Latched while the reader is inside the threshold and released when they
   // scroll back out, so one approach to the bottom is one call however many
   // scroll events it takes. The caller is still expected to ignore the call
   // when it has nothing more to fetch.
   const armed = React.useRef(true);
   const background = dark ? color.dark : color.canvas;
+  // A wide window has no tab bar to clear: navigation is along the top.
+  const clearsTabBar = tabBar && !layout.wide;
   const bottomPad =
-    (tabBar ? TAB_BAR_HEIGHT + insets.bottom : insets.bottom) + footerHeight + space.lg;
+    (clearsTabBar ? TAB_BAR_HEIGHT + insets.bottom : insets.bottom) + footerHeight + space.lg;
 
   if (!scroll) {
-    return <View style={[styles.flex, { backgroundColor: background }, style]}>{children}</View>;
+    return (
+      <View style={[styles.flex, { backgroundColor: background }, style]}>
+        {column ? <View style={[styles.flex, column]}>{children}</View> : children}
+      </View>
+    );
   }
 
   return (
     <ScrollView
       style={[styles.flex, { backgroundColor: background }, style]}
-      contentContainerStyle={[{ paddingBottom: bottomPad }, contentStyle]}
+      contentContainerStyle={[{ paddingBottom: bottomPad }, column, contentStyle]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
       scrollEventThrottle={onEndReached ? 96 : undefined}
@@ -122,6 +152,8 @@ export interface HeaderProps {
   dark?: boolean;
   /** No bottom hairline — for a header sitting directly on a coloured panel. */
   flush?: boolean;
+  /** Match a page that uses the full width on a wide window (see `Screen`). */
+  wide?: boolean;
 }
 
 /** The bar at the top of a pushed screen. */
@@ -132,44 +164,48 @@ export function Header({
   right,
   dark,
   flush,
+  wide,
 }: HeaderProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const layout = useLayout();
   return (
     <View
-      style={[
-        styles.header,
-        {
-          paddingTop: insets.top + space.sm,
-          backgroundColor: dark ? color.dark : color.surface,
-          borderBottomWidth: flush ? 0 : StyleSheet.hairlineWidth,
-          borderBottomColor: dark ? color.darkLine : color.border,
-        },
-      ]}
+      style={{
+        paddingTop: insets.top + (layout.wide ? space.lg : space.sm),
+        // On a wide window the header usually sits inside a page's centred
+        // column, where a white bar would stop short of the window's edges. It
+        // reads as the page's title instead, on the page's own ground.
+        backgroundColor: dark ? color.dark : layout.wide ? 'transparent' : color.surface,
+        borderBottomWidth: flush || (layout.wide && !dark) ? 0 : StyleSheet.hairlineWidth,
+        borderBottomColor: dark ? color.darkLine : color.border,
+      }}
     >
-      {back ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          hitSlop={12}
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-          style={styles.backButton}
-        >
-          <Icon name="chevron-left" size={22} color={dark ? color.onDark : color.ink} />
-        </Pressable>
-      ) : null}
-      <View style={styles.headerText}>
-        {title ? (
-          <Text variant="h3" tone={dark ? 'onDark' : 'ink'} numberOfLines={1}>
-            {title}
-          </Text>
+      <View style={[styles.header, pageColumn(layout.wide, wide)]}>
+        {back ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            hitSlop={12}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+            style={styles.backButton}
+          >
+            <Icon name="chevron-left" size={22} color={dark ? color.onDark : color.ink} />
+          </Pressable>
         ) : null}
-        {subtitle ? (
-          <Text variant="small" tone={dark ? 'onDarkMuted' : 'muted'} numberOfLines={1}>
-            {subtitle}
-          </Text>
-        ) : null}
+        <View style={styles.headerText}>
+          {title ? (
+            <Text variant="h3" tone={dark ? 'onDark' : 'ink'} numberOfLines={1}>
+              {title}
+            </Text>
+          ) : null}
+          {subtitle ? (
+            <Text variant="small" tone={dark ? 'onDarkMuted' : 'muted'} numberOfLines={1}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+        {right ?? null}
       </View>
-      {right ?? null}
     </View>
   );
 }
@@ -183,6 +219,7 @@ export function StickyFooter({
   dark?: boolean;
 }): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const layout = useLayout();
   return (
     <View
       style={[
@@ -194,7 +231,8 @@ export function StickyFooter({
         },
       ]}
     >
-      {children}
+      {/* A call to action as wide as a monitor reads as a banner, not a button. */}
+      <View style={pageColumn(layout.wide)}>{children}</View>
     </View>
   );
 }

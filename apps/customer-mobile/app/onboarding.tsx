@@ -12,6 +12,7 @@ import {
 } from '../src/features/auth';
 import { phoneDisplay } from '../src/lib/format';
 import { color, radius, space } from '../src/theme/tokens';
+import { useLayout } from '../src/lib/layout';
 
 type Step = 'phone' | 'code' | 'profile';
 
@@ -26,6 +27,7 @@ type Step = 'phone' | 'code' | 'profile';
  */
 export default function OnboardingScreen(): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const { wide } = useLayout();
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -127,237 +129,241 @@ export default function OnboardingScreen(): React.ReactElement {
         { paddingTop: insets.top + space.xl, paddingBottom: insets.bottom + space.xl },
       ]}
     >
-      <View style={styles.head}>
-        <Text variant="h1" tone="onDark">
-          ejua
-        </Text>
-        <View style={styles.regionPill}>
-          <Text variant="eyebrow" tone="onDarkFaint">
-            GHANA
+      {/* On a desktop the sign-in reads as a column, not a phone field the
+          width of the monitor; the dark ground still fills the window. */}
+      <View style={[styles.column, wide && styles.wideColumn]}>
+        <View style={styles.head}>
+          <Text variant="h1" tone="onDark">
+            ejua
           </Text>
-        </View>
-      </View>
-
-      {step === 'phone' ? (
-        <View style={styles.pitch}>
-          <Text variant="eyebrow" tone="accent">
-            BUY NOW · PAY LATER
-          </Text>
-          <Text variant="display" tone="onDark" style={styles.pitchTitle}>
-            Everything you want.{'\n'}Pay small small.
-          </Text>
-          <Text variant="body" tone="onDarkMuted" style={styles.pitchBody}>
-            Shop vendors across Ghana and split an order into weekly payments on Mobile Money. You
-            see the exact schedule before you commit.
-          </Text>
-          <View style={styles.trust}>
-            {/* Was "Escrow protected": a paid order's money is the seller's to
-                withdraw the next day, not held until the return window closes. */}
-            {['Pay over weeks', 'MoMo checkout', 'Real schedule up front'].map((t) => (
-              <View key={t} style={styles.trustChip}>
-                <Icon name="check" size={11} color={color.success} strokeWidth={3} />
-                <Text variant="tiny" tone="onDarkMuted">
-                  {t}
-                </Text>
-              </View>
-            ))}
+          <View style={styles.regionPill}>
+            <Text variant="eyebrow" tone="onDarkFaint">
+              GHANA
+            </Text>
           </View>
         </View>
-      ) : (
-        <View style={styles.pitch}>
-          <Text variant="h1" tone="onDark">
-            {step === 'code' ? "Confirm it's you" : 'Almost there'}
-          </Text>
-          <Text variant="body" tone="onDarkMuted" style={styles.pitchBody}>
-            {step === 'code'
-              ? `We sent a 6-digit code to ${phoneDisplay(phone)}.`
-              : 'Tell us who to put on your orders.'}
-          </Text>
-        </View>
-      )}
 
-      <View style={styles.form}>
         {step === 'phone' ? (
-          <>
-            <Text variant="eyebrow" tone="onDarkFaint">
-              PHONE NUMBER
+          <View style={styles.pitch}>
+            <Text variant="eyebrow" tone="accent">
+              BUY NOW · PAY LATER
             </Text>
-            <View style={styles.phoneRow}>
-              <Text variant="bodyMedium" tone="onDarkMuted">
-                +233
-              </Text>
-              <View style={styles.divider} />
-              <TextInput
-                value={phone}
-                onChangeText={setPhone}
-                placeholder="24 000 0000"
-                placeholderTextColor={color.onDarkFaint}
-                keyboardType="phone-pad"
-                autoComplete="tel"
-                textContentType="telephoneNumber"
-                style={styles.phoneInput}
-                accessibilityLabel="Your phone number"
-                onSubmitEditing={() => void submitPhone()}
-              />
+            <Text variant="display" tone="onDark" style={styles.pitchTitle}>
+              Everything you want.{'\n'}Pay small small.
+            </Text>
+            <Text variant="body" tone="onDarkMuted" style={styles.pitchBody}>
+              Shop vendors across Ghana and split an order into weekly payments on Mobile Money. You
+              see the exact schedule before you commit.
+            </Text>
+            <View style={styles.trust}>
+              {/* Was "Escrow protected": a paid order's money is the seller's to
+                withdraw the next day, not held until the return window closes. */}
+              {['Pay over weeks', 'MoMo checkout', 'Real schedule up front'].map((t) => (
+                <View key={t} style={styles.trustChip}>
+                  <Icon name="check" size={11} color={color.success} strokeWidth={3} />
+                  <Text variant="tiny" tone="onDarkMuted">
+                    {t}
+                  </Text>
+                </View>
+              ))}
             </View>
-          </>
-        ) : null}
+          </View>
+        ) : (
+          <View style={styles.pitch}>
+            <Text variant="h1" tone="onDark">
+              {step === 'code' ? "Confirm it's you" : 'Almost there'}
+            </Text>
+            <Text variant="body" tone="onDarkMuted" style={styles.pitchBody}>
+              {step === 'code'
+                ? `We sent a 6-digit code to ${phoneDisplay(phone)}.`
+                : 'Tell us who to put on your orders.'}
+            </Text>
+          </View>
+        )}
 
-        {step === 'code' ? (
-          <TextInput
-            value={code}
-            onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))}
-            placeholder="000000"
-            placeholderTextColor={color.onDarkFaint}
-            keyboardType="number-pad"
-            autoComplete="sms-otp"
-            textContentType="oneTimeCode"
-            autoFocus
-            maxLength={6}
-            style={styles.codeInput}
-            accessibilityLabel="The 6-digit code we sent you"
-            onSubmitEditing={() => void submitCode()}
-          />
-        ) : null}
-
-        {step === 'profile' ? (
-          <View style={styles.profileFields}>
-            <TextInput
-              value={firstName}
-              onChangeText={setFirstName}
-              placeholder="First name"
-              placeholderTextColor={color.onDarkFaint}
-              autoCapitalize="words"
-              autoComplete="given-name"
-              style={styles.textInput}
-              accessibilityLabel="First name"
-            />
-            <TextInput
-              value={lastName}
-              onChangeText={setLastName}
-              placeholder="Last name"
-              placeholderTextColor={color.onDarkFaint}
-              autoCapitalize="words"
-              autoComplete="family-name"
-              style={styles.textInput}
-              accessibilityLabel="Last name"
-            />
-            <View>
-              <Text variant="eyebrow" tone="onDarkFaint" style={styles.dobLabel}>
-                DATE OF BIRTH
+        <View style={styles.form}>
+          {step === 'phone' ? (
+            <>
+              <Text variant="eyebrow" tone="onDarkFaint">
+                PHONE NUMBER
               </Text>
-              <View style={styles.dobRow}>
+              <View style={styles.phoneRow}>
+                <Text variant="bodyMedium" tone="onDarkMuted">
+                  +233
+                </Text>
+                <View style={styles.divider} />
                 <TextInput
-                  value={day}
-                  onChangeText={(v) => setDay(v.replace(/\D/g, '').slice(0, 2))}
-                  placeholder="DD"
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholder="24 000 0000"
                   placeholderTextColor={color.onDarkFaint}
-                  keyboardType="number-pad"
-                  maxLength={2}
-                  style={[styles.textInput, styles.dobBox]}
-                  accessibilityLabel="Day you were born"
-                />
-                <TextInput
-                  value={month}
-                  onChangeText={(v) => setMonth(v.replace(/\D/g, '').slice(0, 2))}
-                  placeholder="MM"
-                  placeholderTextColor={color.onDarkFaint}
-                  keyboardType="number-pad"
-                  maxLength={2}
-                  style={[styles.textInput, styles.dobBox]}
-                  accessibilityLabel="Month you were born"
-                />
-                <TextInput
-                  value={year}
-                  onChangeText={(v) => setYear(v.replace(/\D/g, '').slice(0, 4))}
-                  placeholder="YYYY"
-                  placeholderTextColor={color.onDarkFaint}
-                  keyboardType="number-pad"
-                  maxLength={4}
-                  style={[styles.textInput, styles.dobYear]}
-                  accessibilityLabel="Year you were born"
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                  textContentType="telephoneNumber"
+                  style={styles.phoneInput}
+                  accessibilityLabel="Your phone number"
+                  onSubmitEditing={() => void submitPhone()}
                 />
               </View>
-              <Text variant="small" tone="onDarkFaint" style={styles.dobHint}>
-                {/* Said plainly, because asking for a birthday with no reason
+            </>
+          ) : null}
+
+          {step === 'code' ? (
+            <TextInput
+              value={code}
+              onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000"
+              placeholderTextColor={color.onDarkFaint}
+              keyboardType="number-pad"
+              autoComplete="sms-otp"
+              textContentType="oneTimeCode"
+              autoFocus
+              maxLength={6}
+              style={styles.codeInput}
+              accessibilityLabel="The 6-digit code we sent you"
+              onSubmitEditing={() => void submitCode()}
+            />
+          ) : null}
+
+          {step === 'profile' ? (
+            <View style={styles.profileFields}>
+              <TextInput
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholder="First name"
+                placeholderTextColor={color.onDarkFaint}
+                autoCapitalize="words"
+                autoComplete="given-name"
+                style={styles.textInput}
+                accessibilityLabel="First name"
+              />
+              <TextInput
+                value={lastName}
+                onChangeText={setLastName}
+                placeholder="Last name"
+                placeholderTextColor={color.onDarkFaint}
+                autoCapitalize="words"
+                autoComplete="family-name"
+                style={styles.textInput}
+                accessibilityLabel="Last name"
+              />
+              <View>
+                <Text variant="eyebrow" tone="onDarkFaint" style={styles.dobLabel}>
+                  DATE OF BIRTH
+                </Text>
+                <View style={styles.dobRow}>
+                  <TextInput
+                    value={day}
+                    onChangeText={(v) => setDay(v.replace(/\D/g, '').slice(0, 2))}
+                    placeholder="DD"
+                    placeholderTextColor={color.onDarkFaint}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    style={[styles.textInput, styles.dobBox]}
+                    accessibilityLabel="Day you were born"
+                  />
+                  <TextInput
+                    value={month}
+                    onChangeText={(v) => setMonth(v.replace(/\D/g, '').slice(0, 2))}
+                    placeholder="MM"
+                    placeholderTextColor={color.onDarkFaint}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    style={[styles.textInput, styles.dobBox]}
+                    accessibilityLabel="Month you were born"
+                  />
+                  <TextInput
+                    value={year}
+                    onChangeText={(v) => setYear(v.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="YYYY"
+                    placeholderTextColor={color.onDarkFaint}
+                    keyboardType="number-pad"
+                    maxLength={4}
+                    style={[styles.textInput, styles.dobYear]}
+                    accessibilityLabel="Year you were born"
+                  />
+                </View>
+                <Text variant="small" tone="onDarkFaint" style={styles.dobHint}>
+                  {/* Said plainly, because asking for a birthday with no reason
                     reads as data collection. Ejua cannot lend to somebody whose
                     age it does not know — `gate.age_range` declines it. */}
-                Ejua lends money, so we have to know you are 18 or over.
-              </Text>
-            </View>
-            <Pressable
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: marketing }}
-              onPress={() => setMarketing((v) => !v)}
-              style={styles.consentRow}
-            >
-              <View style={[styles.checkbox, marketing && styles.checkboxOn]}>
-                {marketing ? (
-                  <Icon name="check" size={11} color={color.onDark} strokeWidth={3} />
-                ) : null}
+                  Ejua lends money, so we have to know you are 18 or over.
+                </Text>
               </View>
-              <Text variant="small" tone="onDarkMuted" style={styles.consentText}>
-                Send me offers and deals. Optional — everything else works either way.
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: marketing }}
+                onPress={() => setMarketing((v) => !v)}
+                style={styles.consentRow}
+              >
+                <View style={[styles.checkbox, marketing && styles.checkboxOn]}>
+                  {marketing ? (
+                    <Icon name="check" size={11} color={color.onDark} strokeWidth={3} />
+                  ) : null}
+                </View>
+                <Text variant="small" tone="onDarkMuted" style={styles.consentText}>
+                  Send me offers and deals. Optional — everything else works either way.
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
 
-        {error ? (
-          <Text variant="small" tone="accent" style={styles.error}>
-            {error}
-          </Text>
-        ) : null}
+          {error ? (
+            <Text variant="small" tone="accent" style={styles.error}>
+              {error}
+            </Text>
+          ) : null}
 
-        <Button
-          label={step === 'phone' ? 'Continue' : step === 'code' ? 'Verify' : 'Create my account'}
-          loading={busy}
-          disabled={
-            (step === 'phone' && phone.replace(/\D/g, '').length < 9) ||
-            (step === 'code' && code.length < 6) ||
-            (step === 'profile' && (!firstName.trim() || !lastName.trim() || !dateOfBirth))
-          }
-          onPress={() => {
-            if (step === 'phone') void submitPhone();
-            else if (step === 'code') void submitCode();
-            else void submitProfile();
-          }}
-        />
+          <Button
+            label={step === 'phone' ? 'Continue' : step === 'code' ? 'Verify' : 'Create my account'}
+            loading={busy}
+            disabled={
+              (step === 'phone' && phone.replace(/\D/g, '').length < 9) ||
+              (step === 'code' && code.length < 6) ||
+              (step === 'profile' && (!firstName.trim() || !lastName.trim() || !dateOfBirth))
+            }
+            onPress={() => {
+              if (step === 'phone') void submitPhone();
+              else if (step === 'code') void submitCode();
+              else void submitProfile();
+            }}
+          />
 
-        {step === 'phone' ? (
-          <>
-            {/* Browsing without an account is deliberate: asking for a phone
+          {step === 'phone' ? (
+            <>
+              {/* Browsing without an account is deliberate: asking for a phone
                 number before showing anything is how a marketplace loses a
                 first-time visitor. */}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.replace('/')}
+                style={styles.browse}
+              >
+                <Text variant="smallMedium" tone="onDarkMuted">
+                  Just looking? Browse first
+                </Text>
+              </Pressable>
+              <Text variant="tiny" tone="onDarkFaint" center style={styles.terms}>
+                By continuing you agree to Ejua's Terms and to a credit check when you choose to pay
+                in instalments.
+              </Text>
+            </>
+          ) : (
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.replace('/')}
+              onPress={() => {
+                setError(null);
+                setCode('');
+                setStep(step === 'profile' ? 'code' : 'phone');
+              }}
               style={styles.browse}
             >
               <Text variant="smallMedium" tone="onDarkMuted">
-                Just looking? Browse first
+                Back
               </Text>
             </Pressable>
-            <Text variant="tiny" tone="onDarkFaint" center style={styles.terms}>
-              By continuing you agree to Ejua's Terms and to a credit check when you choose to pay
-              in instalments.
-            </Text>
-          </>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              setError(null);
-              setCode('');
-              setStep(step === 'profile' ? 'code' : 'phone');
-            }}
-            style={styles.browse}
-          >
-            <Text variant="smallMedium" tone="onDarkMuted">
-              Back
-            </Text>
-          </Pressable>
-        )}
+          )}
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -365,6 +371,8 @@ export default function OnboardingScreen(): React.ReactElement {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.dark, paddingHorizontal: space.xxl },
+  column: { flex: 1 },
+  wideColumn: { width: '100%', maxWidth: 480, alignSelf: 'center' },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   regionPill: {
     borderWidth: 1,
