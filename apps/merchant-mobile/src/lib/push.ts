@@ -80,6 +80,14 @@ function devicePlatform(): DevicePlatform {
   return 'web';
 }
 
+/**
+ * Push is a phone feature. In a browser there is no Expo push token to mint
+ * and no notification to have been tapped, and `expo-notifications` throws on
+ * the calls below rather than answering — which, unguarded, blanks the page
+ * the moment a seller signs in.
+ */
+const PUSH_SUPPORTED = Platform.OS !== 'web';
+
 /** The token this run registered, so signing out can take it off the list. */
 let registeredToken: string | null = null;
 
@@ -165,6 +173,7 @@ export function usePushRegistration(): void {
   const attempted = useRef(false);
 
   useEffect(() => {
+    if (!PUSH_SUPPORTED) return;
     if (!signedIn) {
       // A session can also end without passing through the sign-out button —
       // an unrecoverable refresh does it. Forgetting the token here keeps the
@@ -184,7 +193,7 @@ export function usePushRegistration(): void {
   useEffect(() => {
     // Gated on the session because every route in this app is behind
     // `Stack.Protected` — pushing at a signed-out seller navigates nowhere.
-    if (!signedIn) return;
+    if (!PUSH_SUPPORTED || !signedIn) return;
 
     // A cold start FROM a tap: the response is already waiting, and no
     // listener registered afterwards will ever be called with it.

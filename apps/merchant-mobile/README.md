@@ -16,27 +16,26 @@ ledger, not a number this app worked out.
 
 ## What is built
 
-| #   | Design screen         | State                                                                                    |
-| --- | --------------------- | ---------------------------------------------------------------------------------------- |
-| 02  | Today (dashboard)     | **built**                                                                                |
-| —   | Sign in               | **built** (not in the canvas: the canvas starts at onboarding, which happens on the web) |
-| 01  | Onboarding + KYC      | not built — registration is `apps/merchant-web/src/pages/signup.tsx`                     |
-| 03  | Order queue           | **built**                                                                                |
-| 04  | Order + settlement    | **built**                                                                                |
-| 05  | Instalment plans      | **built** (pushed from Today, not a tab)                                                 |
-| 06  | Plan + schedule       | **built**                                                                                |
-| 07  | Catalog by variant    | **built**                                                                                |
-| 08  | List a product        | not built                                                                                |
-| 09  | Payouts + reserve     | **built**                                                                                |
-| 10  | Performance           | **built** (pushed from the Today hero, not a tab)                                        |
-| 11  | Storefront + settings | not built (sign-out lives on the stub)                                                   |
+| #   | Design screen         | State                                                                          |
+| --- | --------------------- | ------------------------------------------------------------------------------ |
+| 02  | Today (dashboard)     | **built**                                                                      |
+| —   | Sign in               | **built** (not in the canvas)                                                  |
+| —   | Open a shop           | **built**: phone code, then the account (`app/sign-up.tsx`); not in the canvas |
+| 01  | Onboarding + KYC      | **built**: where a new shop lands after signing up                             |
+| 03  | Order queue           | **built**                                                                      |
+| 04  | Order + settlement    | **built**                                                                      |
+| 05  | Instalment plans      | **built** (pushed from Today, not a tab)                                       |
+| 06  | Plan + schedule       | **built**                                                                      |
+| 07  | Catalog by variant    | **built**                                                                      |
+| 08  | List a product        | **built**                                                                      |
+| 09  | Payouts + reserve     | **built**                                                                      |
+| 10  | Performance           | **built** (pushed from the Today hero, not a tab)                              |
+| 11  | Storefront + settings | **built**                                                                      |
 
-The unbuilt tabs are in the bar and each says so in as many words. That is deliberate: an
-unbuilt Products tab rendering "No products" would tell a seller with forty listings that their
-catalogue had vanished, which is the worst lie this particular app could tell.
-
-`apps/merchant-web` still does everything. It is marked superseded in the roadmap, but nothing
-should be removed from it until the tab that replaces it ships.
+`apps/merchant-web` is being folded into this app, which will also be the seller website, as
+the shopper app already is the shop's. Opening a shop now happens here. Still only on the web
+portal, and so not removed yet: the account statement with its CSV and PDF downloads, and a
+plan's full schedule and settlement.
 
 ---
 
