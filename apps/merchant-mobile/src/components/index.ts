@@ -60,3 +60,4 @@ export {
   type EmptyStateProps,
 } from './Screen';
 export { SaleSplits, type SaleSplitsProps } from './SaleSplits';
+export { WideNav } from './WideNav';

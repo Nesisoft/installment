@@ -14,6 +14,7 @@ import { router } from 'expo-router';
 import { Text } from './Text';
 import { Icon } from './Icon';
 import { color, space, TAB_BAR_HEIGHT } from '../theme/tokens';
+import { pageMaxWidth, useLayout, type PageWidth } from '../lib/layout';
 
 export interface ScreenProps {
   children: React.ReactNode;
@@ -26,8 +27,23 @@ export interface ScreenProps {
   tabBar?: boolean;
   /** Leaves room for a sticky footer of this height. */
   footerHeight?: number;
+  /**
+   * How wide the content may grow on a wide window: the reading width, or the
+   * narrower column sign-in and sign-up use. No effect on a phone.
+   */
+  width?: PageWidth;
   style?: StyleProp<ViewStyle>;
   contentStyle?: StyleProp<ViewStyle>;
+}
+
+/**
+ * Centres a page's content on a wide window and caps its width, while the
+ * background it sits on still runs edge to edge. On a phone it is a no-op, so
+ * the phone design is untouched.
+ */
+export function pageColumn(wide: boolean, page?: PageWidth): ViewStyle | undefined {
+  const maxWidth = pageMaxWidth(wide, page);
+  return maxWidth === undefined ? undefined : { width: '100%', maxWidth, alignSelf: 'center' };
 }
 
 export function Screen({
@@ -38,22 +54,31 @@ export function Screen({
   onRefresh,
   tabBar,
   footerHeight = 0,
+  width,
   style,
   contentStyle,
 }: ScreenProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const layout = useLayout();
+  const column = pageColumn(layout.wide, width);
   const background = dark ? color.dark : color.canvas;
+  // A wide window has no tab bar to clear: navigation is along the top.
+  const clearsTabBar = tabBar && !layout.wide;
   const bottomPad =
-    (tabBar ? TAB_BAR_HEIGHT + insets.bottom : insets.bottom) + footerHeight + space.lg;
+    (clearsTabBar ? TAB_BAR_HEIGHT + insets.bottom : insets.bottom) + footerHeight + space.lg;
 
   if (!scroll) {
-    return <View style={[styles.flex, { backgroundColor: background }, style]}>{children}</View>;
+    return (
+      <View style={[styles.flex, { backgroundColor: background }, style]}>
+        {column ? <View style={[styles.flex, column]}>{children}</View> : children}
+      </View>
+    );
   }
 
   return (
     <ScrollView
       style={[styles.flex, { backgroundColor: background }, style]}
-      contentContainerStyle={[{ paddingBottom: bottomPad }, contentStyle]}
+      contentContainerStyle={[{ paddingBottom: bottomPad }, column, contentStyle]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
       refreshControl={
@@ -92,42 +117,45 @@ export function Header({
   flush,
 }: HeaderProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const layout = useLayout();
   return (
     <View
-      style={[
-        styles.header,
-        {
-          paddingTop: insets.top + space.sm,
-          backgroundColor: dark ? color.dark : color.surface,
-          borderBottomWidth: flush ? 0 : StyleSheet.hairlineWidth,
-          borderBottomColor: dark ? color.darkLine : color.border,
-        },
-      ]}
+      style={{
+        paddingTop: insets.top + (layout.wide ? space.lg : space.sm),
+        // On a wide window the header sits inside the page's centred column,
+        // where a white bar would stop short of the window's edges. It reads
+        // as the page's title instead, on the page's own ground.
+        backgroundColor: dark ? color.dark : layout.wide ? 'transparent' : color.surface,
+        borderBottomWidth: flush || (layout.wide && !dark) ? 0 : StyleSheet.hairlineWidth,
+        borderBottomColor: dark ? color.darkLine : color.border,
+      }}
     >
-      {back ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          hitSlop={12}
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-          style={styles.backButton}
-        >
-          <Icon name="chevron-left" size={22} color={dark ? color.onDark : color.ink} />
-        </Pressable>
-      ) : null}
-      <View style={styles.headerText}>
-        {title ? (
-          <Text variant="h3" tone={dark ? 'onDark' : 'ink'} numberOfLines={1}>
-            {title}
-          </Text>
+      <View style={styles.header}>
+        {back ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            hitSlop={12}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+            style={styles.backButton}
+          >
+            <Icon name="chevron-left" size={22} color={dark ? color.onDark : color.ink} />
+          </Pressable>
         ) : null}
-        {subtitle ? (
-          <Text variant="small" tone={dark ? 'onDarkMuted' : 'muted'} numberOfLines={1}>
-            {subtitle}
-          </Text>
-        ) : null}
+        <View style={styles.headerText}>
+          {title ? (
+            <Text variant="h3" tone={dark ? 'onDark' : 'ink'} numberOfLines={1}>
+              {title}
+            </Text>
+          ) : null}
+          {subtitle ? (
+            <Text variant="small" tone={dark ? 'onDarkMuted' : 'muted'} numberOfLines={1}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+        {right ?? null}
       </View>
-      {right ?? null}
     </View>
   );
 }
@@ -141,6 +169,7 @@ export function StickyFooter({
   dark?: boolean;
 }): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const layout = useLayout();
   return (
     <View
       style={[
@@ -152,7 +181,8 @@ export function StickyFooter({
         },
       ]}
     >
-      {children}
+      {/* A call to action as wide as a monitor reads as a banner, not a button. */}
+      <View style={pageColumn(layout.wide)}>{children}</View>
     </View>
   );
 }

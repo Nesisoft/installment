@@ -96,7 +96,7 @@ export default function SignUpScreen(): React.ReactElement {
   }
 
   return (
-    <Screen dark>
+    <Screen dark width="form">
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}

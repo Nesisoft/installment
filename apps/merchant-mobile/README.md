@@ -41,6 +41,24 @@ Statements export through `src/lib/statement-export.ts`: on the web the CSV down
 printable page opens in a new tab; on a phone the CSV goes to the share sheet and the printable
 page to the system print dialog, which can also save a PDF.
 
+## On the web
+
+The same app is the seller website. `npx expo export --platform web` bundles it into `dist/`, a
+static single-page site that needs every path rewritten to `/index.html`. Set
+`EXPO_PUBLIC_API_URL` when exporting.
+
+What changes in a browser:
+
+- **Layout.** At 900 px and wider (`src/lib/layout.ts`) the tab bar gives way to a navigation bar
+  along the top (`WideNav`): the five tabs, the count of orders to confirm, and "List a product".
+  Pages sit in a centred 720 px column, and sign-in and sign-up in a 480 px one. Sticky footers and
+  sheets stop at a sensible width. Below 900 px it is the phone design, unchanged.
+- **Session** is kept in `localStorage`, since SecureStore has no web implementation.
+- **Push** is skipped: there is no Expo push token in a browser.
+- **Inactive screens** are hidden rather than painted over: `react-native-screens` is switched on
+  for the web in `app/_layout.tsx`.
+- **Statements** download as files and open their printable page in a new tab.
+
 ---
 
 ## Running it
