@@ -1,7 +1,9 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { FulfilmentService } from '@installment/commerce';
 import { SYSTEM_ACTORS } from '@installment/core';
+import type { Env } from '../config/env.validation';
 import { captureWorkerError } from '../common/alerting';
 import { recordJobRun } from '../observability/metrics';
 
@@ -22,15 +24,26 @@ const SYSTEM_ACTOR = { actorId: SYSTEM_ACTORS.SYSTEM, actorType: 'system' as con
  *
  * Safe to run repeatedly: each order is closed under a status guard, so one
  * that moved underneath the sweep is skipped rather than closed twice.
+ *
+ * Gated by ENABLE_SCHEDULED_WORKERS like every other sweep: closing an order
+ * frees the seller's reserve and tells the customer the order is complete,
+ * which only the one deployment that runs the scheduled jobs should do.
  */
 @Injectable()
 export class ReturnWindowCron {
   private readonly logger = new Logger(ReturnWindowCron.name);
+  private readonly enabled: boolean;
 
-  constructor(@Inject(FulfilmentService) private readonly fulfilment: FulfilmentService) {}
+  constructor(
+    @Inject(FulfilmentService) private readonly fulfilment: FulfilmentService,
+    @Inject(ConfigService) config: ConfigService<Env, true>,
+  ) {
+    this.enabled = config.get('ENABLE_SCHEDULED_WORKERS', { infer: true });
+  }
 
   @Cron(CronExpression.EVERY_HOUR, { name: 'return-window-close' })
   async run(): Promise<void> {
+    if (!this.enabled) return;
     let outcome: 'success' | 'failure' = 'success';
     try {
       const closed = await this.fulfilment.completeElapsedReturnWindows(SYSTEM_ACTOR);
