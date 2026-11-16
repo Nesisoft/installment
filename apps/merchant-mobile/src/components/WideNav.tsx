@@ -28,6 +28,7 @@ export function activeSection(segments: string[]): string {
   if (first === 'plans' || first === 'performance') return 'index';
   if (first === 'statements' || first === 'payout-account') return 'payouts';
   if (first === 'returns') return 'orders';
+  if (first === 'change-password') return 'shop';
   return first;
 }
 

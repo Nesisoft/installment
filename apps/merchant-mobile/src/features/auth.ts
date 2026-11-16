@@ -80,3 +80,66 @@ export function useCompleteShopSignup() {
     },
   });
 }
+
+// --- Passwords ---------------------------------------------------------------
+
+/**
+ * A forgotten password, step 1: text a code to the phone the shop was opened
+ * with. The server answers the same whether or not the number runs a shop, and
+ * texts nothing when it does not, so the screen says "if".
+ */
+export function useStartPasswordReset() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (phone: string) => {
+      await api.post('/auth/merchant/password-reset/start', { phone });
+    },
+  });
+}
+
+/** Step 2: the code buys a short-lived ticket that can set a new password. */
+export function useVerifyPasswordResetCode() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async ({ phone, code }: { phone: string; code: string }) => {
+      const { data } = await api.post<{ resetToken: string }>(
+        '/auth/merchant/password-reset/verify-code',
+        { phone, code },
+      );
+      return data.resetToken;
+    },
+  });
+}
+
+/**
+ * Step 3: the ticket sets the new password, and the answer is a session — the
+ * seller is signed in. Any other device they were signed in on is signed out.
+ */
+export function useCompletePasswordReset() {
+  const api = useApi();
+  const { signIn } = useAuth();
+  return useMutation({
+    mutationFn: async (body: { resetToken: string; new_password: string }) => {
+      const { data } = await api.post<AuthResult>('/auth/merchant/password-reset/complete', body);
+      await signIn(data);
+      return data;
+    },
+  });
+}
+
+/**
+ * Change the signed-in seller's password. The answer is a fresh session for
+ * this device, stored at once: the old tokens stop renewing the moment the
+ * password changes, here as on every other device.
+ */
+export function useChangePassword() {
+  const api = useApi();
+  const { signIn } = useAuth();
+  return useMutation({
+    mutationFn: async (body: { current_password: string; new_password: string }) => {
+      const { data } = await api.post<AuthResult>('/auth/password', body);
+      await signIn(data);
+      return data;
+    },
+  });
+}

@@ -416,6 +416,11 @@ function Settings(): React.ReactElement {
           onPress={() => router.push('/returns')}
         />
         <Row label="Delivery fees" hint="Set by Ejua" />
+        <Row
+          label="Change password"
+          hint="Signs out other devices"
+          onPress={() => router.push('/change-password')}
+        />
       </Card>
 
       <Note eyebrow="One of these is not yours to set">

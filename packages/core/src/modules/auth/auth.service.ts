@@ -21,6 +21,9 @@ import {
   merchantSignupStartSchema,
   merchantSignupVerifyCodeSchema,
   merchantSignupCompleteSchema,
+  merchantPasswordResetStartSchema,
+  merchantPasswordResetVerifyCodeSchema,
+  merchantPasswordResetCompleteSchema,
 } from './dto';
 import {
   AccountInactiveError,
@@ -128,6 +131,16 @@ const signupTarget = (phone: string): string => `signup:${phone}`;
  * shopper account cannot be burned to register a business on the same number.
  */
 const merchantSignupTarget = (phone: string): string => `merchant-signup:${phone}`;
+
+/** And password-reset codes in a third, so no other flow's code can reset a password. */
+const merchantResetTarget = (phone: string): string => `merchant-reset:${phone}`;
+
+/** How long a reset code lives; what the caller is told when no code was sent. */
+const RESET_CODE_TTL_MS = 5 * 60_000;
+
+const resetMessage = (code: string): string =>
+  `Your Ejua Sell password reset code is ${code}. It expires in 5 minutes. ` +
+  `If you did not ask for it, ignore this message: your password has not changed.`;
 
 const defaultOtpMessage = (code: string): string =>
   `Your Installment verification code is ${code}. It expires in 5 minutes.`;
@@ -430,6 +443,80 @@ export class AuthService {
 
     await this.deps.users.recordLogin(user.id);
     return this.result(user);
+  }
+
+  // --- Merchant password reset ----------------------------------------------
+  //
+  // A seller who has forgotten their password proves the phone the shop was
+  // opened with — the one thing signup already verified — and chooses a new
+  // password. Phone, not email, because this system has no email delivery and
+  // a Ghanaian trader's phone is the channel they actually have.
+
+  /**
+   * Step 1: text a code to the shop's phone, if it is one.
+   *
+   * Answers the same whether or not the number belongs to a shop, and sends
+   * nothing when it does not, so this cannot be used to learn which numbers
+   * run shops — the reset form says "if that number belongs to a shop".
+   */
+  async merchantPasswordResetStart(rawInput: unknown): Promise<{ expiresAt: Date }> {
+    const { phone } = merchantPasswordResetStartSchema.parse(rawInput);
+    const login = await this.merchantOwnerLoginByPhone(phone);
+    if (!login || !login.is_active) {
+      return { expiresAt: new Date(Date.now() + RESET_CODE_TTL_MS) };
+    }
+
+    const { code, expiresAt } = await this.deps.otp.start(merchantResetTarget(phone));
+    if (this.deps.sms) {
+      await this.deps.sms.send({
+        to: phone,
+        sender: this.deps.smsSenderId ?? 'Installmt',
+        message: resetMessage(code),
+      });
+    }
+    return { expiresAt };
+  }
+
+  /** Step 2: the code buys a short-lived ticket for that phone, scoped to resets. */
+  async merchantPasswordResetVerifyCode(rawInput: unknown): Promise<{ resetToken: string }> {
+    const input = merchantPasswordResetVerifyCodeSchema.parse(rawInput);
+    const ok = await this.deps.otp.verify(merchantResetTarget(input.phone), input.code);
+    if (!ok) throw new InvalidOtpError();
+    return { resetToken: this.deps.jwt.signSignup(input.phone, 'merchant-reset') };
+  }
+
+  /**
+   * Step 3: the ticket sets the new password and signs the seller in. Every
+   * other session the account held ends, as with any password change.
+   */
+  async merchantPasswordResetComplete(rawInput: unknown): Promise<AuthResult> {
+    const input = merchantPasswordResetCompleteSchema.parse(rawInput);
+    let phone: string;
+    try {
+      phone = this.deps.jwt.verifySignup(input.resetToken, 'merchant-reset');
+    } catch {
+      throw new InvalidTokenError();
+    }
+
+    const login = await this.merchantOwnerLoginByPhone(phone);
+    if (!login) throw new InvalidTokenError();
+    if (!login.is_active || login.deleted_at) throw new AccountInactiveError();
+
+    const updated = await this.deps.users.changeOwnPassword(
+      login.id,
+      input.new_password,
+      { actorId: login.id, actorType: 'merchant' },
+      'recovered',
+    );
+    await this.deps.users.recordLogin(updated.id);
+    return this.result(updated);
+  }
+
+  /** The login the shop on this phone was opened with, if there is one. */
+  private async merchantOwnerLoginByPhone(phone: string): Promise<User | undefined> {
+    const merchant = await this.deps.merchants?.findByPhone(phone);
+    if (!merchant) return undefined;
+    return this.deps.users.findMerchantOwnerLogin(merchant.id, merchant.email);
   }
 
   /**

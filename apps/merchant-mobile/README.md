@@ -16,26 +16,31 @@ ledger, not a number this app worked out.
 
 ## What is built
 
-| #   | Design screen         | State                                                                          |
-| --- | --------------------- | ------------------------------------------------------------------------------ |
-| 02  | Today (dashboard)     | **built**                                                                      |
-| —   | Sign in               | **built** (not in the canvas)                                                  |
-| —   | Open a shop           | **built**: phone code, then the account (`app/sign-up.tsx`); not in the canvas |
-| 01  | Onboarding + KYC      | **built**: where a new shop lands after signing up                             |
-| 03  | Order queue           | **built**                                                                      |
-| 04  | Order + settlement    | **built**                                                                      |
-| 05  | Instalment plans      | **built** (pushed from Today, not a tab)                                       |
-| 06  | Plan + schedule       | **built**                                                                      |
-| 07  | Catalog by variant    | **built**                                                                      |
-| 08  | List a product        | **built**                                                                      |
-| 09  | Payouts + reserve     | **built**                                                                      |
-| 10  | Performance           | **built** (pushed from the Today hero, not a tab)                              |
-| 11  | Storefront + settings | **built**                                                                      |
+| #   | Design screen         | State                                                                                    |
+| --- | --------------------- | ---------------------------------------------------------------------------------------- |
+| 02  | Today (dashboard)     | **built**                                                                                |
+| —   | Sign in               | **built** (not in the canvas); a forgotten password is reset by a code to the shop phone |
+| —   | Open a shop           | **built**: phone code, then the account (`app/sign-up.tsx`); not in the canvas           |
+| 01  | Onboarding + KYC      | **built**: where a new shop lands after signing up                                       |
+| 03  | Order queue           | **built**                                                                                |
+| 04  | Order + settlement    | **built**                                                                                |
+| 05  | Instalment plans      | **built** (pushed from Today, not a tab)                                                 |
+| 06  | Plan + schedule       | **built**                                                                                |
+| 07  | Catalog by variant    | **built**                                                                                |
+| 08  | List a product        | **built**                                                                                |
+| 09  | Payouts + reserve     | **built**                                                                                |
+| 10  | Performance           | **built** (pushed from the Today hero, not a tab)                                        |
+| 11  | Storefront + settings | **built**                                                                                |
 
 This app is also the seller website, as the shopper app is the shop's; it replaced a separate
 React portal, `apps/merchant-web`. Opening a shop and the monthly and per-plan statements (with
 their CSV and printable versions) moved here from that portal; a plan's schedule and settlement
 always were here.
+
+A seller who has forgotten their password resets it from "Forgot your password?" on sign-in: a
+code to the phone the shop was opened with, then a new password, after which they are signed in
+(`app/reset-password.tsx`). Signed in, they change it from the Shop tab
+(`app/change-password.tsx`). Either signs out every other device the seller was signed in on.
 
 Statements export through `src/lib/statement-export.ts`: on the web the CSV downloads and the
 printable page opens in a new tab; on a phone the CSV goes to the share sheet and the printable

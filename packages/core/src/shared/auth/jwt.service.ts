@@ -59,8 +59,12 @@ const DEFAULT_REFRESH_TTL = 30 * 24 * 60 * 60;
 const DEFAULT_SIGNUP_TTL = 15 * 60;
 
 /** HS256 access/refresh token signer & verifier. */
-/** Which signup a ticket belongs to. */
-export type SignupScope = 'customer' | 'merchant';
+/**
+ * Which flow a phone ticket belongs to. `merchant-reset` proves a seller's
+ * phone for a password reset; it cannot open a shop, and a signup ticket
+ * cannot reset a password.
+ */
+export type SignupScope = 'customer' | 'merchant' | 'merchant-reset';
 
 export class JwtService {
   private readonly accessTtl: number;

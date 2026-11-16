@@ -78,6 +78,16 @@ export default function SignInScreen(): React.ReactElement {
               returnKeyType="go"
               onSubmitEditing={() => void submit()}
             />
+            <Pressable
+              accessibilityRole="link"
+              onPress={() => router.push('/reset-password')}
+              hitSlop={8}
+              style={styles.forgot}
+            >
+              <Text variant="smallMedium" tone="primary">
+                Forgot your password?
+              </Text>
+            </Pressable>
             {error ? (
               <Text variant="small" tone="accent" style={styles.error}>
                 {error}
@@ -132,6 +142,7 @@ function Field({ label, style, ...rest }: FieldProps): React.ReactElement {
 }
 
 const styles = StyleSheet.create({
+  forgot: { alignSelf: 'flex-start', marginTop: -space.xs },
   flex: { flex: 1 },
   body: { flex: 1, paddingHorizontal: space.xxl },
   wordmark: { flexDirection: 'row', alignItems: 'baseline', gap: 7 },
