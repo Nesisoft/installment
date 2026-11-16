@@ -12,6 +12,7 @@ import type {
   ListEmployerSummaryParams,
   ListEmploymentParams,
   RecordPayrollConsentInput,
+  ResetStaffPasswordInput,
   SetUserActiveInput,
   StaffMember,
   StaffRole,
@@ -253,6 +254,12 @@ export function useStaffActions(userId: string) {
         await api.post(`/admin/users/${userId}/${args.active ? 'reactivate' : 'deactivate'}`, {
           reason: args.reason,
         });
+      },
+      onSuccess: invalidate,
+    }),
+    resetPassword: useMutation({
+      mutationFn: async (input: ResetStaffPasswordInput) => {
+        await api.post(`/admin/users/${userId}/password`, input);
       },
       onSuccess: invalidate,
     }),

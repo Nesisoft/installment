@@ -133,6 +133,8 @@ export interface StaffMember {
   name: string;
   user_type: StaffUserType;
   is_active: boolean;
+  /** Still on a password an administrator chose: at creation, or a reset. */
+  must_change_password: boolean;
   last_login_at: string | null;
   created_at: string;
   roles: string[];
@@ -154,6 +156,17 @@ export interface CreateStaffInput {
   password: string;
   user_type: StaffUserType;
   roleNames?: string[];
+}
+
+/**
+ * Body of POST /admin/users/:id/password. The account holds no permissions
+ * until its owner signs in with this and chooses their own.
+ */
+export interface ResetStaffPasswordInput {
+  /** At least 8 characters. */
+  temporary_password: string;
+  /** Kept on the audit row; 3–500 characters. */
+  reason: string;
 }
 
 /** Body of POST /admin/users/:id/deactivate and /reactivate. */

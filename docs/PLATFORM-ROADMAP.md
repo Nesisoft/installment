@@ -223,13 +223,16 @@ phone and waits 24 hours, with a notice (#127, #130).
 - A Render Blueprint for the API and the three web apps, against Supabase, Upstash and Cloudflare
   R2, with the setup for testing locally and on devices
   ([`deployment/render.md`](./deployment/render.md)).
+- Staff passwords: anyone can change their own, and an administrator can reset a member of
+  staff's. A password an administrator chose — at creation or a reset — is temporary and grants
+  nothing until its owner replaces it. A password change or reset signs the account out everywhere
+  else (`users.token_version`).
 
 **Remaining:**
 
 - A partner API: partner credentials, routes scoped to the partner, decisions made by scoring
   rather than the caller, and outbound webhooks — see
   [`partner-integration.md`](./partner-integration.md) §3. Not needed for a marketplace pilot.
-- Staff cannot change or reset their own password.
 - The pilot itself: a pilot merchant, a pilot buyer, and the first real transactions.
 
 ---

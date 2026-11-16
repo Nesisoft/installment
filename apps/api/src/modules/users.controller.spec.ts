@@ -18,6 +18,7 @@ describe('UsersController', () => {
     assignRole: vi.fn(),
     revokeRole: vi.fn(),
     setActive: vi.fn(),
+    resetStaffPassword: vi.fn(),
   };
   const ACTOR = { actorId: 'admin-1', actorType: 'admin' };
 
@@ -80,6 +81,15 @@ describe('UsersController', () => {
     expect(res.body.message ?? JSON.stringify(res.body)).toMatch(/last active administrator/);
   });
 
+  it("resets a member of staff's password, recording who did it, and returns nothing", async () => {
+    users.resetStaffPassword.mockResolvedValueOnce(undefined);
+    const body = { temporary_password: 'Temp-Pass-123', reason: 'Forgot it' };
+    const res = await request(app.getHttpServer()).post('/admin/users/s-5/password').send(body);
+    expect(res.status).toBe(204);
+    expect(res.text).toBe('');
+    expect(users.resetStaffPassword).toHaveBeenCalledWith('s-5', body, ACTOR);
+  });
+
   it('gates every route on users:write', () => {
     for (const m of [
       'listStaff',
@@ -88,6 +98,7 @@ describe('UsersController', () => {
       'revokeRole',
       'deactivate',
       'reactivate',
+      'resetPassword',
     ] as const) {
       const perms = Reflect.getMetadata(PERMISSIONS_KEY, UsersController.prototype[m] as object);
       expect(perms, m).toContain(PERMISSIONS.USERS_WRITE);

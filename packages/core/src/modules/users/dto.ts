@@ -33,6 +33,16 @@ export const createCustomerUserSchema = z.object({
 });
 export type CreateCustomerUserInput = z.infer<typeof createCustomerUserSchema>;
 
+/**
+ * An administrator gives a member of staff a temporary password. The reason is
+ * kept on the audit row; the password never is.
+ */
+export const resetStaffPasswordSchema = z.object({
+  temporary_password: password,
+  reason: z.string().trim().min(3).max(500),
+});
+export type ResetStaffPasswordInput = z.infer<typeof resetStaffPasswordSchema>;
+
 export const setUserActiveSchema = z.object({
   /** Why the account is being switched off or back on. Kept on the audit row. */
   reason: z.string().trim().min(3).max(500),

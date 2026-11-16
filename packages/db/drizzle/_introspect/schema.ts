@@ -599,11 +599,15 @@ export const users = pgTable("users", {
 	created_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updated_at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	deleted_at: timestamp({ withTimezone: true, mode: 'string' }),
+	token_version: integer().default(0).notNull(),
+	must_change_password: boolean().default(false).notNull(),
+	password_changed_at: timestamp({ withTimezone: true, mode: 'string' }),
 }, (table) => [
 	index("users_active_idx").using("btree", table.is_active.asc().nullsLast().op("bool_ops")).where(sql`(is_active AND (deleted_at IS NULL))`),
 	index("users_user_type_idx").using("btree", table.user_type.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
 	unique("users_email_key").on(table.email),
 	unique("users_phone_key").on(table.phone),
+	check("users_token_version_non_negative", sql`token_version >= 0`),
 	check("users_user_type_check", sql`user_type = ANY (ARRAY['system'::text, 'admin'::text, 'agent'::text, 'customer'::text, 'merchant'::text])`),
 ]);
 

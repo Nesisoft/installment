@@ -496,10 +496,12 @@ export {
   createMerchantUserSchema,
   createCustomerUserSchema,
   setUserActiveSchema,
+  resetStaffPasswordSchema,
   type CreateStaffInput,
   type CreateMerchantUserInput,
   type CreateCustomerUserInput,
   type SetUserActiveInput,
+  type ResetStaffPasswordInput,
 } from './modules/users/dto';
 export * from './modules/users/errors';
 export {
@@ -512,6 +514,7 @@ export {
 } from './modules/users/users.service';
 export {
   loginSchema,
+  changePasswordSchema,
   otpStartSchema,
   otpVerifySchema,
   refreshSchema,
@@ -526,6 +529,7 @@ export {
   type MerchantSignupVerifyCodeInput,
   type MerchantSignupCompleteInput,
   type LoginInput,
+  type ChangePasswordInput,
   type OtpStartInput,
   type OtpVerifyInput,
   type RefreshInput,

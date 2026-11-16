@@ -10,6 +10,24 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+/**
+ * Body of POST /auth/password: the signed-in owner replaces their password.
+ * Same rules as the server's: at least 8 characters, and not the current one.
+ */
+export const changePasswordSchema = z
+  .object({
+    current_password: z.string().min(1, 'Enter your current password'),
+    new_password: z
+      .string()
+      .min(8, 'Use at least 8 characters')
+      .max(200, 'Use at most 200 characters'),
+  })
+  .refine((v) => v.new_password !== v.current_password, {
+    message: 'Choose a password different from the current one',
+    path: ['new_password'],
+  });
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
 // Ghana phone: accept 0XXXXXXXXX, 233XXXXXXXXX or +233XXXXXXXXX; the backend
 // canonicalizes to E.164, so we validate loosely and let it normalize.
 export const phoneSchema = z
@@ -197,6 +215,12 @@ export interface AuthResult {
   userType: UserType;
   tokens: AuthTokens;
   permissions: Permission[];
+  /**
+   * The password was chosen by someone else — an administrator adding or
+   * resetting the account — and must be replaced (POST /auth/password) before
+   * the login can do anything. `permissions` is empty until it is.
+   */
+  mustChangePassword: boolean;
 }
 
 export interface AuthenticatedUser {
