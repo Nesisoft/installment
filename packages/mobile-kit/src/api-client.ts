@@ -2,11 +2,18 @@ import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestCo
 import type { ApiErrorBody, AuthTokens } from '@installment/api-types';
 import type { SessionStore } from './token-store';
 
+/**
+ * Routes a signed-out person calls. They never carry a bearer token, and a 401
+ * from them — a wrong code, a wrong password — is that answer, not a session
+ * that needs refreshing.
+ */
 const PUBLIC_AUTH_PATHS = [
   '/auth/login',
   '/auth/refresh',
   '/auth/customer/otp',
   '/auth/customer/signup',
+  '/auth/merchant/signup',
+  '/auth/merchant/password-reset',
 ];
 
 function isPublicAuthPath(url: string | undefined): boolean {

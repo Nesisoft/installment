@@ -9,10 +9,18 @@ import { DomainExceptionFilter } from '../common/domain-exception.filter';
 
 vi.mock('@sentry/node', () => ({ captureException: vi.fn() }));
 
-/** Changing your own password: the one route a temporary-password login can use. */
-describe('AuthController — POST /auth/password', () => {
+/**
+ * Changing your own password — the one route a temporary-password login can
+ * use — and a seller's reset by a code to the shop phone.
+ */
+describe('AuthController — passwords', () => {
   let app: INestApplication;
-  const auth = { changePassword: vi.fn() };
+  const auth = {
+    changePassword: vi.fn(),
+    merchantPasswordResetStart: vi.fn(),
+    merchantPasswordResetVerifyCode: vi.fn(),
+    merchantPasswordResetComplete: vi.fn(),
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -68,5 +76,37 @@ describe('AuthController — POST /auth/password', () => {
       AuthController.prototype.changePassword as object,
     );
     expect(isPublic).toBeFalsy();
+  });
+
+  it('runs the seller reset as three public steps', async () => {
+    auth.merchantPasswordResetStart.mockResolvedValueOnce({ expiresAt: '2026-11-16T00:05:00Z' });
+    auth.merchantPasswordResetVerifyCode.mockResolvedValueOnce({ resetToken: 't' });
+    auth.merchantPasswordResetComplete.mockResolvedValueOnce({ userId: 'm-1' });
+    const http = request(app.getHttpServer());
+
+    expect(
+      (await http.post('/auth/merchant/password-reset/start').send({ phone: '0244123456' })).status,
+    ).toBe(202);
+    const verify = await request(app.getHttpServer())
+      .post('/auth/merchant/password-reset/verify-code')
+      .send({ phone: '0244123456', code: '123456' });
+    expect(verify.status).toBe(200);
+    expect(verify.body).toEqual({ resetToken: 't' });
+    const done = await request(app.getHttpServer())
+      .post('/auth/merchant/password-reset/complete')
+      .send({ resetToken: 't', new_password: 'new-one-1' });
+    expect(done.status).toBe(200);
+    expect(auth.merchantPasswordResetComplete).toHaveBeenCalledWith({
+      resetToken: 't',
+      new_password: 'new-one-1',
+    });
+
+    for (const m of [
+      'merchantPasswordResetStart',
+      'merchantPasswordResetVerifyCode',
+      'merchantPasswordResetComplete',
+    ] as const) {
+      expect(Reflect.getMetadata(PUBLIC_KEY, AuthController.prototype[m] as object), m).toBe(true);
+    }
   });
 });

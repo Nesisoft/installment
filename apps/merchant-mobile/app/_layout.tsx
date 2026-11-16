@@ -113,11 +113,13 @@ function Routes(): React.ReactElement | null {
           <Stack.Screen name="performance" />
           <Stack.Screen name="payout-account" />
           <Stack.Screen name="statements" />
+          <Stack.Screen name="change-password" />
           <Stack.Screen name="onboarding" />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
           <Stack.Screen name="sign-up" />
+          <Stack.Screen name="reset-password" />
         </Stack.Protected>
       </Stack>
     </View>

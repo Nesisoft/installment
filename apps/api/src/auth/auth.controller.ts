@@ -16,6 +16,9 @@ import {
   merchantSignupStartSchema,
   merchantSignupVerifyCodeSchema,
   merchantSignupCompleteSchema,
+  merchantPasswordResetStartSchema,
+  merchantPasswordResetVerifyCodeSchema,
+  merchantPasswordResetCompleteSchema,
 } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
 import { RateLimit } from '../common/rate-limit.decorator';
@@ -222,6 +225,55 @@ export class AuthController {
   @ApiBody({ schema: { example: { refreshToken: 'eyJhbGciOi...' } } })
   refresh(@Body() body: unknown) {
     return this.auth.refresh(body);
+  }
+
+  /**
+   * Seller password reset, step 1: text a code to the shop's phone.
+   *
+   * Answers 202 whether or not the number runs a shop, and texts nothing when
+   * it does not, so the route cannot be used to learn which numbers do. Every
+   * call can send a real SMS: limited like the other code-sending routes.
+   */
+  @Public()
+  @Post('merchant/password-reset/start')
+  @ApiZodBody(merchantPasswordResetStartSchema)
+  @HttpCode(202)
+  @RateLimit({ limit: 5, windowSeconds: 300, bucket: 'auth' })
+  @ApiOperation({ summary: 'Begin a seller password reset (texts a code to the shop phone)' })
+  @ApiBody({ schema: { example: { phone: '0244123456' } } })
+  merchantPasswordResetStart(@Body() body: unknown) {
+    return this.auth.merchantPasswordResetStart(body);
+  }
+
+  /** Seller password reset, step 2: the code buys a short-lived reset ticket. */
+  @Public()
+  @Post('merchant/password-reset/verify-code')
+  @ApiZodBody(merchantPasswordResetVerifyCodeSchema)
+  @HttpCode(200)
+  @RateLimit({ limit: 10, windowSeconds: 300, bucket: 'auth' })
+  @ApiOperation({ summary: 'Verify a seller password-reset code, returns a reset ticket' })
+  @ApiBody({ schema: { example: { phone: '0244123456', code: '123456' } } })
+  merchantPasswordResetVerifyCode(@Body() body: unknown) {
+    return this.auth.merchantPasswordResetVerifyCode(body);
+  }
+
+  /**
+   * Seller password reset, step 3: the ticket sets the new password and signs
+   * the seller in. Every other session the account held ends.
+   */
+  @Public()
+  @Post('merchant/password-reset/complete')
+  @ApiZodBody(merchantPasswordResetCompleteSchema)
+  @HttpCode(200)
+  @RateLimit({ limit: 10, windowSeconds: 300, bucket: 'auth' })
+  @ApiOperation({ summary: 'Set a new seller password from a reset ticket, returns tokens' })
+  @ApiBody({
+    schema: {
+      example: { resetToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', new_password: '...' },
+    },
+  })
+  merchantPasswordResetComplete(@Body() body: unknown) {
+    return this.auth.merchantPasswordResetComplete(body);
   }
 
   /**
