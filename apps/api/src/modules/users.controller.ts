@@ -7,6 +7,7 @@ import {
   createStaffSchema,
   createMerchantUserSchema,
   createCustomerUserSchema,
+  resetStaffPasswordSchema,
   setUserActiveSchema,
 } from '@installment/core';
 import { ApiZodBody } from '../common/api-zod';
@@ -100,6 +101,25 @@ export class UsersController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<void> {
     await this.users.revokeRole(id, role, actorOf(user));
+  }
+
+  @Post(':id/password')
+  @ApiZodBody(resetStaffPasswordSchema)
+  @RequirePermissions(PERMISSIONS.USERS_WRITE)
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Give a member of staff a temporary password',
+    description:
+      'Every session they hold stops renewing, and the account holds no permissions until its ' +
+      'owner signs in with the temporary password and chooses their own. The reason is kept on ' +
+      'the audit row; the password is not. 409 for your own account or a non-staff login.',
+  })
+  async resetPassword(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<void> {
+    await this.users.resetStaffPassword(id, body, actorOf(user));
   }
 
   @Post(':id/deactivate')

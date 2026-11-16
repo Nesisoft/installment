@@ -1,7 +1,7 @@
 import { PasswordService } from '../../shared/auth/password.service';
 import { JwtService } from '../../shared/auth/jwt.service';
 import { OtpService } from '../../shared/auth/otp.service';
-import { UsersService, type User } from '../users/users.service';
+import { UsersService, type User, type UserActor } from '../users/users.service';
 import { UserNotFoundError } from '../users/errors';
 import { CustomersService } from '../customers/customers.service';
 import { placeholderEmailFor } from '../customers/placeholder-email';
@@ -10,6 +10,7 @@ import { SYSTEM_ACTORS } from '../../shared/constants/system-actors';
 import { type GhanaRegion, type MomoProviderCode } from '../../shared/validators/ghana';
 import {
   loginSchema,
+  changePasswordSchema,
   otpStartSchema,
   otpVerifySchema,
   refreshSchema,
@@ -23,6 +24,7 @@ import {
 } from './dto';
 import {
   AccountInactiveError,
+  CurrentPasswordIncorrectError,
   InvalidCredentialsError,
   InvalidOtpError,
   InvalidTokenError,
@@ -45,6 +47,11 @@ export interface AuthResult {
   userType: string;
   tokens: AuthTokens;
   permissions: string[];
+  /**
+   * The password was chosen by someone else and must be replaced before the
+   * login can do anything; `permissions` is empty until it is.
+   */
+  mustChangePassword: boolean;
 }
 
 export interface AuthServiceDeps {
@@ -129,7 +136,14 @@ const defaultOtpMessage = (code: string): string =>
  * Authentication for the three actor classes:
  *   * staff (admin/agent) and merchants → email + password
  *   * customers → phone + OTP
- * Issues HS256 access/refresh JWTs; refresh() rotates the pair (stateless).
+ * Issues HS256 access/refresh JWTs; refresh() rotates the pair.
+ *
+ * Every token carries the account's `token_version` as `tv`. Changing or
+ * resetting a password moves the account to the next version, and refresh()
+ * refuses a token from an older one — so a password change signs out every
+ * other device, and a stolen refresh token stops working. A token from before
+ * versions existed has no `tv` and reads as 0, the version every account
+ * started at.
  */
 export class AuthService {
   constructor(private readonly deps: AuthServiceDeps) {}
@@ -482,20 +496,47 @@ export class AuthService {
 
   async refresh(rawInput: unknown): Promise<AuthTokens> {
     const { refreshToken } = refreshSchema.parse(rawInput);
-    let sub: string;
+    let claims: { sub: string; tv?: unknown };
     try {
-      sub = this.deps.jwt.verifyRefresh(refreshToken).sub;
+      claims = this.deps.jwt.verifyRefresh(refreshToken);
     } catch {
       throw new InvalidTokenError();
     }
 
-    const user = await this.deps.users.getById(sub).catch(() => null);
+    const user = await this.deps.users.getById(claims.sub).catch(() => null);
     if (!user || !user.is_active || user.deleted_at) throw new AccountInactiveError();
+    // Issued before the password last changed: that session has ended.
+    if ((typeof claims.tv === 'number' ? claims.tv : 0) !== user.token_version) {
+      throw new InvalidTokenError();
+    }
     return this.issueTokens(user);
   }
 
+  /**
+   * The signed-in owner of a password login replaces it.
+   *
+   * Answers with a fresh session at the account's new token version, so the
+   * device that made the change stays signed in while every other one is
+   * signed out. A wrong current password is `CurrentPasswordIncorrectError`,
+   * not `InvalidCredentialsError`, so the client does not read it as the
+   * session ending.
+   */
+  async changePassword(userId: string, rawInput: unknown, actor: UserActor): Promise<AuthResult> {
+    const { current_password, new_password } = changePasswordSchema.parse(rawInput);
+    const user = await this.deps.users.getById(userId).catch(() => null);
+    if (!user || !user.is_active || user.deleted_at) throw new AccountInactiveError();
+    // A phone-code login has no password to change.
+    if (!user.password_hash) throw new CurrentPasswordIncorrectError();
+
+    const ok = await this.deps.passwords.verify(current_password, user.password_hash);
+    if (!ok) throw new CurrentPasswordIncorrectError();
+
+    const updated = await this.deps.users.changeOwnPassword(user.id, new_password, actor);
+    return this.result(updated);
+  }
+
   private issueTokens(user: User): AuthTokens {
-    const claims = { sub: user.id, user_type: user.user_type };
+    const claims = { sub: user.id, user_type: user.user_type, tv: user.token_version };
     return {
       accessToken: this.deps.jwt.signAccess(claims),
       refreshToken: this.deps.jwt.signRefresh(claims),
@@ -509,6 +550,7 @@ export class AuthService {
       userType: user.user_type,
       tokens: this.issueTokens(user),
       permissions: [...permissions],
+      mustChangePassword: user.must_change_password,
     };
   }
 }

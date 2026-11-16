@@ -32,6 +32,7 @@ import { EmployersListPage } from './pages/employers/list';
 import { EmployerDetailPage } from './pages/employers/detail';
 import { EmploymentChecksPage } from './pages/employers/checks';
 import { StaffPage } from './pages/staff';
+import { ChangePasswordPage, CHANGE_PASSWORD_PATH } from './pages/change-password';
 
 export function App() {
   const { isAuthenticated } = useAuth();
@@ -70,6 +71,7 @@ export function App() {
           <Route path="/employers/:id" element={<EmployerDetailPage />} />
           <Route path="/employment-checks" element={<EmploymentChecksPage />} />
           <Route path="/staff" element={<StaffPage />} />
+          <Route path={CHANGE_PASSWORD_PATH} element={<ChangePasswordPage />} />
 
           <Route path="/customers" element={<CustomersListPage />} />
           <Route path="/customers/new" element={<CustomerNewPage />} />

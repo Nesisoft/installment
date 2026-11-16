@@ -2,6 +2,7 @@ import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNod
 import type { AxiosInstance } from 'axios';
 import type {
   AuthResult,
+  ChangePasswordInput,
   LoginInput,
   OtpStartResult,
   Permission,
@@ -21,6 +22,11 @@ export interface AuthContextValue {
   hasPermission: (permission: Permission) => boolean;
   hasAnyPermission: (permissions: Permission[]) => boolean;
   loginWithPassword: (input: LoginInput) => Promise<AuthResult>;
+  /**
+   * Replaces the signed-in user's password. The answer is a fresh session for
+   * this device, stored here; every other session for the account ends.
+   */
+  changePassword: (input: ChangePasswordInput) => Promise<AuthResult>;
   startOtp: (phone: string) => Promise<OtpStartResult>;
   verifyOtp: (phone: string, code: string) => Promise<AuthResult>;
   /** Self-signup step 1: sends a code without creating anything. */
@@ -53,6 +59,7 @@ function toSession(result: AuthResult): Session {
     userId: result.userId,
     userType: result.userType,
     permissions: result.permissions,
+    mustChangePassword: result.mustChangePassword,
   };
 }
 
@@ -83,6 +90,11 @@ export function AuthProvider({ baseURL, storageKey, children }: AuthProviderProp
         permissions.some((p) => session?.permissions.includes(p) ?? false),
       async loginWithPassword(input) {
         const { data } = await api.post<AuthResult>('/auth/login', input);
+        store.set(toSession(data));
+        return data;
+      },
+      async changePassword(input) {
+        const { data } = await api.post<AuthResult>('/auth/password', input);
         store.set(toSession(data));
         return data;
       },

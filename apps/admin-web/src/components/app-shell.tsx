@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import { CHANGE_PASSWORD_PATH } from '../pages/change-password';
 import { useAuth } from '@installment/web-kit';
 import { Button, cn } from '@installment/ui';
 import {
@@ -10,6 +11,7 @@ import {
   ClipboardList,
   IdCard,
   FolderTree,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Package,
@@ -51,8 +53,18 @@ const NAV: NavItem[] = [
   { to: '/staff', label: 'Staff and roles', icon: UserCog },
 ];
 
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+    isActive
+      ? 'bg-primary/10 text-primary'
+      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+  );
+
 export function AppShell() {
-  const { logout } = useAuth();
+  const { logout, session } = useAuth();
+  // On a temporary password nothing else would load, so nothing else is offered.
+  const nav = session?.mustChangePassword ? [] : NAV;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -64,26 +76,18 @@ export function AppShell() {
           Admin Console
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-          {NAV.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                )
-              }
-            >
+          {nav.map(({ to, label, icon: Icon }) => (
+            <NavLink key={to} to={to} end={to === '/'} className={navLinkClass}>
               <Icon className="size-4" />
               {label}
             </NavLink>
           ))}
         </nav>
-        <div className="border-t border-border p-3">
+        <div className="space-y-1 border-t border-border p-3">
+          <NavLink to={CHANGE_PASSWORD_PATH} className={navLinkClass}>
+            <KeyRound className="size-4" />
+            Change password
+          </NavLink>
           <Button variant="ghost" className="w-full justify-start" onClick={logout}>
             <LogOut className="size-4" />
             Sign out
@@ -94,9 +98,16 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4 lg:hidden">
           <span className="font-semibold text-primary">Admin Console</span>
-          <Button variant="ghost" size="sm" onClick={logout} aria-label="Sign out">
-            <LogOut className="size-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" asChild>
+              <NavLink to={CHANGE_PASSWORD_PATH} aria-label="Change password">
+                <KeyRound className="size-4" />
+              </NavLink>
+            </Button>
+            <Button variant="ghost" size="sm" onClick={logout} aria-label="Sign out">
+              <LogOut className="size-4" />
+            </Button>
+          </div>
         </header>
         <main className="flex-1 p-4 md:p-8">
           <div className="mx-auto max-w-6xl">

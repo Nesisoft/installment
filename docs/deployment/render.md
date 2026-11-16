@@ -240,7 +240,10 @@ ADMIN_EMAIL=you@yourdomain.com ADMIN_PASSWORD='a long passphrase' ADMIN_NAME='Yo
   pnpm --filter @installment/api create:admin
 ```
 
-The admin is created in Supabase, so the same login works on the Render console later.
+The admin is created in Supabase, so the same login works on the Render console later. The
+console asks for a new password at the first sign-in: a password typed into a terminal, or chosen
+by an administrator for somebody else, is treated as temporary and grants nothing until it is
+replaced.
 
 **Optional demo catalogue.** It gives you shops and products to browse:
 

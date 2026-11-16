@@ -29,7 +29,10 @@ const TYPE_WORDS: Record<StaffUserType, string> = { admin: 'Administrator', agen
 
 const selectClass = 'flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
 
-/** A password to hand to a new member of staff: 16 characters, no look-alikes. */
+/**
+ * A temporary password to hand to a member of staff: 16 characters, no
+ * look-alikes. It works for one sign-in, after which they must choose their own.
+ */
 function generatePassword(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
   const bytes = new Uint32Array(16);
@@ -44,6 +47,10 @@ function generatePassword(): string {
  * away or switching an account off takes effect on that person's next click.
  * Nobody may change their own access here, and the last active administrator
  * cannot be removed — after that, only the database could grant access back.
+ *
+ * Every password set here is temporary. Its owner is made to choose their own
+ * at the next sign-in, and holds no permissions until they have, so the
+ * administrator who typed it never knows a password that still works.
  */
 export function StaffPage() {
   const staff = useStaff();
@@ -154,8 +161,33 @@ function StaffRow({
   const [grantRole, setGrantRole] = useState('');
   const [switching, setSwitching] = useState(false);
   const [reason, setReason] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [resetReason, setResetReason] = useState('');
+  const [temporary, setTemporary] = useState(generatePassword);
+  /** The password just set, shown until the administrator closes it. */
+  const [issued, setIssued] = useState<string | null>(null);
   const grantable = roles.filter((r) => !member.roles.includes(r.name));
-  const error = actions.grant.error ?? actions.revoke.error ?? actions.setActive.error;
+  const error =
+    actions.grant.error ??
+    actions.revoke.error ??
+    actions.setActive.error ??
+    actions.resetPassword.error;
+
+  function onReset(e: FormEvent) {
+    e.preventDefault();
+    if (resetReason.trim().length < 3 || temporary.length < 8) return;
+    actions.resetPassword.mutate(
+      { temporary_password: temporary, reason: resetReason.trim() },
+      {
+        onSuccess: () => {
+          setIssued(temporary);
+          setResetting(false);
+          setResetReason('');
+          setTemporary(generatePassword());
+        },
+      },
+    );
+  }
 
   function onSwitch(e: FormEvent) {
     e.preventDefault();
@@ -244,20 +276,114 @@ function StaffRow({
           ) : (
             <StatusBadge status="inactive" tone="muted" label="Switched off" />
           )}
+          {member.must_change_password ? (
+            <div className="mt-1">
+              <Badge variant="warning" className="whitespace-nowrap">
+                Temporary password
+              </Badge>
+            </div>
+          ) : null}
           <div className="text-xs text-muted-foreground">since {formatDate(member.created_at)}</div>
         </TableCell>
         <TableCell className="text-right">
-          {!isSelf && !switching ? (
-            <Button
-              size="sm"
-              variant={member.is_active ? 'outline' : 'default'}
-              onClick={() => setSwitching(true)}
-            >
-              {member.is_active ? 'Switch off…' : 'Switch on…'}
-            </Button>
+          {!isSelf && !switching && !resetting ? (
+            <div className="flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setIssued(null);
+                  setResetting(true);
+                }}
+              >
+                Reset password…
+              </Button>
+              <Button
+                size="sm"
+                variant={member.is_active ? 'outline' : 'default'}
+                onClick={() => setSwitching(true)}
+              >
+                {member.is_active ? 'Switch off…' : 'Switch on…'}
+              </Button>
+            </div>
           ) : null}
         </TableCell>
       </TableRow>
+      {resetting || issued ? (
+        <TableRow className="bg-muted/40 hover:bg-muted/40">
+          <TableCell colSpan={5}>
+            {resetting ? (
+              <form onSubmit={onReset} className="space-y-2 py-1">
+                <p className="text-sm">
+                  {`${member.name} is signed out everywhere, and can do nothing until they sign in with this temporary password and choose their own. Give it to them yourself, by a channel other than email.`}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    aria-label="Temporary password"
+                    className="h-9 w-56 font-mono"
+                    minLength={8}
+                    maxLength={200}
+                    value={temporary}
+                    onChange={(e) => setTemporary(e.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => setTemporary(generatePassword())}
+                  >
+                    New
+                  </Button>
+                  <Input
+                    aria-label="Reason for the reset"
+                    className="h-9 min-w-72 flex-1"
+                    maxLength={500}
+                    placeholder="Reason (required)"
+                    value={resetReason}
+                    onChange={(e) => setResetReason(e.target.value)}
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="destructive"
+                    disabled={
+                      actions.resetPassword.isPending ||
+                      resetReason.trim().length < 3 ||
+                      temporary.length < 8
+                    }
+                  >
+                    Reset password
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setResetting(false);
+                      actions.resetPassword.reset();
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            ) : null}
+            {issued ? (
+              <div className="flex flex-wrap items-center gap-2 py-1" role="status">
+                <span className="text-sm">
+                  {`Temporary password for ${member.name}:`}{' '}
+                  <code className="rounded bg-background px-1.5 py-0.5 font-mono">{issued}</code>
+                  {' — it works once. Close this when you have passed it on.'}
+                </span>
+                <Button size="sm" variant="ghost" onClick={() => setIssued(null)}>
+                  Close
+                </Button>
+              </div>
+            ) : null}
+          </TableCell>
+        </TableRow>
+      ) : null}
       {switching || error ? (
         <TableRow className="bg-muted/40 hover:bg-muted/40">
           <TableCell colSpan={5}>
@@ -337,8 +463,9 @@ function AddStaffCard({ roles, onDone }: { roles: StaffRole[]; onDone: () => voi
       <CardHeader>
         <CardTitle className="text-base">Add a member of staff</CardTitle>
         <CardDescription>
-          Give them the password below yourself, by a channel other than email. There is no way yet
-          for staff to change it, so choose it as you would a permanent one.
+          Give them the password below yourself, by a channel other than email. It works once: the
+          console makes them choose their own the first time they sign in, and until then the
+          account can do nothing else.
         </CardDescription>
       </CardHeader>
       <CardContent>

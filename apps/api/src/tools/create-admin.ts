@@ -112,6 +112,8 @@ async function main(): Promise<void> {
     console.log(`  type      ${user.user_type}`);
     console.log(`  roles     ${args.roles.join(', ')}`);
     console.log('\nSign in at the admin console with that email and the password you supplied.');
+    console.log('The console asks for a new password at that first sign-in, so the one typed');
+    console.log('here only ever works once.');
   } finally {
     await pool.end();
   }

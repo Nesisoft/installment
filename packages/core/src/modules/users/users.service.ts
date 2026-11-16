@@ -7,6 +7,7 @@ import {
   createCustomerUserSchema,
   createMerchantUserSchema,
   createStaffSchema,
+  resetStaffPasswordSchema,
   setUserActiveSchema,
   type CreateCustomerUserInput,
   type CreateMerchantUserInput,
@@ -63,6 +64,8 @@ export interface StaffMember {
   name: string;
   user_type: string;
   is_active: boolean;
+  /** Still on a password someone else chose: an administrator's, at creation or a reset. */
+  must_change_password: boolean;
   last_login_at: string | null;
   created_at: string;
   roles: string[];
@@ -87,6 +90,11 @@ export class UsersService {
     private readonly passwords: PasswordService,
   ) {}
 
+  /**
+   * A new console login. Its password was chosen by whoever created it, so it
+   * is temporary: the account holds no permissions until its owner signs in
+   * and picks their own.
+   */
   async createStaff(rawInput: unknown, actor: UserActor): Promise<User> {
     const input: CreateStaffInput = createStaffSchema.parse(rawInput);
     const passwordHash = await this.passwords.hash(input.password);
@@ -96,6 +104,7 @@ export class UsersService {
         name: input.name,
         password_hash: passwordHash,
         user_type: input.user_type,
+        must_change_password: true,
       },
       input.roleNames ?? [],
       actor,
@@ -202,15 +211,19 @@ export class UsersService {
     });
   }
 
-  /** Distinct permission names granted to the user through their roles. */
   /**
    * Distinct permission names granted to the user through their roles — none
-   * at all once the account is switched off or deleted.
+   * at all once the account is switched off or deleted, or while it is still on
+   * a temporary password.
    *
    * Access tokens are checked only for their signature and live for fifteen
    * minutes, so without the account check a deactivated member of staff kept
    * every permission until their token ran out. The guard asks this on every
    * request, so switching an account off now takes effect on the next one.
+   *
+   * A temporary password is one an administrator knows. Until its owner
+   * replaces it, the login can do exactly one thing — change the password,
+   * which needs a session but no permission.
    */
   async getPermissions(userId: string): Promise<Set<string>> {
     const rows = await this.db
@@ -219,7 +232,14 @@ export class UsersService {
       .innerJoin(u, eq(u.id, ur.user_id))
       .innerJoin(rp, eq(rp.role_id, ur.role_id))
       .innerJoin(perm, eq(perm.id, rp.permission_id))
-      .where(and(eq(ur.user_id, userId), eq(u.is_active, true), isNull(u.deleted_at)));
+      .where(
+        and(
+          eq(ur.user_id, userId),
+          eq(u.is_active, true),
+          eq(u.must_change_password, false),
+          isNull(u.deleted_at),
+        ),
+      );
     return new Set(rows.map((x) => x.name));
   }
 
@@ -241,6 +261,7 @@ export class UsersService {
         name: u.name,
         user_type: u.user_type,
         is_active: u.is_active,
+        must_change_password: u.must_change_password,
         last_login_at: u.last_login_at,
         created_at: u.created_at,
         // Spelled out: with no join in the outer query, drizzle drops the table
@@ -368,6 +389,67 @@ export class UsersService {
     });
   }
 
+  /**
+   * The owner replaces their own password. Their caller has already proven the
+   * current one.
+   *
+   * The password stops being temporary, and every session issued before now
+   * stops renewing: the caller gets fresh tokens from `AuthService`, and any
+   * other device is signed out within an access token's fifteen minutes.
+   */
+  async changeOwnPassword(userId: string, newPassword: string, actor: UserActor): Promise<User> {
+    const hash = await this.passwords.hash(newPassword);
+    return runInTransaction(this.db, async (tx) => {
+      const row = await this.writePassword(tx, userId, hash, false);
+      await this.audit.append(tx, {
+        entityType: 'user',
+        entityId: userId,
+        eventType: 'user.password_changed',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+      });
+      return row;
+    });
+  }
+
+  /**
+   * An administrator gives a member of staff a temporary password, for one who
+   * has forgotten theirs or whose password may be known to someone else.
+   *
+   * Every session the account holds stops renewing, and the account holds no
+   * permissions until its owner signs in with the temporary password and
+   * chooses their own. Staff only, and never yourself: the change-password form
+   * is for that, and it asks for the current password where this does not.
+   */
+  async resetStaffPassword(userId: string, rawInput: unknown, actor: UserActor): Promise<void> {
+    const { temporary_password, reason } = resetStaffPasswordSchema.parse(rawInput);
+    if (userId === actor.actorId) {
+      throw new UserAccessChangeError('Change your own password from your account instead');
+    }
+    const hash = await this.passwords.hash(temporary_password);
+    await runInTransaction(this.db, async (tx) => {
+      const [current] = await tx
+        .select({ user_type: u.user_type })
+        .from(u)
+        .where(and(eq(u.id, userId), isNull(u.deleted_at)))
+        .for('update')
+        .limit(1);
+      if (!current) throw new UserNotFoundError(userId);
+      if (!(STAFF_USER_TYPES as readonly string[]).includes(current.user_type)) {
+        throw new UserAccessChangeError('Only staff accounts are managed here');
+      }
+      await this.writePassword(tx, userId, hash, true);
+      await this.audit.append(tx, {
+        entityType: 'user',
+        entityId: userId,
+        eventType: 'user.password_reset',
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reason,
+      });
+    });
+  }
+
   async recordLogin(userId: string): Promise<void> {
     await this.db
       .update(u)
@@ -450,6 +532,32 @@ export class UsersService {
         .values({ user_id: userId, role_id: role.id, granted_by: uuidOrNull(actor.actorId) })
         .onConflictDoNothing();
     }
+  }
+
+  /**
+   * Stores a new password hash and ends every session issued before it, by
+   * moving the account to the next token version.
+   */
+  private async writePassword(
+    tx: TransactionalTx,
+    userId: string,
+    hash: string,
+    mustChange: boolean,
+  ): Promise<User> {
+    const now = new Date().toISOString();
+    const [row] = await tx
+      .update(u)
+      .set({
+        password_hash: hash,
+        must_change_password: mustChange,
+        password_changed_at: now,
+        token_version: sql`${u.token_version} + 1`,
+        updated_at: now,
+      })
+      .where(and(eq(u.id, userId), isNull(u.deleted_at)))
+      .returning();
+    if (!row) throw new UserNotFoundError(userId);
+    return row;
   }
 
   /**

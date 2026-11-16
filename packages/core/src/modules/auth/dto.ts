@@ -13,6 +13,26 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+/**
+ * The signed-in owner replaces their password.
+ *
+ * The current one is asked for even though the caller holds a session: a
+ * session left open on a shared counter computer must not be enough to lock
+ * its owner out. Reusing the current password is refused, because the one
+ * case where people are told to change it — a temporary password someone else
+ * chose — is exactly the case where keeping it defeats the point.
+ */
+export const changePasswordSchema = z
+  .object({
+    current_password: z.string().min(1),
+    new_password: z.string().min(8).max(200),
+  })
+  .refine((v) => v.new_password !== v.current_password, {
+    message: 'Choose a password different from the current one',
+    path: ['new_password'],
+  });
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
 export const otpStartSchema = z.object({
   phone: ghPhoneNumber,
 });

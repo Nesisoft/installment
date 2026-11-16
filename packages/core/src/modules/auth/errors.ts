@@ -6,6 +6,20 @@ export class InvalidCredentialsError extends Error {
   }
 }
 
+/**
+ * The current password given when changing it was wrong.
+ *
+ * Not `InvalidCredentialsError`, because that answers 401 and every client
+ * reads a 401 as "the session is over" and signs out. Someone who mistypes
+ * their current password on the change form is still signed in.
+ */
+export class CurrentPasswordIncorrectError extends Error {
+  constructor() {
+    super('Your current password is not right');
+    this.name = 'CurrentPasswordIncorrectError';
+  }
+}
+
 export class AccountInactiveError extends Error {
   constructor() {
     super('Account is inactive');

@@ -7,6 +7,12 @@ export interface Session {
   userId: string;
   userType: UserType;
   permissions: Permission[];
+  /**
+   * Signed in on a password someone else chose; the app sends them to change
+   * it, and the API grants nothing until they do. Absent on sessions stored
+   * before this existed, which reads as false.
+   */
+  mustChangePassword?: boolean;
 }
 
 export interface SessionStore {

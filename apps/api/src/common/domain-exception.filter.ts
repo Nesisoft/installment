@@ -14,6 +14,9 @@ import { ZodError } from 'zod';
 export const NAME_STATUS: Record<string, number> = {
   // 400
   RoleNotFoundError: HttpStatus.BAD_REQUEST,
+  // Not 401: a client reads 401 as the session ending, and someone who mistypes
+  // their current password on the change form is still signed in.
+  CurrentPasswordIncorrectError: HttpStatus.BAD_REQUEST,
   // 401
   InvalidCredentialsError: HttpStatus.UNAUTHORIZED,
   InvalidOtpError: HttpStatus.UNAUTHORIZED,

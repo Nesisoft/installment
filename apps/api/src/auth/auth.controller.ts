@@ -1,9 +1,11 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthService } from '@installment/core';
 import { CurrentUser, Public, type AuthenticatedUser } from './decorators';
+import { actorOf } from './current-actor';
 import {
   loginSchema,
+  changePasswordSchema,
   otpStartSchema,
   otpVerifySchema,
   refreshSchema,
@@ -21,7 +23,8 @@ import { RateLimit } from '../common/rate-limit.decorator';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  // By explicit token: the test build ignores `emitDecoratorMetadata`.
+  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
   @Public()
   @Post('login')
@@ -219,6 +222,28 @@ export class AuthController {
   @ApiBody({ schema: { example: { refreshToken: 'eyJhbGciOi...' } } })
   refresh(@Body() body: unknown) {
     return this.auth.refresh(body);
+  }
+
+  /**
+   * The signed-in owner of a password login replaces it. Needs a session but no
+   * permission, which is what lets a member of staff on a temporary password —
+   * who holds no permissions — do the one thing they must.
+   */
+  @Post('password')
+  @ApiBearerAuth()
+  // A stolen session could otherwise guess at the current password here, where
+  // login's own limit does not reach. Same bucket as login, for that reason.
+  @RateLimit({ limit: 10, windowSeconds: 300, bucket: 'auth' })
+  @ApiZodBody(changePasswordSchema)
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Change your own password (staff / merchant)',
+    description:
+      'Asks for the current password. Answers with a fresh session: this device stays signed in, ' +
+      'and every other session for the account stops renewing. 400 for a wrong current password.',
+  })
+  changePassword(@CurrentUser() user: AuthenticatedUser, @Body() body: unknown) {
+    return this.auth.changePassword(user.id, body, actorOf(user));
   }
 
   /** Protected by the global JWT guard — echoes the authenticated principal. */
