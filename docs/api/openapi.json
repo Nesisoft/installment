@@ -324,6 +324,89 @@
         ]
       }
     },
+    "/auth/merchant/password-reset/start": {
+      "post": {
+        "operationId": "AuthController_merchantPasswordResetStart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "example": {
+                  "phone": "0244123456"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "summary": "Begin a seller password reset (texts a code to the shop phone)",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/merchant/password-reset/verify-code": {
+      "post": {
+        "operationId": "AuthController_merchantPasswordResetVerifyCode",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "example": {
+                  "phone": "0244123456",
+                  "code": "123456"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Verify a seller password-reset code, returns a reset ticket",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/merchant/password-reset/complete": {
+      "post": {
+        "operationId": "AuthController_merchantPasswordResetComplete",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "example": {
+                  "resetToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                  "new_password": "..."
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Set a new seller password from a reset ticket, returns tokens",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/auth/password": {
       "post": {
         "description": "Asks for the current password. Answers with a fresh session: this device stays signed in, and every other session for the account stops renewing. 400 for a wrong current password.",
