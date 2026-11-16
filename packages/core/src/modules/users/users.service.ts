@@ -397,19 +397,45 @@ export class UsersService {
    * stops renewing: the caller gets fresh tokens from `AuthService`, and any
    * other device is signed out within an access token's fifteen minutes.
    */
-  async changeOwnPassword(userId: string, newPassword: string, actor: UserActor): Promise<User> {
+  async changeOwnPassword(
+    userId: string,
+    newPassword: string,
+    actor: UserActor,
+    /**
+     * `recovered` when the owner proved their phone instead of their current
+     * password — a forgotten password, not a change. Audited apart, because
+     * the two are different things to look for afterwards.
+     */
+    how: 'changed' | 'recovered' = 'changed',
+  ): Promise<User> {
     const hash = await this.passwords.hash(newPassword);
     return runInTransaction(this.db, async (tx) => {
       const row = await this.writePassword(tx, userId, hash, false);
       await this.audit.append(tx, {
         entityType: 'user',
         entityId: userId,
-        eventType: 'user.password_changed',
+        eventType: how === 'recovered' ? 'user.password_recovered' : 'user.password_changed',
         actorId: actor.actorId,
         actorType: actor.actorType,
       });
       return row;
     });
+  }
+
+  /**
+   * The login a shop was opened with: a merchant login, scoped to that shop,
+   * whose email is the shop's own — which is how self-signup creates it.
+   *
+   * Other logins scoped to the same shop, added from the console, have their
+   * own email and are deliberately not reachable from the shop's phone: a
+   * phone code proves who holds the shop's number, not which of its people
+   * is asking.
+   */
+  async findMerchantOwnerLogin(merchantId: string, email: string): Promise<User | undefined> {
+    const user = await this.findByEmail(email);
+    if (!user || user.user_type !== 'merchant') return undefined;
+    const scoped = (user.metadata as { merchant_id?: unknown } | null)?.merchant_id;
+    return scoped === merchantId ? user : undefined;
   }
 
   /**

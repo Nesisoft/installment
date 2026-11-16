@@ -33,6 +33,30 @@ export const changePasswordSchema = z
   });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
+/**
+ * A seller who has forgotten their password proves the phone the shop was
+ * opened with, then chooses a new one. Three steps, like opening a shop: the
+ * code is burned for a short-lived ticket, and the ticket sets the password.
+ */
+export const merchantPasswordResetStartSchema = z.object({ phone: ghPhoneNumber });
+export type MerchantPasswordResetStartInput = z.infer<typeof merchantPasswordResetStartSchema>;
+
+export const merchantPasswordResetVerifyCodeSchema = z.object({
+  phone: ghPhoneNumber,
+  code: z.string().regex(/^\d{4,8}$/, 'OTP must be 4–8 digits'),
+});
+export type MerchantPasswordResetVerifyCodeInput = z.infer<
+  typeof merchantPasswordResetVerifyCodeSchema
+>;
+
+export const merchantPasswordResetCompleteSchema = z.object({
+  resetToken: z.string().min(1),
+  new_password: z.string().min(8).max(200),
+});
+export type MerchantPasswordResetCompleteInput = z.infer<
+  typeof merchantPasswordResetCompleteSchema
+>;
+
 export const otpStartSchema = z.object({
   phone: ghPhoneNumber,
 });
