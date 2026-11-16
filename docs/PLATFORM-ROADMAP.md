@@ -190,7 +190,8 @@ assumes a collection channel that is not built yet.
 performance, catalogue and sizes, instalment plans, shop setup, listing and editing, returns and
 restock. The app also opens a shop from scratch (signup, then KYC) and exports monthly and
 per-plan statements, and it is the seller website too, with a desktop layout; that retired the
-separate `apps/merchant-web` portal. A payout account change needs a code sent to the seller's
+separate `apps/merchant-web` portal. A seller who forgets their password resets it with a code
+to the shop's phone, and can change it from the Shop tab. A payout account change needs a code sent to the seller's
 phone and waits 24 hours, with a notice (#127, #130).
 
 ### Phase 16 — Admin Console (Web) + Marketplace Ops & Launch — **in progress**
